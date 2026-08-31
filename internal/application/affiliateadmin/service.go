@@ -18,7 +18,7 @@ var (
 	ErrInvalidChange = errors.New("Affiliate operator change is invalid")
 	ErrNotFound      = errors.New("Affiliate enrollment was not found")
 	ErrStateConflict = errors.New("Affiliate enrollment state changed")
-	ErrStrongAuth    = errors.New("recent Affiliate passkey confirmation is required")
+	ErrStrongAuth    = errors.New("recent Affiliate security confirmation is required")
 	validEnvironment = regexp.MustCompile(`^[a-z][a-z0-9-]{0,99}$`)
 )
 
@@ -224,7 +224,7 @@ func (s *Service) PublishSettlementPolicy(ctx context.Context, expectedVersion, 
 
 // ReserveSupportCheck atomically removes an operator-selected amount from the
 // Affiliate's available balance. The store re-verifies that the supplied
-// session belongs to this Affiliate and contains recent passkey evidence.
+// session belongs to this Affiliate and contains recent strong-auth evidence.
 // This records accounting authority only; it does not select or issue a check.
 func (s *Service) ReserveSupportCheck(ctx context.Context, affiliateID ids.AffiliateID, sessionID ids.SessionID, amountMinor int64, actor, reason, environment string) (CheckReservation, error) {
 	change, err := s.change(actor, reason, environment)

@@ -162,7 +162,7 @@ func (s *Server) accountExportRequest(w http.ResponseWriter, r *http.Request, mu
 func (s *Server) writeAccountExportError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, strongauth.ErrRequired):
-		writeProblem(w, http.StatusForbidden, "strong_authentication_required", "recent passkey authentication is required")
+		writeProblem(w, http.StatusForbidden, "strong_authentication_required", "recent security confirmation is required")
 	case errors.Is(err, accountexport.ErrNotFound):
 		writeProblem(w, http.StatusNotFound, "account_export_not_found", "Account export request was not found")
 	case errors.Is(err, accountexport.ErrStateConflict):

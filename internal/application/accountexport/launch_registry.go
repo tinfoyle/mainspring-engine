@@ -40,6 +40,7 @@ func LaunchRegistry() (*Registry, error) {
 	exclude("public", Operational, "Erasure workflow evidence is retained under the erasure policy and is not customer content.", "account_erasure_operator_events", "account_erasure_requests")
 	exclude("public", Operational, "Export request workflow and audit rows describe artifact processing; the artifact contains the portable customer projections.", "account_export_events", "account_export_requests")
 	exclude("public", Operational, "Movement coordination state is transient infrastructure metadata, not portable customer content.", "account_moves")
+	exclude("public", Operational, "Cell provisioning leases, retries, and placement-generation checkpoints are transient infrastructure metadata, not portable customer content.", "account_cell_provision_queue")
 	include("public", "billing", "account_commissioning_purchases", "account_subscription_lifecycles", "ai_token_grants", "ai_token_ledger_entries", "billing_checkout_attempts", "billing_profiles", "subscriptions")
 	exclude("public", Operational, "Subscription lifecycle events are immutable controller workflow evidence; the customer-safe lifecycle projection carries the current and terminal dates.", "account_subscription_lifecycle_events")
 	exclude("public", Operational, "Subscription lifecycle notices and termination jobs contain internal delivery, provider, retry and lease state rather than portable customer content.", "account_subscription_lifecycle_notices", "account_subscription_termination_jobs")

@@ -1,5 +1,5 @@
 import type {
-  ActiveSessions, ContactChangeAccepted, CurrentIdentity, MCPGrants, PasskeyCredential, Passkeys,
+  ActiveSessions, ContactChangeAccepted, CurrentIdentity, MFAChallenge, MFAKind, MFAMethod, MFAMethods, MCPGrants, PasskeyCredential, Passkeys,
   RecoveryCodeRotation, RecoveryCodeStatus, SecurityEvents, SecurityPosture, SupportAccessHistory, WebAuthnAssertionCredential,
   WebAuthnCeremony, WebAuthnCreationCredential
 } from "./generated/api-types";
@@ -7,6 +7,7 @@ import { requestJSON } from "./client";
 
 export const getCurrentIdentity = (): Promise<CurrentIdentity> => requestJSON("/api/v1/identity");
 export const getSecurityPosture = (): Promise<SecurityPosture> => requestJSON("/api/v1/security-posture");
+export const getMFAMethods = (): Promise<MFAMethods> => requestJSON("/api/v1/mfa-methods");
 export const getPasskeys = (): Promise<Passkeys> => requestJSON("/api/v1/passkeys");
 export const getRecoveryCodeStatus = (): Promise<RecoveryCodeStatus> => requestJSON("/api/v1/recovery-codes");
 export const getActiveSessions = (): Promise<ActiveSessions> => requestJSON("/api/v1/sessions");
@@ -17,6 +18,18 @@ export const logout = (): Promise<void> => requestJSON("/api/v1/session", { meth
 
 export function confirmPassword(password: string): Promise<void> {
   return requestJSON("/api/v1/session/reauthenticate", { method: "POST", body: JSON.stringify({ password }) });
+}
+export function beginMFAEnrollment(kind: MFAKind, phone?: string): Promise<MFAChallenge> {
+  return requestJSON("/api/v1/mfa-enrollments", { method: "POST", body: JSON.stringify({ kind, ...(phone ? { phone } : {}) }) });
+}
+export function completeMFAEnrollment(challengeID: string, code: string): Promise<MFAMethod> {
+  return requestJSON(`/api/v1/mfa-enrollments/${encodeURIComponent(challengeID)}/complete`, { method: "POST", body: JSON.stringify({ code }) });
+}
+export function beginMFAReauthentication(methodID: string): Promise<MFAChallenge> {
+  return requestJSON("/api/v1/mfa-reauthentications", { method: "POST", body: JSON.stringify({ method_id: methodID }) });
+}
+export function completeMFAReauthentication(challengeID: string, code: string): Promise<void> {
+  return requestJSON(`/api/v1/mfa-reauthentications/${encodeURIComponent(challengeID)}/complete`, { method: "POST", body: JSON.stringify({ code }) });
 }
 export function beginPasskeyRegistration(): Promise<WebAuthnCeremony> { return requestJSON("/api/v1/passkey-registrations", { method: "POST" }); }
 export function completePasskeyRegistration(ceremonyID: string, name: string, credential: WebAuthnCreationCredential): Promise<PasskeyCredential> {

@@ -21,8 +21,9 @@ func (r *SecurityPostureRepository) Status(ctx context.Context, userID ids.UserI
 		SELECT
 			(SELECT count(*) FROM passkey_credentials WHERE user_id=$1),
 			EXISTS (SELECT 1 FROM user_recovery_code_sets WHERE user_id=$1),
-			(SELECT count(*) FROM user_recovery_codes WHERE user_id=$1 AND used_at IS NULL)`, userID).
-		Scan(&result.PasskeyCount, &result.RecoveryCodesConfigured, &result.RecoveryCodesRemaining)
+			(SELECT count(*) FROM user_recovery_codes WHERE user_id=$1 AND used_at IS NULL),
+			(SELECT count(*) FROM user_mfa_methods WHERE user_id=$1)`, userID).
+		Scan(&result.PasskeyCount, &result.RecoveryCodesConfigured, &result.RecoveryCodesRemaining, &result.MFAMethodCount)
 	return result, err
 }
 

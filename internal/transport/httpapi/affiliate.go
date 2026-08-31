@@ -113,7 +113,7 @@ func (s *Server) enrollAffiliate(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, affiliateprogram.ErrSettlementAccountDenied):
 		writeProblem(w, http.StatusForbidden, "affiliate_settlement_account_denied", "the settlement Account must be owned by the Affiliate")
 	case errors.Is(err, strongauth.ErrRequired):
-		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before accepting Affiliate terms")
+		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm your identity before accepting Affiliate terms")
 	case errors.Is(err, affiliateprogram.ErrEnrollmentRestricted):
 		writeProblem(w, http.StatusGone, "affiliate_retention_restricted", "Affiliate records are restricted after verified erasure")
 	default:
@@ -152,7 +152,7 @@ func (s *Server) replaceAffiliateCode(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, affiliateprogram.ErrCodeUnavailable):
 		writeProblem(w, http.StatusServiceUnavailable, "affiliate_code_unavailable", "a new Affiliate code could not be reserved; try again")
 	case errors.Is(err, strongauth.ErrRequired):
-		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before replacing the Affiliate code")
+		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm your identity before replacing the Affiliate code")
 	case errors.Is(err, affiliates.ErrInvalidEnrollment):
 		writeProblem(w, http.StatusBadRequest, "invalid_affiliate_code_replacement", "the Affiliate code replacement request is invalid")
 	default:
@@ -195,7 +195,7 @@ func (s *Server) getAffiliateDataExport(w http.ResponseWriter, r *http.Request) 
 		w.Header().Set("Content-Disposition", `attachment; filename="spyglass-affiliate-data.json"`)
 		writeJSON(w, http.StatusOK, value)
 	case errors.Is(err, strongauth.ErrRequired):
-		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before exporting Affiliate data")
+		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm your identity before exporting Affiliate data")
 	case errors.Is(err, affiliateprogram.ErrEnrollmentRestricted):
 		writeProblem(w, http.StatusGone, "affiliate_retention_restricted", "Affiliate records are restricted after verified erasure")
 	default:

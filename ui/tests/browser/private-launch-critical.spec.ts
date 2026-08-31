@@ -378,6 +378,7 @@ async function installSyntheticAPI(page: Page): Promise<SyntheticAPIState> {
     if (path === "/api/v1/security-posture") {
       await fulfillJSON(route, {
         passkey_count: 1,
+        mfa_method_count: 0,
         recovery_codes_configured: state.securityReady,
         recovery_codes_remaining: state.securityReady ? 10 : 0,
         owner_ready: state.securityReady
@@ -392,6 +393,10 @@ async function installSyntheticAPI(page: Page): Promise<SyntheticAPIState> {
         backup_eligible: true,
         backed_up: true
       }] });
+      return;
+    }
+    if (path === "/api/v1/mfa-methods") {
+      await fulfillJSON(route, { methods: [] });
       return;
     }
     if (path === "/api/v1/recovery-codes") {
@@ -428,6 +433,10 @@ async function installSyntheticAPI(page: Page): Promise<SyntheticAPIState> {
     }
     if (path === "/api/v1/mcp-grants") {
       await fulfillJSON(route, { grants: [] });
+      return;
+    }
+    if (path === `/api/v1/accounts/${accountID}/support-access-history`) {
+      await fulfillJSON(route, { events: [] });
       return;
     }
     if (path.startsWith(`/api/v1/accounts/${accountID}/attention/`)) {
@@ -930,6 +939,8 @@ test("mobile navigation traps and restores focus", async ({ page }, testInfo) =>
   await expect(dialog).toHaveAttribute("aria-modal", "true");
   await expect(dialog.getByRole("button", { name: "Close navigation", exact: true })).toBeFocused();
   await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Shift+Tab");
+  await expect(dialog.getByRole("button", { name: /Sign out/ })).toBeFocused();
   await page.keyboard.press("Shift+Tab");
   await expect(dialog.locator("#account")).toBeFocused();
   await page.keyboard.press("Escape");

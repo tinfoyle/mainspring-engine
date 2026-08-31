@@ -34,6 +34,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/mcpauth"
+	"github.com/tinfoyle/spyglass-engine/internal/application/multifactor"
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/oidcauth"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
@@ -211,6 +212,16 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		return nil, err
 	}
 	securityPosture, err := securityposture.NewService(postgres.NewSecurityPostureRepository(pool))
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	multifactorCipher, err := multifactor.NewCipher(config.NotificationEncryptionKey)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	multifactorService, err := multifactor.NewService(postgres.NewMultifactorRepository(pool), sender, sessionService, multifactorCipher, ids.RandomGenerator{}, clock, config.Environment == "local" || config.Environment == "local-secure" || config.Environment == "development")
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -395,6 +406,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		httpapi.WithPasskeys(passkeyService),
 		httpapi.WithRecoveryCodes(recoveryCodeService),
 		httpapi.WithSecurityPosture(securityPosture),
+		httpapi.WithMultifactor(multifactorService),
 		httpapi.WithOperationsCustomerHistory(postgres.NewOperationsConsoleRepository(pool)),
 		httpapi.WithContactChanges(contactChangeService, nil, false),
 		httpapi.WithMCPGrants(mcpAuthorization),

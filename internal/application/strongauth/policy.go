@@ -13,13 +13,13 @@ import (
 
 const MaximumAge = 10 * time.Minute
 
-var ErrRequired = errors.New("recent user-verified cryptographic authentication is required")
+var ErrRequired = errors.New("recent multi-factor authentication is required")
 
-// Require rejects missing, cross-user, stale, password-only, and otherwise
-// unknown authentication evidence with the same public error.
+// Require accepts a recent passkey or verified email/SMS one-time code. It
+// rejects missing, cross-user, stale, password-only, and unknown evidence.
 func Require(session sessions.Session, actorUserID ids.UserID, now time.Time) error {
 	if actorUserID == "" || session.UserID == "" || session.UserID != actorUserID ||
-		!sessions.RecentlyReauthenticatedWithAssurance(session, now.UTC(), MaximumAge, sessions.AssuranceUserVerifiedCryptographic) {
+		!sessions.RecentlyStronglyReauthenticated(session, now.UTC(), MaximumAge) {
 		return ErrRequired
 	}
 	return nil

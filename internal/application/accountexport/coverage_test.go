@@ -17,6 +17,7 @@ func TestLaunchRegistryClassifiesPortableAndNonPortableState(t *testing.T) {
 		{schema: "public", table: "accounts", section: "account", disposition: Included},
 		{schema: "public", table: "billing_event_inbox", disposition: Secret},
 		{schema: "public", table: "billing_reconciliation_queue", disposition: Operational},
+		{schema: "public", table: "account_cell_provision_queue", disposition: Operational},
 		{schema: "spyglass", table: "integration_credentials", disposition: Secret},
 		{schema: "spyglass", table: "knowledge_document_chunks", disposition: Derived},
 		{schema: "spyglass", table: "work_items", section: "work", disposition: Included},

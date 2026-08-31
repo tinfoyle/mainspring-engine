@@ -10,12 +10,17 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
-func TestRequireAcceptsOnlyRecentPasskeyEvidenceForTheActor(t *testing.T) {
+func TestRequireAcceptsRecentStrongEvidenceForTheActor(t *testing.T) {
 	now := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
 	actor := ids.UserID("11111111-1111-4111-8111-111111111111")
 	base := sessions.Session{UserID: actor, ReauthenticatedAt: now.Add(-strongauth.MaximumAge), ReauthenticationMethod: sessions.AuthenticationMethodPasskey}
 	if err := strongauth.Require(base, actor, now); err != nil {
 		t.Fatalf("recent passkey evidence was rejected: %v", err)
+	}
+	for _, method := range []sessions.AuthenticationMethod{sessions.AuthenticationMethodSMSOTP, sessions.AuthenticationMethodEmailOTP} {
+		if err := strongauth.Require(sessions.Session{UserID: actor, ReauthenticatedAt: now, ReauthenticationMethod: method}, actor, now); err != nil {
+			t.Fatalf("recent %s evidence was rejected: %v", method, err)
+		}
 	}
 
 	cases := map[string]sessions.Session{

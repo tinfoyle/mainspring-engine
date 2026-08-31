@@ -727,9 +727,9 @@ export interface AttentionReasonRequest {
   readonly "reason": string;
 }
 
-export type AuthenticationAssurance = "single_factor" | "user_verified_cryptographic";
+export type AuthenticationAssurance = "single_factor" | "multi_factor" | "user_verified_cryptographic";
 
-export type AuthenticationMethod = "password" | "passkey";
+export type AuthenticationMethod = "password" | "passkey" | "oidc" | "sms_otp" | "email_otp";
 
 export interface BaselineAnswer {
   readonly "answered_at": string;
@@ -835,6 +835,15 @@ export type BaselineState = "interview" | "inventory" | "gap_review" | "plan_app
 
 export interface BeginContactChangeRequest {
   readonly "new_email": string;
+}
+
+export interface BeginMFAEnrollmentRequest {
+  readonly "kind": MFAKind;
+  readonly "phone"?: string;
+}
+
+export interface BeginMFAReauthenticationRequest {
+  readonly "method_id": string;
 }
 
 export interface BeginRecoveryRequest {
@@ -956,6 +965,10 @@ export interface CommissioningOffer {
 
 export interface CompleteContactChangeRequest {
   readonly "token": string;
+}
+
+export interface CompleteMFAChallengeRequest {
+  readonly "code": string;
 }
 
 export interface CompletePasskeyLoginRequest {
@@ -1977,6 +1990,28 @@ export interface MCPGrants {
   readonly "grants": ReadonlyArray<MCPGrant>;
 }
 
+export interface MFAChallenge {
+  readonly "challenge_id": string;
+  readonly "destination_hint": string;
+  readonly "development_code"?: string;
+  readonly "expires_at": string;
+  readonly "kind": MFAKind;
+}
+
+export type MFAKind = "sms" | "email";
+
+export interface MFAMethod {
+  readonly "created_at": string;
+  readonly "destination_hint": string;
+  readonly "id": string;
+  readonly "kind": MFAKind;
+  readonly "last_used_at"?: string;
+}
+
+export interface MFAMethods {
+  readonly "methods": ReadonlyArray<MFAMethod>;
+}
+
 export interface MarketingActor {
   readonly "id": string;
   readonly "kind": "user" | "workload";
@@ -2780,13 +2815,14 @@ export interface SecurityEvent {
   readonly "type": SecurityEventType;
 }
 
-export type SecurityEventType = "session_created" | "session_reauthenticated" | "session_revoked" | "sessions_revoked" | "credential_recovered" | "passkey_added" | "passkey_removed" | "passkey_renamed" | "passkey_compromised" | "passkey_authenticated" | "passkey_reauthenticated" | "passkey_clone_warning" | "recovery_codes_rotated" | "recovery_code_consumed" | "primary_email_change_requested" | "primary_email_changed";
+export type SecurityEventType = "session_created" | "session_reauthenticated" | "session_revoked" | "sessions_revoked" | "credential_recovered" | "passkey_added" | "passkey_removed" | "passkey_renamed" | "passkey_compromised" | "passkey_authenticated" | "passkey_reauthenticated" | "passkey_clone_warning" | "recovery_codes_rotated" | "recovery_code_consumed" | "primary_email_change_requested" | "primary_email_changed" | "mfa_method_added" | "mfa_reauthenticated";
 
 export interface SecurityEvents {
   readonly "events": ReadonlyArray<SecurityEvent>;
 }
 
 export interface SecurityPosture {
+  readonly "mfa_method_count": number;
   readonly "owner_ready": boolean;
   readonly "passkey_count": number;
   readonly "recovery_codes_configured": boolean;
@@ -3145,6 +3181,8 @@ export interface ApiSchemas {
   readonly BaselineSourceKind: BaselineSourceKind;
   readonly BaselineState: BaselineState;
   readonly BeginContactChangeRequest: BeginContactChangeRequest;
+  readonly BeginMFAEnrollmentRequest: BeginMFAEnrollmentRequest;
+  readonly BeginMFAReauthenticationRequest: BeginMFAReauthenticationRequest;
   readonly BeginRecoveryRequest: BeginRecoveryRequest;
   readonly BeginRegistrationRequest: BeginRegistrationRequest;
   readonly BillingStatus: BillingStatus;
@@ -3164,6 +3202,7 @@ export interface ApiSchemas {
   readonly CloseFinancePeriodRequest: CloseFinancePeriodRequest;
   readonly CommissioningOffer: CommissioningOffer;
   readonly CompleteContactChangeRequest: CompleteContactChangeRequest;
+  readonly CompleteMFAChallengeRequest: CompleteMFAChallengeRequest;
   readonly CompletePasskeyLoginRequest: CompletePasskeyLoginRequest;
   readonly CompletePasskeyReauthenticationRequest: CompletePasskeyReauthenticationRequest;
   readonly CompletePasskeyRegistrationRequest: CompletePasskeyRegistrationRequest;
@@ -3311,6 +3350,10 @@ export interface ApiSchemas {
   readonly LoginSession: LoginSession;
   readonly MCPGrant: MCPGrant;
   readonly MCPGrants: MCPGrants;
+  readonly MFAChallenge: MFAChallenge;
+  readonly MFAKind: MFAKind;
+  readonly MFAMethod: MFAMethod;
+  readonly MFAMethods: MFAMethods;
   readonly MarketingActor: MarketingActor;
   readonly MarketingAssetKind: MarketingAssetKind;
   readonly MarketingAssetRevision: MarketingAssetRevision;

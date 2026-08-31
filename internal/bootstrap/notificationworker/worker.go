@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/smswebhook"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/smtp"
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
@@ -19,6 +20,7 @@ import (
 
 type Config struct {
 	DatabaseURL, SMTPAddress, SMTPServerName, SMTPUsername, SMTPPassword, SMTPFromAddress, SMTPFromName, AppOrigin string
+	Environment, SMSGatewayURL, SMSGatewayBearerToken, SMSFrom                                                     string
 	SMTPRootCAFile                                                                                                 string
 	NotificationEncryptionKey                                                                                      []byte
 	MaxDatabaseConns                                                                                               int32
@@ -71,7 +73,17 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 		pool.Close()
 		return nil, err
 	}
-	delivery, err := smtp.New(smtp.Config{Address: config.SMTPAddress, ServerName: config.SMTPServerName, Username: config.SMTPUsername, Password: config.SMTPPassword, FromAddress: config.SMTPFromAddress, FromName: config.SMTPFromName, AppOrigin: config.AppOrigin, RootCAFile: config.SMTPRootCAFile})
+	var smsDelivery *smswebhook.Sender
+	if config.Environment == "local" || config.Environment == "local-secure" || config.Environment == "development" {
+		smsDelivery, err = smswebhook.New(smswebhook.Config{DevelopmentDiscard: true})
+	} else {
+		smsDelivery, err = smswebhook.New(smswebhook.Config{URL: config.SMSGatewayURL, BearerToken: config.SMSGatewayBearerToken, From: config.SMSFrom})
+	}
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	delivery, err := smtp.New(smtp.Config{Address: config.SMTPAddress, ServerName: config.SMTPServerName, Username: config.SMTPUsername, Password: config.SMTPPassword, FromAddress: config.SMTPFromAddress, FromName: config.SMTPFromName, AppOrigin: config.AppOrigin, RootCAFile: config.SMTPRootCAFile, SMS: smsDelivery})
 	if err != nil {
 		pool.Close()
 		return nil, err

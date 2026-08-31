@@ -39,6 +39,8 @@ const (
 	AuthenticationMethodPassword AuthenticationMethod = "password"
 	AuthenticationMethodPasskey  AuthenticationMethod = "passkey"
 	AuthenticationMethodOIDC     AuthenticationMethod = "oidc"
+	AuthenticationMethodSMSOTP   AuthenticationMethod = "sms_otp"
+	AuthenticationMethodEmailOTP AuthenticationMethod = "email_otp"
 )
 
 type AuthenticationAssurance string
@@ -47,10 +49,11 @@ const (
 	AssuranceUnknown                   AuthenticationAssurance = "unknown"
 	AssuranceSingleFactor              AuthenticationAssurance = "single_factor"
 	AssuranceUserVerifiedCryptographic AuthenticationAssurance = "user_verified_cryptographic"
+	AssuranceMultiFactor               AuthenticationAssurance = "multi_factor"
 )
 
 func (m AuthenticationMethod) Valid() bool {
-	return m == AuthenticationMethodPassword || m == AuthenticationMethodPasskey || m == AuthenticationMethodOIDC
+	return m == AuthenticationMethodPassword || m == AuthenticationMethodPasskey || m == AuthenticationMethodOIDC || m == AuthenticationMethodSMSOTP || m == AuthenticationMethodEmailOTP
 }
 
 func (m AuthenticationMethod) Assurance() AuthenticationAssurance {
@@ -59,6 +62,8 @@ func (m AuthenticationMethod) Assurance() AuthenticationAssurance {
 		return AssuranceSingleFactor
 	case AuthenticationMethodPasskey:
 		return AssuranceUserVerifiedCryptographic
+	case AuthenticationMethodSMSOTP, AuthenticationMethodEmailOTP:
+		return AssuranceMultiFactor
 	default:
 		return AssuranceUnknown
 	}
@@ -95,6 +100,8 @@ const (
 	EventRecoveryCodeConsumed        SecurityEventType = "recovery_code_consumed"
 	EventPrimaryEmailChangeRequested SecurityEventType = "primary_email_change_requested"
 	EventPrimaryEmailChanged         SecurityEventType = "primary_email_changed"
+	EventMFAMethodAdded              SecurityEventType = "mfa_method_added"
+	EventMFAReauthenticated          SecurityEventType = "mfa_reauthenticated"
 )
 
 type SecurityEvent struct {
@@ -235,6 +242,14 @@ func (s *Service) MarkReauthenticatedWithMethod(ctx context.Context, userID ids.
 
 func RecentlyReauthenticatedWithAssurance(value Session, now time.Time, maximumAge time.Duration, assurance AuthenticationAssurance) bool {
 	return assurance != AssuranceUnknown && RecentlyReauthenticated(value, now, maximumAge) && value.ReauthenticationMethod.Assurance() == assurance
+}
+
+func RecentlyStronglyReauthenticated(value Session, now time.Time, maximumAge time.Duration) bool {
+	if !RecentlyReauthenticated(value, now, maximumAge) {
+		return false
+	}
+	assurance := value.ReauthenticationMethod.Assurance()
+	return assurance == AssuranceUserVerifiedCryptographic || assurance == AssuranceMultiFactor
 }
 
 func (s *Service) RecentlyReauthenticatedWithAssurance(value Session, maximumAge time.Duration, assurance AuthenticationAssurance) bool {

@@ -16,6 +16,7 @@ type State struct {
 	PasskeyCount            int  `json:"passkey_count"`
 	RecoveryCodesConfigured bool `json:"recovery_codes_configured"`
 	RecoveryCodesRemaining  int  `json:"recovery_codes_remaining"`
+	MFAMethodCount          int  `json:"mfa_method_count"`
 	OwnerReady              bool `json:"owner_ready"`
 }
 
@@ -40,10 +41,10 @@ func (s *Service) Status(ctx context.Context, userID ids.UserID) (State, error) 
 	if err != nil {
 		return State{}, err
 	}
-	if state.PasskeyCount < 0 || state.RecoveryCodesRemaining < 0 || (!state.RecoveryCodesConfigured && state.RecoveryCodesRemaining != 0) {
+	if state.PasskeyCount < 0 || state.RecoveryCodesRemaining < 0 || state.MFAMethodCount < 0 || (!state.RecoveryCodesConfigured && state.RecoveryCodesRemaining != 0) {
 		return State{}, ErrInvalidRequest
 	}
-	state.OwnerReady = state.PasskeyCount > 0 && state.RecoveryCodesConfigured && state.RecoveryCodesRemaining > 0
+	state.OwnerReady = state.MFAMethodCount > 0 || state.PasskeyCount > 0 && state.RecoveryCodesConfigured && state.RecoveryCodesRemaining > 0
 	return state, nil
 }
 

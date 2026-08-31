@@ -21,7 +21,7 @@ beforeEach(() => {
   fetcher.mockReset().mockResolvedValue(new Response(JSON.stringify({ accounts: [] }), { status: 200 }));
   analytics.getPrivacyConsent.mockReset().mockResolvedValue({ decided: false, analytics: false, marketing: false, renewal_required: false });
   analytics.emitAnalytics.mockReset().mockResolvedValue(false);
-  analytics.getSecurityPosture.mockReset().mockResolvedValue({ passkey_count: 0, recovery_codes_configured: false, recovery_codes_remaining: 0, owner_ready: false });
+  analytics.getSecurityPosture.mockReset().mockResolvedValue({ passkey_count: 0, recovery_codes_configured: false, recovery_codes_remaining: 0, mfa_method_count: 0, owner_ready: false });
   analytics.getPasskeys.mockReset().mockResolvedValue({ passkeys: [] });
   analytics.getRecoveryCodeStatus.mockReset().mockResolvedValue({ configured: false, remaining: 0 });
   analytics.logout.mockReset().mockResolvedValue(undefined);
@@ -136,7 +136,7 @@ describe("application shell", () => {
     await flushPromises();
     expect(router.currentRoute.value.path).toBe("/app/setup");
     expect(router.currentRoute.value.query.return_to).toBe("/app/your-turn");
-    expect(wrapper.get("h1").text()).toBe("Add a passkey");
+    expect(wrapper.get("h1").text()).toBe("How would you like to set up two-factor authentication?");
     expect(wrapper.find("nav").exists()).toBe(false);
     expect(wrapper.get(".app-shell").classes()).toContain("app-shell--setup");
     wrapper.unmount();

@@ -24,6 +24,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
+	"github.com/tinfoyle/spyglass-engine/internal/application/multifactor"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/subscriptionlifecycle"
@@ -34,6 +35,7 @@ type Config struct {
 	FromAddress, FromName, AppOrigin        string
 	RootCAFile                              string
 	Timeout                                 time.Duration
+	SMS                                     multifactor.Sender
 }
 
 type Sender struct {
@@ -41,6 +43,7 @@ type Sender struct {
 	from   mail.Address
 	origin string
 	roots  *x509.CertPool
+	sms    multifactor.Sender
 }
 
 func New(config Config) (*Sender, error) {
@@ -81,7 +84,7 @@ func New(config Config) (*Sender, error) {
 			return nil, errors.New("SMTP root CA file contains no certificates")
 		}
 	}
-	return &Sender{config: config, from: mail.Address{Name: config.FromName, Address: parsedAddress.Address}, origin: strings.TrimSuffix(config.AppOrigin, "/"), roots: roots}, nil
+	return &Sender{config: config, from: mail.Address{Name: config.FromName, Address: parsedAddress.Address}, origin: strings.TrimSuffix(config.AppOrigin, "/"), roots: roots, sms: config.SMS}, nil
 }
 
 func (s *Sender) SendVerification(ctx context.Context, message registration.VerificationMessage) error {
@@ -120,6 +123,22 @@ func (s *Sender) SendRecovery(ctx context.Context, message recovery.Message) err
 	plain := fmt.Sprintf("Hello %s,\r\n\r\nA password reset was requested for your Infinite Ocean identity. Set a new password here:\r\n%s\r\n\r\nThis single-use link expires at %s. If you did not request it, no change has been made.\r\n", message.DisplayName, link, message.ExpiresAt.UTC().Format(time.RFC1123))
 	htmlBody := fmt.Sprintf("<p>Hello %s,</p><p>A password reset was requested for your Infinite Ocean identity.</p><p><a href=\"%s\">Set a new password</a></p><p>This single-use link expires at %s. If you did not request it, no change has been made.</p>", html.EscapeString(message.DisplayName), html.EscapeString(link), html.EscapeString(message.ExpiresAt.UTC().Format(time.RFC1123)))
 	return s.send(ctx, message.Email, subject, plain, htmlBody)
+}
+
+func (s *Sender) SendMultifactor(ctx context.Context, message multifactor.Message) error {
+	if message.Kind == multifactor.KindSMS {
+		if s.sms == nil {
+			return errors.New("SMS delivery is not configured")
+		}
+		return s.sms.SendMultifactor(ctx, message)
+	}
+	if message.Kind != multifactor.KindEmail {
+		return errors.New("multifactor notification kind is invalid")
+	}
+	subject := "Your Infinite Ocean security code"
+	plain := fmt.Sprintf("Hello %s,\r\n\r\nYour Infinite Ocean security code is %s.\r\n\r\nIt expires at %s. If you did not request this code, you can ignore this message.\r\n", message.DisplayName, message.Code, message.ExpiresAt.UTC().Format(time.RFC1123))
+	htmlBody := fmt.Sprintf("<p>Hello %s,</p><p>Your Infinite Ocean security code is:</p><p style=\"font-size:24px;font-weight:bold;letter-spacing:4px\">%s</p><p>It expires at %s. If you did not request this code, you can ignore this message.</p>", html.EscapeString(message.DisplayName), html.EscapeString(message.Code), html.EscapeString(message.ExpiresAt.UTC().Format(time.RFC1123)))
+	return s.send(ctx, message.Destination, subject, plain, htmlBody)
 }
 
 func recoveryLink(origin string, message recovery.Message) string {

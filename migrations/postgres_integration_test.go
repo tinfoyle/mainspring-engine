@@ -36,6 +36,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/entitlementrollout"
 	"github.com/tinfoyle/spyglass-engine/internal/application/identitymaintenance"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
+	"github.com/tinfoyle/spyglass-engine/internal/application/multifactor"
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
@@ -1035,7 +1036,7 @@ func TestPostgresMigrationsAndAccountIsolation(t *testing.T) {
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM cells WHERE route_origin='http://app-api.spyglass-reference.svc.cluster.local'`).Scan(&routedCellCount); err != nil {
 		t.Fatal(err)
 	}
-	if ledgerCount != 145 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
+	if ledgerCount != 149 || catalogCount != 1 || cellCount != 1 || routedCellCount != 1 {
 		t.Fatalf("unexpected migrated state: ledger=%d published_catalogs=%d active_cells=%d routed_cells=%d", ledgerCount, catalogCount, cellCount, routedCellCount)
 	}
 	testAccountIsolation(t, ctx, owner, databaseURL)
@@ -1889,6 +1890,7 @@ type captureNotifications struct {
 	recovery       recovery.Message
 	ownership      accountmembers.OwnershipTransferNotice
 	contactChanges []contactchange.Message
+	multifactor    multifactor.Message
 }
 
 func (sender *captureNotifications) SendVerification(_ context.Context, message registration.VerificationMessage) error {
@@ -1909,6 +1911,10 @@ func (sender *captureNotifications) SendOwnershipTransfer(_ context.Context, mes
 }
 func (sender *captureNotifications) SendContactChange(_ context.Context, message contactchange.Message) error {
 	sender.contactChanges = append(sender.contactChanges, message)
+	return nil
+}
+func (sender *captureNotifications) SendMultifactor(_ context.Context, message multifactor.Message) error {
+	sender.multifactor = message
 	return nil
 }
 

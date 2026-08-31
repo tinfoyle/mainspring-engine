@@ -15,6 +15,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
+	"github.com/tinfoyle/spyglass-engine/internal/application/multifactor"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/subscriptionlifecycle"
@@ -32,6 +33,8 @@ const (
 	KindOwnership             Kind = "ownership_transfer"
 	KindContactChange         Kind = "contact_change"
 	KindSubscriptionLifecycle Kind = "subscription_lifecycle"
+	KindMFAEmail              Kind = "mfa_email"
+	KindMFASMS                Kind = "mfa_sms"
 )
 
 var ErrDeliveryFailed = errors.New("notification delivery failed")
@@ -100,6 +103,7 @@ func additionalData(id string, kind Kind) []byte { return []byte(id + "/" + stri
 
 type payload struct {
 	Email, DisplayName, Token, OfferCode, ReturnTo, AccountName, Role, CounterpartDisplayName, RecipientRole string
+	Destination, Code                                                                                        string
 	Action, OldEmail, NewEmail                                                                               string
 	ExpiresAt, OccurredAt                                                                                    time.Time
 	NoticeKind                                                                                               string
@@ -133,6 +137,16 @@ func (s *QueuedSender) SendRecovery(ctx context.Context, message recovery.Messag
 		return s.enqueue(ctx, "", KindDiscard, payload{Token: message.Token, ExpiresAt: message.ExpiresAt})
 	}
 	return s.enqueue(ctx, "", KindRecovery, payload{Email: message.Email, DisplayName: message.DisplayName, Token: message.Token, ReturnTo: message.ReturnTo, ExpiresAt: message.ExpiresAt})
+}
+
+func (s *QueuedSender) SendMultifactor(ctx context.Context, message multifactor.Message) error {
+	kind := KindMFAEmail
+	if message.Kind == multifactor.KindSMS {
+		kind = KindMFASMS
+	} else if message.Kind != multifactor.KindEmail {
+		return errors.New("multifactor notification kind is invalid")
+	}
+	return s.enqueue(ctx, "", kind, payload{Destination: message.Destination, DisplayName: message.DisplayName, Code: message.Code, ExpiresAt: message.ExpiresAt})
 }
 
 func (s *QueuedSender) PrepareOwnershipTransfer(id string, message accountmembers.OwnershipTransferNotice) (accountmembers.PreparedNotification, error) {
@@ -190,6 +204,7 @@ type Delivery interface {
 	recovery.Sender
 	accountmembers.OwnershipTransferSender
 	contactchange.Sender
+	multifactor.Sender
 }
 
 type Processor struct {
@@ -230,6 +245,9 @@ func (p *Processor) ProcessOne(ctx context.Context) (bool, error) {
 	if entry.Kind == KindSubscriptionLifecycle && !validSubscriptionLifecyclePayload(value) {
 		return true, p.queue.MarkFailed(ctx, entry.ID, now, now, "payload_invalid", true)
 	}
+	if (entry.Kind == KindMFAEmail || entry.Kind == KindMFASMS) && !validMFAPayload(value) {
+		return true, p.queue.MarkFailed(ctx, entry.ID, now, now, "payload_invalid", true)
+	}
 	if entry.Kind == KindDiscard {
 		return true, p.queue.MarkDelivered(ctx, entry.ID, now)
 	}
@@ -239,7 +257,7 @@ func (p *Processor) ProcessOne(ctx context.Context) (bool, error) {
 	if entry.Kind == KindContactChange && contactchange.Action(value.Action) == contactchange.ActionVerifyNew && !value.ExpiresAt.After(now) {
 		return true, p.queue.MarkFailed(ctx, entry.ID, now, now, "expired", true)
 	}
-	err = p.deliver(ctx, entry.AccountID, entry.Kind, value)
+	err = p.deliver(ctx, entry.ID, entry.AccountID, entry.Kind, value)
 	if err == nil {
 		return true, p.queue.MarkDelivered(ctx, entry.ID, now)
 	}
@@ -253,7 +271,7 @@ func (p *Processor) ProcessOne(ctx context.Context) (bool, error) {
 	return true, ErrDeliveryFailed
 }
 
-func (p *Processor) deliver(ctx context.Context, accountID ids.AccountID, kind Kind, value payload) error {
+func (p *Processor) deliver(ctx context.Context, entryID string, accountID ids.AccountID, kind Kind, value payload) error {
 	switch kind {
 	case KindVerification:
 		return p.delivery.SendVerification(ctx, registration.VerificationMessage{Email: value.Email, DisplayName: value.DisplayName, Token: value.Token, OfferCode: value.OfferCode, ReturnTo: value.ReturnTo, ExpiresAt: value.ExpiresAt})
@@ -261,6 +279,10 @@ func (p *Processor) deliver(ctx context.Context, accountID ids.AccountID, kind K
 		return p.delivery.SendInvitation(ctx, invitations.Message{AccountID: accountID, Email: value.Email, Token: value.Token, AccountName: value.AccountName, Role: accounts.MembershipRole(value.Role), ExpiresAt: value.ExpiresAt})
 	case KindRecovery:
 		return p.delivery.SendRecovery(ctx, recovery.Message{Email: value.Email, DisplayName: value.DisplayName, Token: value.Token, ReturnTo: value.ReturnTo, ExpiresAt: value.ExpiresAt})
+	case KindMFAEmail:
+		return p.delivery.SendMultifactor(ctx, multifactor.Message{ID: entryID, Destination: value.Destination, DisplayName: value.DisplayName, Code: value.Code, Kind: multifactor.KindEmail, ExpiresAt: value.ExpiresAt})
+	case KindMFASMS:
+		return p.delivery.SendMultifactor(ctx, multifactor.Message{ID: entryID, Destination: value.Destination, DisplayName: value.DisplayName, Code: value.Code, Kind: multifactor.KindSMS, ExpiresAt: value.ExpiresAt})
 	case KindOwnership:
 		role := accountmembers.OwnershipNoticeRole(value.RecipientRole)
 		return p.delivery.SendOwnershipTransfer(ctx, accountmembers.OwnershipTransferNotice{AccountID: accountID, Email: value.Email, DisplayName: value.DisplayName, AccountName: value.AccountName, CounterpartDisplayName: value.CounterpartDisplayName, RecipientRole: role, OccurredAt: value.OccurredAt})
@@ -304,6 +326,18 @@ func validSubscriptionLifecyclePayload(value payload) bool {
 	validKind := kind == "payment_failed" || kind == "payment_restricted" || kind == "payment_day23" || kind == "payment_day29" ||
 		kind == "cancellation_scheduled" || kind == "cancellation_effective" || kind == "cancellation_day23" || kind == "cancellation_day29"
 	return validKind && value.Email != "" && value.DisplayName != "" && value.AccountName != "" && !value.DueAt.IsZero() && !value.DeleteAt.IsZero()
+}
+
+func validMFAPayload(value payload) bool {
+	if value.Destination == "" || value.DisplayName == "" || len(value.Code) != 6 || value.ExpiresAt.IsZero() {
+		return false
+	}
+	for _, current := range value.Code {
+		if current < '0' || current > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func retryDelay(attempt int) time.Duration {

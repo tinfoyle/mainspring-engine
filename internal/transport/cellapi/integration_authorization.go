@@ -195,7 +195,7 @@ func (s *Server) writeIntegrationAuthorizationError(w http.ResponseWriter, opera
 	case errors.Is(err, integrationauthorization.ErrProviderRejected), errors.Is(err, integrationauthorization.ErrScopeMismatch):
 		writeProblem(w, http.StatusUnprocessableEntity, authorizationErrorCode(err), "the provider did not grant the exact requested authorization")
 	case errors.Is(err, strongauth.ErrRequired):
-		writeProblem(w, http.StatusForbidden, "recent_passkey_required", "recent passkey verification is required")
+		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "recent security verification is required")
 	case errors.As(err, &denied):
 		writeProblem(w, http.StatusForbidden, string(denied.Code), "current Account access does not allow this authorization operation")
 	default:

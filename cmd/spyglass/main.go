@@ -1921,6 +1921,7 @@ func runNotificationWorker(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	environment := envOr("SPYGLASS_ENVIRONMENT", "stage")
 	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 5)
 	if err != nil {
 		return err
@@ -1931,7 +1932,7 @@ func runNotificationWorker(ctx context.Context, logger *slog.Logger) error {
 	}
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	worker, err := notificationworker.New(startup, notificationworker.Config{DatabaseURL: databaseURL, NotificationEncryptionKey: key, SMTPAddress: address, SMTPServerName: serverName, SMTPUsername: os.Getenv("SPYGLASS_SMTP_USERNAME"), SMTPPassword: os.Getenv("SPYGLASS_SMTP_PASSWORD"), SMTPFromAddress: fromAddress, SMTPFromName: envOr("SPYGLASS_SMTP_FROM_NAME", "Infinite Ocean"), SMTPRootCAFile: os.Getenv("SPYGLASS_SMTP_ROOT_CA_FILE"), AppOrigin: appOrigin, MaxDatabaseConns: maxConns, PollInterval: poll}, logger)
+	worker, err := notificationworker.New(startup, notificationworker.Config{DatabaseURL: databaseURL, NotificationEncryptionKey: key, SMTPAddress: address, SMTPServerName: serverName, SMTPUsername: os.Getenv("SPYGLASS_SMTP_USERNAME"), SMTPPassword: os.Getenv("SPYGLASS_SMTP_PASSWORD"), SMTPFromAddress: fromAddress, SMTPFromName: envOr("SPYGLASS_SMTP_FROM_NAME", "Infinite Ocean"), SMTPRootCAFile: os.Getenv("SPYGLASS_SMTP_ROOT_CA_FILE"), AppOrigin: appOrigin, Environment: environment, SMSGatewayURL: os.Getenv("SPYGLASS_SMS_GATEWAY_URL"), SMSGatewayBearerToken: os.Getenv("SPYGLASS_SMS_GATEWAY_BEARER_TOKEN"), SMSFrom: os.Getenv("SPYGLASS_SMS_FROM"), MaxDatabaseConns: maxConns, PollInterval: poll}, logger)
 	if err != nil {
 		return err
 	}

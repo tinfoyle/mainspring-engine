@@ -384,6 +384,8 @@ UI7 has not exited. Authenticated rendered route coverage, required phone/tablet
 
 Exit condition: the application is feature-complete locally and ready for the separate Stage/production release plan only after the remaining UI7 evidence above is complete and every launch flag, settlement policy and provider journey has its required approval and certificate.
 
+UI7 required-security-choice checkpoint (2026-08-30): first-login owner setup now begins with a plain three-way choice: passkey (recommended), text-message code, or email code (not recommended). SMS/email enrollment sends and verifies a six-digit, ten-minute, five-attempt code before owner readiness changes. Destinations and codes remain encrypted or one-way keyed at rest; code requests are durably bounded to five per User per hour. The selected code method can also provide the same recent session-bound confirmation used by privileged Account actions, so the choice is functional rather than cosmetic. Passkey recovery retains its separate one-time recovery-code path. Local Docker discards outbound SMS and exposes only its authenticated development code; Stage remains blocked on protected SMS-gateway configuration and provider receipt testing. Focused Go, contract, Vue type, 86-component, and cross-feature strong-auth browser checks pass locally; the full fresh-PostgreSQL and exact-artifact gates remain the final local certificate for this checkpoint.
+
 ## 7. Required test matrix
 
 At minimum, automated responsive coverage includes 320, 360, 390 and 412 CSS-pixel phone widths, a representative tablet width and desktop widths. Real-device certification covers current iOS Safari and Android Chrome in addition to desktop browsers.

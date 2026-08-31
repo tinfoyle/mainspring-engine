@@ -43,7 +43,7 @@ func (s *Server) submitPrivacyRightsRequest(w http.ResponseWriter, r *http.Reque
 	case err == nil:
 		writeJSON(w, http.StatusCreated, request)
 	case errors.Is(err, strongauth.ErrRequired):
-		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before submitting a privacy rights request")
+		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm your identity before submitting a privacy rights request")
 	case errors.Is(err, privacyrights.ErrAlreadyOpen):
 		writeProblem(w, http.StatusConflict, "privacy_rights_request_already_open", "an equivalent privacy rights request is already open")
 	case errors.Is(err, privacy.ErrInvalidRightsRequest):
@@ -65,7 +65,7 @@ func (s *Server) cancelPrivacyRightsRequest(w http.ResponseWriter, r *http.Reque
 	case err == nil:
 		writeJSON(w, http.StatusOK, request)
 	case errors.Is(err, strongauth.ErrRequired):
-		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before canceling a privacy rights request")
+		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm your identity before canceling a privacy rights request")
 	case errors.Is(err, privacyrights.ErrNotFound):
 		writeProblem(w, http.StatusNotFound, "privacy_rights_request_not_found", "the privacy rights request was not found")
 	case errors.Is(err, privacyrights.ErrNotCancelable):

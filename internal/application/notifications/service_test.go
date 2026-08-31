@@ -10,6 +10,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountmembers"
 	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
+	"github.com/tinfoyle/spyglass-engine/internal/application/multifactor"
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
@@ -54,6 +55,7 @@ type delivery struct {
 	ownership    accountmembers.OwnershipTransferNotice
 	contact      contactchange.Message
 	subscription subscriptionlifecycle.Message
+	multifactor  multifactor.Message
 	err          error
 	ownershipErr map[string]error
 }
@@ -83,6 +85,10 @@ func (d *delivery) SendContactChange(_ context.Context, message contactchange.Me
 }
 func (d *delivery) SendSubscriptionLifecycle(_ context.Context, message subscriptionlifecycle.Message) error {
 	d.subscription = message
+	return d.err
+}
+func (d *delivery) SendMultifactor(_ context.Context, message multifactor.Message) error {
+	d.multifactor = message
 	return d.err
 }
 
@@ -121,6 +127,36 @@ func TestQueuedNotificationIsEncryptedAndDelivered(t *testing.T) {
 	worked, err := processor.ProcessOne(context.Background())
 	if err != nil || !worked || delivery.verification.Token != message.Token || delivery.verification.OfferCode != message.OfferCode || delivery.verification.ReturnTo != message.ReturnTo || queue.delivered == "" {
 		t.Fatalf("delivery result: worked=%v message=%+v delivered=%q err=%v", worked, delivery.verification, queue.delivered, err)
+	}
+}
+
+func TestMultifactorCodeIsEncryptedAndDelivered(t *testing.T) {
+	key := bytes.Repeat([]byte{0x52}, 32)
+	envelopeCipher, err := notifications.NewCipher(key, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue := &fakeQueue{}
+	now := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
+	sender, err := notifications.NewQueuedSender(queue, envelopeCipher, generator{"10000000-0000-4000-8000-000000000001"}, clock{now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := multifactor.Message{Destination: "+12025550199", DisplayName: "Owner", Code: "123456", Kind: multifactor.KindSMS, ExpiresAt: now.Add(10 * time.Minute)}
+	if err := sender.SendMultifactor(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	if len(queue.entries) != 1 || bytes.Contains(queue.entries[0].Ciphertext, []byte(message.Destination)) || bytes.Contains(queue.entries[0].Ciphertext, []byte(message.Code)) {
+		t.Fatalf("multifactor envelope leaked plaintext: %+v", queue.entries)
+	}
+	delivery := &delivery{}
+	processor, err := notifications.NewProcessor(queue, envelopeCipher, delivery, clock{now}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	worked, err := processor.ProcessOne(context.Background())
+	if err != nil || !worked || delivery.multifactor.Destination != message.Destination || delivery.multifactor.Code != message.Code || delivery.multifactor.Kind != multifactor.KindSMS {
+		t.Fatalf("delivery result: worked=%v message=%+v err=%v", worked, delivery.multifactor, err)
 	}
 }
 

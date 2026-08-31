@@ -234,10 +234,15 @@ When `SPYGLASS_OTEL_TRACES_ENDPOINT` is configured, the process additionally exp
 | `SPYGLASS_SMTP_FROM_NAME` | Optional display name; defaults to `Infinite Ocean` |
 | `SPYGLASS_SMTP_USERNAME`, `SPYGLASS_SMTP_PASSWORD` | Optional as a pair for authenticated relays |
 | `SPYGLASS_SMTP_ROOT_CA_FILE` | Optional PEM trust bundle for a private SMTP relay CA; system roots remain trusted |
+| `SPYGLASS_SMS_GATEWAY_URL` | Exact HTTPS endpoint for the environment's operator-selected SMS gateway; fragments and embedded credentials are rejected |
+| `SPYGLASS_SMS_GATEWAY_BEARER_TOKEN` | Bearer credential supplied only to the notification worker |
+| `SPYGLASS_SMS_FROM` | Provider-approved SMS sender name or originating number |
 | `SPYGLASS_NOTIFICATION_POLL_INTERVAL` | Optional positive Go duration; defaults to `1s` |
 | `SPYGLASS_HEALTH_ADDRESS` | Optional health listen address; defaults to `:8081` |
 
-Delivery requires TLS 1.2 or newer. Workers claim one row with `FOR UPDATE SKIP LOCKED`, use a two-minute lease for crash recovery, refuse to send expired identity links, and retry delivery failures with bounded exponential backoff. The twelfth failed attempt enters terminal `dead_letter` state. A successfully accepted SMTP message is acknowledged as delivered; because delivery and PostgreSQL acknowledgement cannot share a transaction, a crash in between can produce a duplicate message. Identity links remain single-use, which makes that at-least-once boundary safe for credentials.
+Delivery requires TLS 1.2 or newer. Workers claim one row with `FOR UPDATE SKIP LOCKED`, use a two-minute lease for crash recovery, refuse to send expired identity links and security codes, and retry delivery failures with bounded exponential backoff. The twelfth failed attempt enters terminal `dead_letter` state. Email uses SMTP. SMS uses an authenticated HTTPS POST containing `to`, `from`, `message`, and an idempotency key; the same key is also sent in the `Idempotency-Key` header. A successfully accepted provider message is acknowledged as delivered; because delivery and PostgreSQL acknowledgement cannot share a transaction, a crash in between can produce a duplicate message. Identity links and six-digit codes remain single-use. Local and local-secure environments discard SMS delivery and return the development code only to the authenticated setup response; Stage and production never expose it.
+
+The account API stores SMS destinations only as AES-256-GCM ciphertext plus a keyed fingerprint and masked hint. Six-digit challenge hashes are domain-separated, tied to the exact challenge, expire after ten minutes, allow at most five verification attempts, and are request-limited to five challenges per User per hour. Email factors always deliver to the User's current verified identity email. A completed passkey, SMS, or email confirmation supplies the recent strong-auth evidence used by privileged Account operations; passwords and OIDC sessions remain single-factor until that confirmation occurs.
 
 Key rotation must retain the currently configured key until every row encrypted with its version has reached a terminal state or been re-encrypted. This slice records key versions but loads one active version; introducing a multi-version keyring is required before rotating a live environment key.
 

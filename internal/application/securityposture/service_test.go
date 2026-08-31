@@ -18,7 +18,7 @@ func (s store) Status(context.Context, ids.UserID) (securityposture.State, error
 	return s.state, s.err
 }
 
-func TestOwnerReadinessRequiresPasskeyAndUnusedRecoveryCode(t *testing.T) {
+func TestOwnerReadinessAcceptsPasskeyRecoveryOrVerifiedCodeMethod(t *testing.T) {
 	userID := ids.UserID("10000000-0000-4000-8000-000000000001")
 	for name, value := range map[string]struct {
 		state securityposture.State
@@ -29,6 +29,7 @@ func TestOwnerReadinessRequiresPasskeyAndUnusedRecoveryCode(t *testing.T) {
 		"codes only":       {state: securityposture.State{RecoveryCodesConfigured: true, RecoveryCodesRemaining: 10}},
 		"codes exhausted":  {state: securityposture.State{PasskeyCount: 1, RecoveryCodesConfigured: true}},
 		"fully ready":      {state: securityposture.State{PasskeyCount: 1, RecoveryCodesConfigured: true, RecoveryCodesRemaining: 1}, ready: true},
+		"text ready":       {state: securityposture.State{MFAMethodCount: 1}, ready: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			service, _ := securityposture.NewService(store{state: value.state})

@@ -547,7 +547,7 @@ func (server *Server) writeOperatorError(w http.ResponseWriter, err error) {
 	case errors.Is(err, billingadmin.ErrStateConflict), errors.Is(err, privacyrightsadmin.ErrStateConflict), errors.Is(err, affiliateadmin.ErrStateConflict):
 		writeProblem(w, http.StatusConflict, "operations_state_conflict", "the target changed; inspect it again before retrying")
 	case errors.Is(err, affiliateadmin.ErrStrongAuth):
-		writeProblem(w, http.StatusForbidden, "customer_strong_auth_required", "the customer must complete the required passkey confirmation")
+		writeProblem(w, http.StatusForbidden, "customer_strong_auth_required", "the customer must complete the required security confirmation")
 	default:
 		server.logger.Error("operations operator request failed", "error", err)
 		writeProblem(w, http.StatusServiceUnavailable, "operations_unavailable", "the operations request could not be completed")

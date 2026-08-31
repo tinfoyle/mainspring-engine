@@ -9,6 +9,7 @@ import SecurityView from "./SecurityView.vue";
 
 const api = vi.hoisted(() => ({
   getCurrentIdentity: vi.fn(), getSecurityPosture: vi.fn(), getPasskeys: vi.fn(), getRecoveryCodeStatus: vi.fn(),
+  getMFAMethods: vi.fn(), beginMFAReauthentication: vi.fn(), completeMFAReauthentication: vi.fn(),
   getActiveSessions: vi.fn(), getSecurityEvents: vi.fn(), getSupportAccessHistory: vi.fn(), getMCPGrants: vi.fn(), confirmPassword: vi.fn(),
   beginContactChange: vi.fn(), renamePasskey: vi.fn(), deletePasskey: vi.fn(), compromisePasskey: vi.fn(),
   rotateRecoveryCodes: vi.fn(), consumeRecoveryCode: vi.fn(), revokeSession: vi.fn(), revokeAllSessions: vi.fn(), revokeMCPGrant: vi.fn(),
@@ -23,7 +24,8 @@ async function mountView() { const router = createRouter({ history: createMemory
 beforeEach(() => {
   for (const mock of [...Object.values(api), ...Object.values(webauthn)]) mock.mockReset();
   api.getCurrentIdentity.mockResolvedValue({ user_id: "20000000-0000-4000-8000-000000000002", primary_email: "owner@example.com" });
-  api.getSecurityPosture.mockResolvedValue({ passkey_count: 1, recovery_codes_configured: true, recovery_codes_remaining: 8, owner_ready: true });
+  api.getSecurityPosture.mockResolvedValue({ passkey_count: 1, recovery_codes_configured: true, recovery_codes_remaining: 8, mfa_method_count: 0, owner_ready: true });
+  api.getMFAMethods.mockResolvedValue({ methods: [] });
   api.getPasskeys.mockResolvedValue({ passkeys: [{ id: "key", name: "Laptop", created_at: "2026-08-24T20:00:00Z", backup_eligible: true, backed_up: true }] });
   api.getRecoveryCodeStatus.mockResolvedValue({ configured: true, version: 1, remaining: 8, created_at: "2026-08-24T20:00:00Z" });
   api.getActiveSessions.mockResolvedValue({ sessions: [currentSession] }); api.getSecurityEvents.mockResolvedValue({ events: [{ type: "passkey_added", occurred_at: "2026-08-24T20:00:00Z" }] });
@@ -49,8 +51,8 @@ describe("Security surface", () => {
   });
   it("records first owner-security completion only after authoritative readiness", async () => {
     api.getSecurityPosture
-      .mockResolvedValueOnce({ passkey_count: 1, recovery_codes_configured: false, recovery_codes_remaining: 0, owner_ready: false })
-      .mockResolvedValueOnce({ passkey_count: 1, recovery_codes_configured: true, recovery_codes_remaining: 10, owner_ready: true });
+      .mockResolvedValueOnce({ passkey_count: 1, recovery_codes_configured: false, recovery_codes_remaining: 0, mfa_method_count: 0, owner_ready: false })
+      .mockResolvedValueOnce({ passkey_count: 1, recovery_codes_configured: true, recovery_codes_remaining: 10, mfa_method_count: 0, owner_ready: true });
     api.getRecoveryCodeStatus
       .mockResolvedValueOnce({ configured: false, version: 0, remaining: 0 })
       .mockResolvedValueOnce({ configured: true, version: 1, remaining: 10 });

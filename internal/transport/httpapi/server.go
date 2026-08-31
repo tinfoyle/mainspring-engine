@@ -24,6 +24,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/contactchange"
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/mcpauth"
+	"github.com/tinfoyle/spyglass-engine/internal/application/multifactor"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyconsent"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyrights"
@@ -70,6 +71,7 @@ type Server struct {
 	passkeys              *passkeys.Service
 	recoveryCodes         *recoverycodes.Service
 	securityPosture       *securityposture.Service
+	multifactor           *multifactor.Service
 	operationsHistory     OperationsCustomerHistory
 	contactChanges        *contactchange.Service
 	mcpGrants             *mcpauth.Service
@@ -197,6 +199,10 @@ func WithSecurityPosture(service *securityposture.Service) Option {
 	return func(server *Server) { server.securityPosture = service }
 }
 
+func WithMultifactor(service *multifactor.Service) Option {
+	return func(server *Server) { server.multifactor = service }
+}
+
 func WithOperationsCustomerHistory(history OperationsCustomerHistory) Option {
 	return func(server *Server) { server.operationsHistory = history }
 }
@@ -304,6 +310,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/passkey-reauthentications/{ceremonyID}/complete", s.completePasskeyReauthentication)
 	mux.HandleFunc("GET /api/v1/recovery-codes", s.recoveryCodeStatus)
 	mux.HandleFunc("GET /api/v1/security-posture", s.securityPostureStatus)
+	mux.HandleFunc("GET /api/v1/mfa-methods", s.listMFAMethods)
+	mux.HandleFunc("POST /api/v1/mfa-enrollments", s.beginMFAEnrollment)
+	mux.HandleFunc("POST /api/v1/mfa-enrollments/{challengeID}/complete", s.completeMFAEnrollment)
+	mux.HandleFunc("POST /api/v1/mfa-reauthentications", s.beginMFAReauthentication)
+	mux.HandleFunc("POST /api/v1/mfa-reauthentications/{challengeID}/complete", s.completeMFAReauthentication)
 	mux.HandleFunc("POST /api/v1/recovery-codes", s.rotateRecoveryCodes)
 	mux.HandleFunc("POST /api/v1/recovery-codes/consume", s.consumeRecoveryCode)
 	mux.HandleFunc("GET /api/v1/sessions", s.listSessions)
@@ -478,7 +489,7 @@ func (s *Server) completeContactChange(w http.ResponseWriter, r *http.Request) {
 func (s *Server) writeContactChangeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, strongauth.ErrRequired):
-		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before changing the identity email")
+		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm your identity before changing the identity email")
 	case errors.Is(err, contactchange.ErrSameEmail):
 		writeProblem(w, http.StatusBadRequest, "contact_change_same_email", "the new email must differ from the current email")
 	case errors.Is(err, contactchange.ErrEmailExists):
@@ -511,6 +522,144 @@ func (s *Server) securityPostureStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, state)
+}
+
+func (s *Server) listMFAMethods(w http.ResponseWriter, r *http.Request) {
+	if s.multifactor == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "multifactor_unconfigured", "two-factor authentication is not configured")
+		return
+	}
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	methods, err := s.multifactor.Methods(r.Context(), authenticated.Session.UserID)
+	if err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "multifactor_unavailable", "security methods could not be loaded")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"methods": methods})
+}
+
+func (s *Server) beginMFAEnrollment(w http.ResponseWriter, r *http.Request) {
+	if s.multifactor == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "multifactor_unconfigured", "two-factor authentication is not configured")
+		return
+	}
+	if !s.validSessionMutationOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
+		return
+	}
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		Kind  multifactor.Kind `json:"kind"`
+		Phone string           `json:"phone"`
+	}
+	if decodeJSON(w, r, &input) != nil {
+		return
+	}
+	result, err := s.multifactor.BeginEnrollment(r.Context(), authenticated.Session, input.Kind, input.Phone)
+	if err != nil {
+		s.writeMFAError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (s *Server) completeMFAEnrollment(w http.ResponseWriter, r *http.Request) {
+	if s.multifactor == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "multifactor_unconfigured", "two-factor authentication is not configured")
+		return
+	}
+	if !s.validSessionMutationOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
+		return
+	}
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		Code string `json:"code"`
+	}
+	if decodeJSON(w, r, &input) != nil {
+		return
+	}
+	method, err := s.multifactor.Complete(r.Context(), authenticated.Session, r.PathValue("challengeID"), strings.TrimSpace(input.Code))
+	if err != nil {
+		s.writeMFAError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, method)
+}
+
+func (s *Server) beginMFAReauthentication(w http.ResponseWriter, r *http.Request) {
+	if s.multifactor == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "multifactor_unconfigured", "two-factor authentication is not configured")
+		return
+	}
+	if !s.validSessionMutationOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
+		return
+	}
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		MethodID string `json:"method_id"`
+	}
+	if decodeJSON(w, r, &input) != nil {
+		return
+	}
+	result, err := s.multifactor.BeginReauthentication(r.Context(), authenticated.Session, input.MethodID)
+	if err != nil {
+		s.writeMFAError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (s *Server) completeMFAReauthentication(w http.ResponseWriter, r *http.Request) {
+	if s.multifactor == nil {
+		writeProblem(w, http.StatusServiceUnavailable, "multifactor_unconfigured", "two-factor authentication is not configured")
+		return
+	}
+	if !s.validSessionMutationOrigin(r) {
+		writeProblem(w, http.StatusForbidden, "origin_denied", "request origin is not allowed")
+		return
+	}
+	authenticated, ok := s.authenticateSession(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		Code string `json:"code"`
+	}
+	if decodeJSON(w, r, &input) != nil {
+		return
+	}
+	if _, err := s.multifactor.Complete(r.Context(), authenticated.Session, r.PathValue("challengeID"), strings.TrimSpace(input.Code)); err != nil {
+		s.writeMFAError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) writeMFAError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, multifactor.ErrRateLimited):
+		writeProblem(w, http.StatusTooManyRequests, "multifactor_rate_limited", "Too many codes were requested. Try again later.")
+	case errors.Is(err, multifactor.ErrInvalidChallenge):
+		writeProblem(w, http.StatusUnauthorized, "multifactor_code_invalid", "That code is incorrect or expired.")
+	case errors.Is(err, multifactor.ErrInvalidRequest):
+		writeProblem(w, http.StatusBadRequest, "multifactor_invalid", "That security method could not be used.")
+	default:
+		writeProblem(w, http.StatusServiceUnavailable, "multifactor_unavailable", "The security code could not be sent or verified.")
+	}
 }
 
 func (s *Server) listAccountClosures(w http.ResponseWriter, r *http.Request) {
@@ -598,7 +747,7 @@ func (s *Server) writeAccountLifecycleError(w http.ResponseWriter, err error) {
 	case access.IsDenied(err, access.DenialOwnerEnrollment):
 		writeProblem(w, http.StatusForbidden, "owner_security_enrollment_required", "add a passkey and save recovery codes before using owner authority")
 	case errors.Is(err, strongauth.ErrRequired):
-		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before this privileged operation")
+		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm your identity before this privileged operation")
 	case errors.Is(err, accountlifecycle.ErrNotFound):
 		writeProblem(w, http.StatusNotFound, "account_closure_not_found", "the Account closure request was not found")
 	case errors.Is(err, accountlifecycle.ErrVersionConflict):
@@ -747,7 +896,7 @@ func (s *Server) writeAITokenPromotionError(w http.ResponseWriter, err error) {
 	case access.IsDenied(err, access.DenialOwnerEnrollment):
 		writeProblem(w, http.StatusForbidden, "owner_security_enrollment_required", "add a passkey and save recovery codes before redeeming an AI Token promotion")
 	case errors.Is(err, strongauth.ErrRequired):
-		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before redeeming an AI Token promotion")
+		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm your identity before redeeming an AI Token promotion")
 	case access.IsDenied(err, access.DenialRole), access.IsDenied(err, access.DenialMembership), access.IsDenied(err, access.DenialAccountUnavailable):
 		writeProblem(w, http.StatusForbidden, "ai_token_promotion_denied", "AI Token promotion redemption was denied")
 	case errors.Is(err, aitokenledger.ErrInvalidRequest):
@@ -850,7 +999,7 @@ func (s *Server) writeCommercialError(w http.ResponseWriter, err error) {
 	case access.IsDenied(err, access.DenialOwnerEnrollment):
 		writeProblem(w, http.StatusForbidden, "owner_security_enrollment_required", "add a passkey and save recovery codes before using owner authority")
 	case errors.Is(err, strongauth.ErrRequired):
-		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before this privileged operation")
+		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm your identity before this privileged operation")
 	case errors.Is(err, commercialaccess.ErrInvalidRequestID):
 		writeProblem(w, http.StatusBadRequest, "invalid_idempotency_key", "a UUID Idempotency-Key header is required")
 	case errors.Is(err, commercialaccess.ErrOfferUnavailable):
@@ -1116,7 +1265,7 @@ func (s *Server) writeMembershipError(w http.ResponseWriter, err error) {
 	case access.IsDenied(err, access.DenialOwnerEnrollment):
 		writeProblem(w, http.StatusForbidden, "owner_security_enrollment_required", "add a passkey and save recovery codes before using owner authority")
 	case errors.Is(err, strongauth.ErrRequired):
-		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before this privileged operation")
+		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm your identity before this privileged operation")
 	case errors.Is(err, accountmembers.ErrMembershipNotFound):
 		writeProblem(w, http.StatusNotFound, "membership_not_found", "the Membership was not found")
 	case errors.Is(err, accountmembers.ErrVersionConflict):
@@ -1181,7 +1330,7 @@ func (s *Server) writeInvitationError(w http.ResponseWriter, err error) {
 	case access.IsDenied(err, access.DenialOwnerEnrollment):
 		writeProblem(w, http.StatusForbidden, "owner_security_enrollment_required", "add a passkey and save recovery codes before using owner authority")
 	case errors.Is(err, strongauth.ErrRequired):
-		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm with a passkey before this privileged operation")
+		writeProblem(w, http.StatusForbidden, "strong_reauthentication_required", "confirm your identity before this privileged operation")
 	case errors.Is(err, invitations.ErrMembershipExists):
 		writeProblem(w, http.StatusConflict, "membership_exists", "the identity is already a member")
 	case errors.Is(err, invitations.ErrInvitationExpired):
