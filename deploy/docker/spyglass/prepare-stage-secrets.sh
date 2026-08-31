@@ -50,9 +50,8 @@ smtp_username="$(provider_value SPYGLASS_SMTP_USERNAME)"
 smtp_password="$(provider_value SPYGLASS_SMTP_PASSWORD)"
 smtp_from_address="$(provider_value SPYGLASS_SMTP_FROM_ADDRESS)"
 smtp_from_name="$(provider_value SPYGLASS_SMTP_FROM_NAME)"
-sms_gateway_url="$(provider_value SPYGLASS_SMS_GATEWAY_URL)"
-sms_gateway_bearer_token="$(provider_value SPYGLASS_SMS_GATEWAY_BEARER_TOKEN)"
-sms_from="$(provider_value SPYGLASS_SMS_FROM)"
+telnyx_api_key="$(provider_value SPYGLASS_TELNYX_API_KEY)"
+telnyx_from="$(provider_value SPYGLASS_TELNYX_FROM)"
 openai_api_key="$(provider_value SPYGLASS_OPENAI_API_KEY)"
 openai_origin="$(provider_value SPYGLASS_OPENAI_ORIGIN)"
 openai_pricing="$(provider_value SPYGLASS_OPENAI_MODEL_PRICING_JSON)"
@@ -66,9 +65,8 @@ agent_execution_policies="$(provider_value SPYGLASS_AGENT_EXECUTION_POLICIES_JSO
 [[ "$smtp_password" =~ ^[A-Za-z0-9._~!@%+=,:/-]+$ ]] || fail "SMTP password contains unsupported dotenv characters"
 [[ "$smtp_from_address" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+$ ]] || fail "SMTP from address is invalid"
 [[ "$smtp_from_name" =~ ^[A-Za-z0-9._[:space:]-]+$ ]] || fail "SMTP from name contains unsupported dotenv characters"
-[[ "$sms_gateway_url" =~ ^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[A-Za-z0-9._~!%+=,:@/-]*)?(\?[A-Za-z0-9._~!%+=,:@/?\&-]+)?$ ]] || fail "SMS gateway URL must be an injection-safe HTTPS URL"
-[[ "$sms_gateway_bearer_token" =~ ^[A-Za-z0-9._~!@%+=,:/-]+$ ]] || fail "SMS gateway bearer token contains unsupported dotenv characters"
-[[ "$sms_from" =~ ^[A-Za-z0-9+._-]{1,32}$ ]] || fail "SMS sender is invalid"
+[[ "$telnyx_api_key" =~ ^[A-Za-z0-9._~!@%+=,:/-]+$ ]] || fail "Telnyx API key contains unsupported dotenv characters"
+[[ "$telnyx_from" =~ ^\+[1-9][0-9]{7,14}$ ]] || fail "Telnyx sender must be an E.164 phone number"
 [[ "$openai_api_key" =~ ^[A-Za-z0-9_-]+$ ]] || fail "OpenAI key contains unsupported dotenv characters"
 [[ "$openai_origin" =~ ^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || fail "OpenAI origin must be an exact HTTPS origin"
 [[ "$openai_pricing" =~ ^\{[A-Za-z0-9._:\",{}-]+\}$ ]] || fail "OpenAI model pricing must be compact injection-safe JSON"
@@ -340,9 +338,8 @@ SPYGLASS_SMTP_USERNAME=$smtp_username
 SPYGLASS_SMTP_PASSWORD=$smtp_password
 SPYGLASS_SMTP_FROM_ADDRESS=$smtp_from_address
 SPYGLASS_SMTP_FROM_NAME=$smtp_from_name
-SPYGLASS_SMS_GATEWAY_URL=$sms_gateway_url
-SPYGLASS_SMS_GATEWAY_BEARER_TOKEN=$sms_gateway_bearer_token
-SPYGLASS_SMS_FROM=$sms_from
+SPYGLASS_TELNYX_API_KEY=$telnyx_api_key
+SPYGLASS_TELNYX_FROM=$telnyx_from
 SPYGLASS_ROUTE_ISSUER=spyglass-stage-router
 SPYGLASS_ROUTE_SIGNING_KEY_ID=stage-1
 SPYGLASS_ROUTE_SIGNING_KEY=$route_key

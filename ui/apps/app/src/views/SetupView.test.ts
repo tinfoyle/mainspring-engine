@@ -71,6 +71,7 @@ describe("first-login account setup", () => {
     api.completeMFAEnrollment.mockResolvedValue({ id: "40000000-0000-4000-8000-000000000004", kind: "sms", destination_hint: "phone ending in 0199", created_at: "2026-08-31T12:00:00Z" });
     const { wrapper, router } = await mountView("/app/work"); await flushPromises();
     await wrapper.findAll("button").find((button) => button.text().includes("Text message"))?.trigger("click");
+    expect(wrapper.text()).toContain("Reply STOP to opt out or HELP for help.");
     await wrapper.get('input[type="tel"]').setValue("(202) 555-0199"); await wrapper.get("form").trigger("submit"); await flushPromises();
     expect(wrapper.text()).toContain("phone ending in 0199");
     expect((wrapper.get('input[autocomplete="one-time-code"]').element as HTMLInputElement).value).toBe("123456");

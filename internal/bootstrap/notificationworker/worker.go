@@ -10,8 +10,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
-	"github.com/tinfoyle/spyglass-engine/internal/adapters/smswebhook"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/smtp"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/telnyxsms"
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/application/subscriptionlifecycle"
@@ -20,7 +20,7 @@ import (
 
 type Config struct {
 	DatabaseURL, SMTPAddress, SMTPServerName, SMTPUsername, SMTPPassword, SMTPFromAddress, SMTPFromName, AppOrigin string
-	Environment, SMSGatewayURL, SMSGatewayBearerToken, SMSFrom                                                     string
+	Environment, TelnyxAPIKey, TelnyxFrom                                                                          string
 	SMTPRootCAFile                                                                                                 string
 	NotificationEncryptionKey                                                                                      []byte
 	MaxDatabaseConns                                                                                               int32
@@ -73,11 +73,11 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 		pool.Close()
 		return nil, err
 	}
-	var smsDelivery *smswebhook.Sender
+	var smsDelivery *telnyxsms.Sender
 	if config.Environment == "local" || config.Environment == "local-secure" || config.Environment == "development" {
-		smsDelivery, err = smswebhook.New(smswebhook.Config{DevelopmentDiscard: true})
+		smsDelivery, err = telnyxsms.New(telnyxsms.Config{DevelopmentDiscard: true})
 	} else {
-		smsDelivery, err = smswebhook.New(smswebhook.Config{URL: config.SMSGatewayURL, BearerToken: config.SMSGatewayBearerToken, From: config.SMSFrom})
+		smsDelivery, err = telnyxsms.New(telnyxsms.Config{APIKey: config.TelnyxAPIKey, From: config.TelnyxFrom})
 	}
 	if err != nil {
 		pool.Close()

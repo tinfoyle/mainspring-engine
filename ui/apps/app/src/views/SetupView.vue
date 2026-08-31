@@ -114,8 +114,9 @@ void load();
           <form v-else-if="!challenge" class="setup-step" @submit.prevent="sendCode">
             <div class="setup-step-number" aria-hidden="true">2</div><p class="eyebrow">{{ choice === 'sms' ? 'Text message' : 'Email code' }}</p>
             <h1>{{ choice === 'sms' ? 'What mobile number should we use?' : 'Send a code to your email' }}</h1>
-            <p class="setup-lead">{{ choice === 'sms' ? 'We will send a 6-digit code to confirm the phone is yours. Standard message rates may apply.' : 'We will send a 6-digit code to the verified email you use for Infinite Ocean.' }}</p>
-            <label v-if="choice === 'sms'">Mobile number<input v-model="phone" type="tel" autocomplete="tel" maxlength="32" placeholder="(555) 123-4567" required><small>US numbers can be entered normally. For other countries, include the country code.</small></label>
+            <p class="setup-lead">{{ choice === 'sms' ? 'We will send a 6-digit code to confirm the phone is yours.' : 'We will send a 6-digit code to the verified email you use for Infinite Ocean.' }}</p>
+            <label v-if="choice === 'sms'">US mobile number<input v-model="phone" type="tel" autocomplete="tel" maxlength="32" placeholder="(555) 123-4567" required><small>Enter a US mobile number that can receive text messages.</small></label>
+            <p v-if="choice === 'sms'" class="setup-consent">By continuing, you agree to receive one-time security codes from Infinite Ocean at this number. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help.</p>
             <div v-else class="setup-explainer"><strong>Use my verified email</strong><span>You will see a masked address after the code is sent.</span></div>
             <IoButton type="submit" :disabled="saving">{{ saving ? "Sending…" : "Send my code" }}</IoButton>
             <button type="button" class="setup-text-action" @click="changeChoice">Choose a different method</button>
