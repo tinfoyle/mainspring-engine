@@ -29,3 +29,16 @@ decision.
 The established Infinite Ocean wave mark was added as the site favicon and
 wired into every page. The full site verifier passed before the follow-up was
 copied into the active content directory.
+
+## 2026-09-01 concise-copy pass
+
+- Source revision: `d7b4191`
+- Release directory: `/opt/infiniteocean/releases/corporate/d7b4191`
+- Pre-change recovery copy: `/opt/infiniteocean/backups/site.pre-copy-pass.d7b4191`
+- Release archive SHA-256: `559b744798c4e07318729256c97a34a7430cea6b37177e58485415cb63afb9fa`
+
+The visual system was retained while the corporate, product, company and
+contact copy was shortened. The homepage was reduced from five sections to
+three, feature lists were removed from the product explanation, and the legal
+and SMS disclosures were preserved verbatim. Public HTTPS verification passed
+for every changed route and the replacement social-preview image.
