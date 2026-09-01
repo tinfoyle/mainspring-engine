@@ -19,3 +19,13 @@ The separately routed `/shopper/` and `/tacktician/` prototype applications
 were removed from corporate navigation, content and the sitemap, but were not
 disabled or deleted. Retiring those independent routes is a separate operator
 decision.
+
+## 2026-09-01 identity-icon follow-up
+
+- Source revision: `ce44342`
+- Release directory: `/opt/infiniteocean/releases/corporate/ce44342`
+- Pre-change recovery copy: `/opt/infiniteocean/backups/site.pre-favicon.ce44342`
+
+The established Infinite Ocean wave mark was added as the site favicon and
+wired into every page. The full site verifier passed before the follow-up was
+copied into the active content directory.
