@@ -22,9 +22,11 @@ grep -q 'Your mobile information will not be sold or shared with third parties o
 grep -q 'Reply <strong>STOP</strong> to opt out or <strong>HELP</strong> for help.' "$root/terms/index.html"
 grep -q 'Read and check the separate, unchecked consent box.' "$root/sms-consent/index.html"
 grep -q 'Consent is not a condition of purchase.' "$root/sms-consent/index.html"
+grep -q 'Infinite Ocean makes Spyglass.' "$root/index.html"
+grep -q 'Keep the work from getting away from you.' "$root/spyglass/index.html"
 
-if grep -R -E -q 'Boat Shopper|Tack-tician|MMO Sailing|Nautical Software Company|View projects' "$root" --include='*.html'; then
-  echo "retired prototype language remains" >&2
+if grep -R -E -q 'Boat Shopper|Tack-tician|MMO Sailing|Nautical Software Company|View projects|Useful beats impressive|Small company\. Serious product|Better systems for the people' "$root" --include='*.html'; then
+  echo "retired site language remains" >&2
   exit 1
 fi
 
