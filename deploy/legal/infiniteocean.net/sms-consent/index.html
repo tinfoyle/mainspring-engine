@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SMS Security Consent | Infinite Ocean, LLC</title>
+  <meta name="description" content="How a Spyglass user chooses and consents to receive one-time security codes by text message.">
+  <link rel="canonical" href="https://www.infiniteocean.net/sms-consent/">
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    .content-page{max-width:68rem}.content-page h2{margin:2.5rem 0 .8rem;color:var(--ink);font-size:clamp(1.5rem,3vw,2rem);line-height:1.2}.content-page p,.content-page li{line-height:1.65}.flow{margin-top:2rem;display:grid;gap:2rem}.screen{padding:1.25rem;border:1px solid #cad8d6;border-radius:1rem;background:#fff;box-shadow:0 18px 48px rgba(5,47,57,.12)}.screen label{margin-top:1rem;display:grid;gap:.45rem;font-weight:700}.screen input[type=tel]{min-height:48px;padding:.75rem;border:1px solid #cad8d6;border-radius:.55rem;font:inherit}.screen .consent{padding:1rem;grid-template-columns:auto minmax(0,1fr);align-items:start;border:1px solid #cad8d6;border-radius:.65rem;background:#fbf8f0;font-weight:400}.consent input{width:1.35rem;height:1.35rem}.consent span{display:grid;gap:.35rem;font-size:.9rem;line-height:1.55}.screen button{min-height:48px;margin-top:1rem;padding:.75rem 1rem;border:0;border-radius:999px;color:#667;background:#d7dddc;font-weight:800}@media(min-width:52rem){.flow{grid-template-columns:minmax(0,.8fr) minmax(26rem,1.2fr);align-items:center}}
+  </style>
+</head>
+<body>
+  <header class="site-header solid">
+    <a class="brand" href="/" aria-label="Infinite Ocean home"><span class="brand-mark" aria-hidden="true"></span><span>Infinite Ocean</span></a>
+    <nav aria-label="Primary navigation"><a href="/#work">Projects</a><a href="/shopper/">Boat Shopper</a><a href="/#services">Services</a><a href="/about/">About</a><a href="mailto:support@infiniteocean.net">Contact</a></nav>
+  </header>
+  <main class="page-main">
+    <article class="content-page">
+      <p class="eyebrow">Spyglass account security</p>
+      <h1>SMS Security Consent</h1>
+      <p>A user can choose a passkey, a text message, or an email code during account setup. Choosing text messages does not subscribe the user to marketing.</p>
+      <section class="flow">
+        <div>
+          <h2>How a user opts in</h2>
+          <ol><li>Sign up for or sign in to Spyglass.</li><li>Choose <strong>Text message</strong> from two-factor authentication setup.</li><li>Enter a U.S. mobile number.</li><li>Read and check the separate, unchecked consent box.</li><li>Select <strong>Send my code</strong>.</li></ol>
+          <p>The button remains unavailable until the user checks the box. Passkey and email-code options remain available.</p>
+        </div>
+        <div class="screen" aria-label="Example of the Spyglass SMS consent screen">
+          <p class="eyebrow">Text message · Step 2 of 3</p>
+          <h2>What mobile number should we use?</h2>
+          <p>We will send a 6-digit code to confirm the phone is yours.</p>
+          <label>US mobile number<input type="tel" value="(555) 123-4567" readonly></label>
+          <label class="consent"><input type="checkbox" disabled><span><strong>Send security codes by text</strong>By checking this box, you agree to receive one-time security codes from Infinite Ocean at this number. Message frequency varies. Standard message and data rates may apply. Reply STOP to opt out or HELP for help. Consent is not a condition of purchase. Your mobile information will not be sold or shared with third parties or affiliates for promotional or marketing purposes.</span></label>
+          <button type="button" disabled>Send my code</button>
+        </div>
+      </section>
+      <h2>What users receive</h2>
+      <p>Messages contain a one-time Infinite Ocean security code. Message frequency varies with sign-in and security activity. Standard message and data rates may apply. Reply <strong>STOP</strong> to opt out or <strong>HELP</strong> for help.</p>
+      <p>We do not send marketing through this program. Read our <a href="/privacy/">Privacy Policy</a> and <a href="/terms/">Terms and Conditions</a>, or email <a href="mailto:support@infiniteocean.net">support@infiniteocean.net</a>.</p>
+    </article>
+  </main>
+</body>
+</html>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   APIProblem, beginMFAEnrollment, completeMFAEnrollment, emitAnalytics, getPasskeys, getPrivacyConsent,
-  getRecoveryCodeStatus, getSecurityPosture, rotateRecoveryCodes, type MFAChallenge, type MFAKind,
+  getRecoveryCodeStatus, getSecurityPosture, rotateRecoveryCodes, SMS_CONSENT_VERSION, type MFAChallenge, type MFAKind,
   type RecoveryCodeStatus, type SecurityPosture
 } from "@spyglass/api";
 import { IoButton, IoLogo } from "@spyglass/design-system";
@@ -14,7 +14,7 @@ type SetupChoice = "" | "passkey" | MFAKind;
 const route = useRoute(); const router = useRouter(); const session = useSessionStore();
 const posture = ref<SecurityPosture>(); const recovery = ref<RecoveryCodeStatus>();
 const choice = ref<SetupChoice>(""); const passkeyName = ref("My device"); const passkeyCount = ref(0);
-const phone = ref(""); const challenge = ref<MFAChallenge>(); const code = ref("");
+const phone = ref(""); const smsConsentAccepted = ref(false); const challenge = ref<MFAChallenge>(); const code = ref("");
 const newCodes = ref<ReadonlyArray<string>>([]); const savedCodes = ref(false);
 const loading = ref(true); const saving = ref(false); const error = ref(""); const announcement = ref("");
 const step = computed(() => {
@@ -38,8 +38,9 @@ async function load(): Promise<void> {
   finally { loading.value = false; }
 }
 
-function choose(value: Exclude<SetupChoice, "">): void { choice.value = value; challenge.value = undefined; code.value = ""; error.value = ""; }
-function changeChoice(): void { choice.value = ""; challenge.value = undefined; code.value = ""; error.value = ""; }
+function choose(value: Exclude<SetupChoice, "">): void { choice.value = value; smsConsentAccepted.value = false; challenge.value = undefined; code.value = ""; error.value = ""; }
+function changeChoice(): void { choice.value = ""; smsConsentAccepted.value = false; challenge.value = undefined; code.value = ""; error.value = ""; }
+function phoneChanged(): void { smsConsentAccepted.value = false; }
 async function addPasskey(): Promise<void> {
   if (saving.value) return; saving.value = true; error.value = "";
   try { await registerPasskey(passkeyName.value.trim()); passkeyCount.value += 1; passkeyName.value = "My device"; announcement.value = "Passkey added. Next, save your recovery codes."; }
@@ -47,8 +48,8 @@ async function addPasskey(): Promise<void> {
   finally { saving.value = false; }
 }
 async function sendCode(): Promise<void> {
-  if (saving.value || (choice.value !== "sms" && choice.value !== "email")) return; saving.value = true; error.value = "";
-  try { challenge.value = await beginMFAEnrollment(choice.value, choice.value === "sms" ? phone.value.trim() : undefined); code.value = challenge.value.development_code ?? ""; announcement.value = `A code was sent to ${challenge.value.destination_hint}.`; }
+  if (saving.value || (choice.value !== "sms" && choice.value !== "email") || (choice.value === "sms" && !smsConsentAccepted.value)) return; saving.value = true; error.value = "";
+  try { challenge.value = await beginMFAEnrollment(choice.value, choice.value === "sms" ? phone.value.trim() : undefined, choice.value === "sms" && smsConsentAccepted.value); code.value = challenge.value.development_code ?? ""; announcement.value = `A code was sent to ${challenge.value.destination_hint}.`; }
   catch (cause) { error.value = problem(cause, "The security code could not be sent."); }
   finally { saving.value = false; }
 }
@@ -115,10 +116,10 @@ void load();
             <div class="setup-step-number" aria-hidden="true">2</div><p class="eyebrow">{{ choice === 'sms' ? 'Text message' : 'Email code' }}</p>
             <h1>{{ choice === 'sms' ? 'What mobile number should we use?' : 'Send a code to your email' }}</h1>
             <p class="setup-lead">{{ choice === 'sms' ? 'We will send a 6-digit code to confirm the phone is yours.' : 'We will send a 6-digit code to the verified email you use for Infinite Ocean.' }}</p>
-            <label v-if="choice === 'sms'">US mobile number<input v-model="phone" type="tel" autocomplete="tel" maxlength="32" placeholder="(555) 123-4567" required><small>Enter a US mobile number that can receive text messages.</small></label>
-            <p v-if="choice === 'sms'" class="setup-consent">By continuing, you agree to receive one-time security codes from Infinite Ocean at this number. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Consent is not a condition of purchase. Read our <a href="https://www.infiniteocean.net/privacy" target="_blank" rel="noopener">Privacy Policy</a> and <a href="https://www.infiniteocean.net/terms" target="_blank" rel="noopener">Terms and Conditions</a>.</p>
+            <label v-if="choice === 'sms'">US mobile number<input v-model="phone" type="tel" autocomplete="tel" maxlength="32" placeholder="(555) 123-4567" required @input="phoneChanged"><small>Enter a US mobile number that can receive text messages.</small></label>
+            <label v-if="choice === 'sms'" class="setup-check setup-sms-consent"><input v-model="smsConsentAccepted" type="checkbox"><span><strong>Send security codes by text</strong>By checking this box, you agree to receive one-time security codes from Infinite Ocean at this number. Message frequency varies. Standard message and data rates may apply. Reply STOP to opt out or HELP for help. Consent is not a condition of purchase. Your mobile information will not be sold or shared with third parties or affiliates for promotional or marketing purposes. Read our <a href="https://www.infiniteocean.net/privacy/" target="_blank" rel="noopener">Privacy Policy</a> and <a href="https://www.infiniteocean.net/terms/" target="_blank" rel="noopener">Terms and Conditions</a>.<small>Consent version {{ SMS_CONSENT_VERSION }}</small></span></label>
             <div v-else class="setup-explainer"><strong>Use my verified email</strong><span>You will see a masked address after the code is sent.</span></div>
-            <IoButton type="submit" :disabled="saving">{{ saving ? "Sending…" : "Send my code" }}</IoButton>
+            <IoButton type="submit" :disabled="saving || (choice === 'sms' && !smsConsentAccepted)">{{ saving ? "Sending…" : "Send my code" }}</IoButton>
             <button type="button" class="setup-text-action" @click="changeChoice">Choose a different method</button>
           </form>
 

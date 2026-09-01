@@ -555,13 +555,15 @@ func (s *Server) beginMFAEnrollment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		Kind  multifactor.Kind `json:"kind"`
-		Phone string           `json:"phone"`
+		Kind               multifactor.Kind `json:"kind"`
+		Phone              string           `json:"phone"`
+		SMSConsentAccepted bool             `json:"sms_consent_accepted"`
+		SMSConsentVersion  string           `json:"sms_consent_version"`
 	}
 	if decodeJSON(w, r, &input) != nil {
 		return
 	}
-	result, err := s.multifactor.BeginEnrollment(r.Context(), authenticated.Session, input.Kind, input.Phone)
+	result, err := s.multifactor.BeginEnrollment(r.Context(), authenticated.Session, input.Kind, input.Phone, multifactor.EnrollmentConsent{Accepted: input.SMSConsentAccepted, Version: input.SMSConsentVersion})
 	if err != nil {
 		s.writeMFAError(w, err)
 		return

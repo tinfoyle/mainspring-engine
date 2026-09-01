@@ -840,6 +840,8 @@ export interface BeginContactChangeRequest {
 export interface BeginMFAEnrollmentRequest {
   readonly "kind": MFAKind;
   readonly "phone"?: string;
+  readonly "sms_consent_accepted"?: boolean;
+  readonly "sms_consent_version"?: "sms-security-v1-2026-09-01";
 }
 
 export interface BeginMFAReauthenticationRequest {

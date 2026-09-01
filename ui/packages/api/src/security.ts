@@ -19,8 +19,16 @@ export const logout = (): Promise<void> => requestJSON("/api/v1/session", { meth
 export function confirmPassword(password: string): Promise<void> {
   return requestJSON("/api/v1/session/reauthenticate", { method: "POST", body: JSON.stringify({ password }) });
 }
-export function beginMFAEnrollment(kind: MFAKind, phone?: string): Promise<MFAChallenge> {
-  return requestJSON("/api/v1/mfa-enrollments", { method: "POST", body: JSON.stringify({ kind, ...(phone ? { phone } : {}) }) });
+export const SMS_CONSENT_VERSION = "sms-security-v1-2026-09-01" as const;
+export function beginMFAEnrollment(kind: MFAKind, phone?: string, smsConsentAccepted = false): Promise<MFAChallenge> {
+  return requestJSON("/api/v1/mfa-enrollments", {
+    method: "POST",
+    body: JSON.stringify({
+      kind,
+      ...(phone ? { phone } : {}),
+      ...(kind === "sms" ? { sms_consent_accepted: smsConsentAccepted, sms_consent_version: SMS_CONSENT_VERSION } : {})
+    })
+  });
 }
 export function completeMFAEnrollment(challengeID: string, code: string): Promise<MFAMethod> {
   return requestJSON(`/api/v1/mfa-enrollments/${encodeURIComponent(challengeID)}/complete`, { method: "POST", body: JSON.stringify({ code }) });

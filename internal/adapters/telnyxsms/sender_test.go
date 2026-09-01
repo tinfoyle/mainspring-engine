@@ -33,7 +33,7 @@ func TestSenderUsesTelnyxV2PayloadAndBearerAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if payload["to"] != "+12025550199" || payload["from"] != "+17575550199" || !strings.Contains(payload["text"], "123456") || !strings.Contains(payload["text"], "Reply STOP") {
+	if payload["to"] != "+12025550199" || payload["from"] != "+17575550199" || !strings.Contains(payload["text"], "123456") || !strings.Contains(payload["text"], "Msg frequency varies") || !strings.Contains(payload["text"], "Msg & data rates may apply") || !strings.Contains(payload["text"], "Reply STOP") || !strings.Contains(payload["text"], "HELP for help") || len(payload["text"]) > 160 {
 		t.Fatalf("payload=%v", payload)
 	}
 	if _, exists := payload["message"]; exists {

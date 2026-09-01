@@ -63,7 +63,7 @@ func (s *Sender) SendMultifactor(ctx context.Context, message multifactor.Messag
 	}{
 		To:   message.Destination,
 		From: s.config.From,
-		Text: "Infinite Ocean security code: " + message.Code + ". Expires in 10 minutes. Do not share it. Reply STOP to opt out.",
+		Text: "Infinite Ocean: security code " + message.Code + ". Expires in 10 min. Msg frequency varies. Msg & data rates may apply. Reply STOP to opt out or HELP for help.",
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

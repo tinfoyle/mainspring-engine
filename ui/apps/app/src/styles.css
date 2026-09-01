@@ -68,6 +68,11 @@ main { min-width: 0; }
 .setup-code-warning { margin: -.2rem 0 0; color: var(--io-ocean-950); font-size: .84rem; }
 .setup-check { min-height: 52px; padding: .75rem; display: flex; align-items: center; gap: .7rem; border: 1px solid var(--io-line); border-radius: .75rem; color: var(--io-ocean-950); background: white; font-weight: 700; line-height: 1.35; }
 .setup-check input { flex: 0 0 auto; width: 1.35rem; height: 1.35rem; accent-color: var(--io-ocean-650); }
+.setup-sms-consent { align-items: flex-start; font-weight: 500; }
+.setup-sms-consent > span { display: grid; gap: .35rem; color: var(--io-ink-soft); }
+.setup-sms-consent strong { color: var(--io-ocean-950); }
+.setup-sms-consent small { font-size: .66rem; overflow-wrap: anywhere; }
+.setup-sms-consent a { color: var(--io-ocean-700); font-weight: 750; }
 .setup-help { margin: 0; padding: .25rem; color: var(--io-ink-soft); text-align: center; font-size: .76rem; line-height: 1.5; }
 .setup-state { min-height: 20rem; display: grid; place-items: center; align-content: center; gap: 1rem; text-align: center; }
 .setup-spinner { width: 2.4rem; height: 2.4rem; border: 3px solid var(--io-line); border-top-color: var(--io-ocean-650); border-radius: 50%; animation: setup-spin .8s linear infinite; }

@@ -72,6 +72,16 @@ func (r *MultifactorRepository) CreateChallenge(ctx context.Context, value multi
 	if err != nil {
 		return err
 	}
+	if value.SMSConsent != nil {
+		_, err = tx.Exec(ctx, `INSERT INTO sms_consent_receipts
+			(challenge_id,user_id,session_id,destination_fingerprint,consent_version,consent_copy,consent_copy_sha256,source,accepted_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+			value.ID, value.UserID, value.SessionID, value.DestinationHash[:], value.SMSConsent.Version,
+			value.SMSConsent.Text, value.SMSConsent.CopySHA256[:], value.SMSConsent.Source, value.SMSConsent.AcceptedAt.UTC())
+		if err != nil {
+			return err
+		}
+	}
 	return tx.Commit(ctx)
 }
 

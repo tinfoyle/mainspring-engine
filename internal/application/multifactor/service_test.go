@@ -83,7 +83,7 @@ func TestSMSEnrollmentVerifiesOwnershipAndMarksStrongReauthentication(t *testing
 		t.Fatal(err)
 	}
 
-	started, err := service.BeginEnrollment(context.Background(), session, multifactor.KindSMS, "(202) 555-0199")
+	started, err := service.BeginEnrollment(context.Background(), session, multifactor.KindSMS, "(202) 555-0199", multifactor.EnrollmentConsent{Accepted: true, Version: multifactor.SMSConsentVersion})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,6 +92,9 @@ func TestSMSEnrollmentVerifiesOwnershipAndMarksStrongReauthentication(t *testing
 	}
 	if bytes.Contains(repository.challenge.Destination.Ciphertext, []byte(delivery.message.Destination)) {
 		t.Fatal("stored SMS destination contains plaintext")
+	}
+	if repository.challenge.SMSConsent == nil || repository.challenge.SMSConsent.Version != multifactor.SMSConsentVersion || repository.challenge.SMSConsent.Text != multifactor.SMSConsentText || repository.challenge.SMSConsent.AcceptedAt != now {
+		t.Fatalf("SMS consent evidence=%+v", repository.challenge.SMSConsent)
 	}
 	if _, err := service.Complete(context.Background(), session, started.ChallengeID, "00000x"); err != multifactor.ErrInvalidChallenge {
 		t.Fatalf("invalid code error=%v", err)
@@ -103,6 +106,28 @@ func TestSMSEnrollmentVerifiesOwnershipAndMarksStrongReauthentication(t *testing
 	active, err := sessionService.Active(context.Background(), userID, sessionID)
 	if err != nil || len(active) != 1 || active[0].ReauthenticationMethod != sessions.AuthenticationMethodSMSOTP || active[0].ReauthenticationAssurance != sessions.AssuranceMultiFactor {
 		t.Fatalf("active sessions=%+v err=%v", active, err)
+	}
+}
+
+func TestSMSEnrollmentRequiresCurrentExplicitConsent(t *testing.T) {
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	userID := ids.UserID("10000000-0000-4000-8000-000000000001")
+	sessionID := ids.SessionID("20000000-0000-4000-8000-000000000002")
+	session := sessions.Session{ID: sessionID, UserID: userID}
+	sessionStore := memory.NewSessionStore()
+	if err := sessionStore.Create(context.Background(), sessions.Session{ID: sessionID, UserID: userID, SecurityVersion: 1, AuthenticatedAt: now, ReauthenticatedAt: now, LastSeenAt: now, RotatedAt: now, ExpiresAt: now.Add(time.Hour), AuthenticationMethod: sessions.AuthenticationMethodPassword, ReauthenticationMethod: sessions.AuthenticationMethodPassword}); err != nil {
+		t.Fatal(err)
+	}
+	sessionService, _ := sessions.NewService(sessionStore, &generator{values: []string{"50000000-0000-4000-8000-000000000005"}}, clock{now}, 24*time.Hour, time.Hour, 15*time.Minute)
+	cipher, _ := multifactor.NewCipher(bytes.Repeat([]byte{0x42}, 32))
+	service, _ := multifactor.NewService(&store{recipient: multifactor.Recipient{Email: "owner@example.com"}}, &sender{}, sessionService, cipher, &generator{values: []string{"30000000-0000-4000-8000-000000000003", "40000000-0000-4000-8000-000000000004"}}, clock{now}, true)
+	for _, consent := range []multifactor.EnrollmentConsent{{}, {Accepted: true, Version: "retired-copy"}, {Accepted: false, Version: multifactor.SMSConsentVersion}} {
+		if _, err := service.BeginEnrollment(context.Background(), session, multifactor.KindSMS, "2025550199", consent); err != multifactor.ErrInvalidRequest {
+			t.Fatalf("consent=%+v error=%v", consent, err)
+		}
+	}
+	if _, err := service.BeginEnrollment(context.Background(), session, multifactor.KindSMS, "+44 20 7946 0958", multifactor.EnrollmentConsent{Accepted: true, Version: multifactor.SMSConsentVersion}); err != multifactor.ErrInvalidRequest {
+		t.Fatalf("non-US enrollment error=%v", err)
 	}
 }
 

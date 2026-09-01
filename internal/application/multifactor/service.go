@@ -30,6 +30,9 @@ const (
 	PurposeEnrollment       Purpose = "enrollment"
 	PurposeReauthentication Purpose = "reauthentication"
 
+	SMSConsentVersion = "sms-security-v1-2026-09-01"
+	SMSConsentText    = "By checking this box, you agree to receive one-time security codes from Infinite Ocean at this number. Message frequency varies. Standard message and data rates may apply. Reply STOP to opt out or HELP for help. Consent is not a condition of purchase. Your mobile information will not be sold or shared with third parties or affiliates for promotional or marketing purposes."
+
 	codeTTL = 10 * time.Minute
 )
 
@@ -38,6 +41,7 @@ var (
 	ErrInvalidChallenge = errors.New("multifactor code is invalid or expired")
 	ErrRateLimited      = errors.New("too many multifactor codes were requested")
 	phonePattern        = regexp.MustCompile(`^\+[1-9][0-9]{7,14}$`)
+	usPhonePattern      = regexp.MustCompile(`^\+1[2-9][0-9]{2}[2-9][0-9]{6}$`)
 )
 
 type Method struct {
@@ -72,6 +76,20 @@ type Challenge struct {
 	CodeHash           [32]byte
 	ExpiresAt          time.Time
 	CreatedAt          time.Time
+	SMSConsent         *SMSConsentEvidence
+}
+
+type EnrollmentConsent struct {
+	Accepted bool
+	Version  string
+}
+
+type SMSConsentEvidence struct {
+	Version    string
+	Text       string
+	CopySHA256 [sha256.Size]byte
+	Source     string
+	AcceptedAt time.Time
 }
 
 type Store interface {
@@ -172,7 +190,7 @@ type BeginResult struct {
 	DevelopmentCode string    `json:"development_code,omitempty"`
 }
 
-func (s *Service) BeginEnrollment(ctx context.Context, session sessions.Session, kind Kind, phone string) (BeginResult, error) {
+func (s *Service) BeginEnrollment(ctx context.Context, session sessions.Session, kind Kind, phone string, consent EnrollmentConsent) (BeginResult, error) {
 	if session.UserID == "" || session.ID == "" || (kind != KindSMS && kind != KindEmail) {
 		return BeginResult{}, ErrInvalidRequest
 	}
@@ -181,13 +199,23 @@ func (s *Service) BeginEnrollment(ctx context.Context, session sessions.Session,
 		return BeginResult{}, err
 	}
 	destination := recipient.Email
+	var evidence *SMSConsentEvidence
 	if kind == KindSMS {
+		if !consent.Accepted || consent.Version != SMSConsentVersion {
+			return BeginResult{}, ErrInvalidRequest
+		}
 		destination, err = NormalizePhone(phone)
 		if err != nil {
 			return BeginResult{}, err
 		}
+		if !usPhonePattern.MatchString(destination) {
+			return BeginResult{}, ErrInvalidRequest
+		}
+		evidence = &SMSConsentEvidence{Version: SMSConsentVersion, Text: SMSConsentText, CopySHA256: sha256.Sum256([]byte(SMSConsentText)), Source: "setup_sms_enrollment"}
+	} else if consent.Accepted || consent.Version != "" {
+		return BeginResult{}, ErrInvalidRequest
 	}
-	return s.begin(ctx, session, kind, PurposeEnrollment, "", destination, recipient.DisplayName)
+	return s.begin(ctx, session, kind, PurposeEnrollment, "", destination, recipient.DisplayName, evidence)
 }
 
 func (s *Service) BeginReauthentication(ctx context.Context, session sessions.Session, methodID string) (BeginResult, error) {
@@ -209,10 +237,10 @@ func (s *Service) BeginReauthentication(ctx context.Context, session sessions.Se
 			return BeginResult{}, err
 		}
 	}
-	return s.begin(ctx, session, method.Kind, PurposeReauthentication, method.ID, destination, recipient.DisplayName)
+	return s.begin(ctx, session, method.Kind, PurposeReauthentication, method.ID, destination, recipient.DisplayName, nil)
 }
 
-func (s *Service) begin(ctx context.Context, session sessions.Session, kind Kind, purpose Purpose, methodID, destination, displayName string) (BeginResult, error) {
+func (s *Service) begin(ctx context.Context, session sessions.Session, kind Kind, purpose Purpose, methodID, destination, displayName string, consent *SMSConsentEvidence) (BeginResult, error) {
 	challengeID := s.ids.New()
 	methodResultID := ""
 	if purpose == PurposeEnrollment {
@@ -223,6 +251,9 @@ func (s *Service) begin(ctx context.Context, session sessions.Session, kind Kind
 		return BeginResult{}, err
 	}
 	now := s.clock.Now().UTC()
+	if consent != nil {
+		consent.AcceptedAt = now
+	}
 	hint := destinationHint(kind, destination)
 	envelope := Envelope{}
 	if kind == KindSMS {
@@ -231,7 +262,7 @@ func (s *Service) begin(ctx context.Context, session sessions.Session, kind Kind
 			return BeginResult{}, err
 		}
 	}
-	challenge := Challenge{ID: challengeID, ResultMethodID: methodResultID, MethodID: methodID, UserID: session.UserID, SessionID: session.ID, Purpose: purpose, Kind: kind, Destination: envelope, DestinationHash: s.cipher.digest("destination/"+string(kind), destination), DestinationHint: hint, CodeHash: s.cipher.digest("code/"+challengeID, code), CreatedAt: now, ExpiresAt: now.Add(codeTTL)}
+	challenge := Challenge{ID: challengeID, ResultMethodID: methodResultID, MethodID: methodID, UserID: session.UserID, SessionID: session.ID, Purpose: purpose, Kind: kind, Destination: envelope, DestinationHash: s.cipher.digest("destination/"+string(kind), destination), DestinationHint: hint, CodeHash: s.cipher.digest("code/"+challengeID, code), CreatedAt: now, ExpiresAt: now.Add(codeTTL), SMSConsent: consent}
 	if err := s.store.CreateChallenge(ctx, challenge); err != nil {
 		return BeginResult{}, err
 	}

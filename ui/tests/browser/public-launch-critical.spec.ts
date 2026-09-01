@@ -34,6 +34,7 @@ const publicFeatureAndPolicyRoutes = [
   { path: "/features/export-lifecycle", heading: "Get your data when you need it" },
   { path: "/privacy", heading: "Privacy, in plain language." },
   { path: "/terms", heading: "Terms and Conditions" },
+  { path: "/sms-consent", heading: "Text messages are optional and only used for security codes." },
   { path: "/affiliate-terms", heading: "Affiliate program terms" }
 ] as const;
 

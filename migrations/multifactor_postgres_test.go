@@ -74,7 +74,7 @@ func TestPostgresMultifactorEnrollmentAndStrongReauthentication(t *testing.T) {
 		t.Fatal(err)
 	}
 	session := sessions.Session{ID: sessionID, UserID: userID}
-	started, err := service.BeginEnrollment(ctx, session, multifactor.KindSMS, "(202) 555-0199")
+	started, err := service.BeginEnrollment(ctx, session, multifactor.KindSMS, "(202) 555-0199", multifactor.EnrollmentConsent{Accepted: true, Version: multifactor.SMSConsentVersion})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,6 +84,15 @@ func TestPostgresMultifactorEnrollmentAndStrongReauthentication(t *testing.T) {
 	}
 	if bytes.Contains(ciphertext, []byte("+12025550199")) || bytes.Contains(codeHash, []byte(started.DevelopmentCode)) {
 		t.Fatal("multifactor challenge persisted plaintext secret material")
+	}
+	var consentVersion, consentCopy, consentSource string
+	var consentCopyHash, consentDestinationHash []byte
+	var consentAcceptedAt time.Time
+	if err := pool.QueryRow(ctx, `SELECT consent_version,consent_copy,consent_copy_sha256,destination_fingerprint,source,accepted_at FROM sms_consent_receipts WHERE challenge_id=$1`, started.ChallengeID).Scan(&consentVersion, &consentCopy, &consentCopyHash, &consentDestinationHash, &consentSource, &consentAcceptedAt); err != nil {
+		t.Fatal(err)
+	}
+	if consentVersion != multifactor.SMSConsentVersion || consentCopy != multifactor.SMSConsentText || consentSource != "setup_sms_enrollment" || len(consentCopyHash) != 32 || len(consentDestinationHash) != 32 || !consentAcceptedAt.Equal(now) || bytes.Contains(consentDestinationHash, []byte("+12025550199")) {
+		t.Fatalf("unexpected SMS consent evidence version=%q source=%q copy=%x destination=%x accepted=%s", consentVersion, consentSource, consentCopyHash, consentDestinationHash, consentAcceptedAt)
 	}
 	method, err := service.Complete(ctx, session, started.ChallengeID, started.DevelopmentCode)
 	if err != nil || method.Kind != multifactor.KindSMS {

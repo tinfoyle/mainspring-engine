@@ -36,6 +36,7 @@ const routes = [
   "/pricing",
   "/privacy",
   "/terms",
+  "/sms-consent",
   "/affiliate-terms"
 ];
 

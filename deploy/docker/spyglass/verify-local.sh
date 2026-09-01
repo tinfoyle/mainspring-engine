@@ -196,7 +196,7 @@ curl "${curl_common[@]}" --resolve "web.infiniteocean.localhost:${tls_port}:127.
 grep -q "https://app.infiniteocean.localhost:${tls_port}/signup" /tmp/spyglass-local-pricing.html
 assert_public_discovery /tmp/spyglass-local-pricing.html /pricing
 
-for route in features privacy affiliate-terms; do
+for route in features privacy sms-consent affiliate-terms; do
   curl "${curl_common[@]}" --resolve "web.infiniteocean.localhost:${tls_port}:127.0.0.1" \
     "${public_origin}/${route}" >"/tmp/spyglass-local-${route}.html"
   grep -q '<meta name="description" content="' "/tmp/spyglass-local-${route}.html"
@@ -205,6 +205,7 @@ for route in features privacy affiliate-terms; do
 done
 grep -q 'Complete feature map' /tmp/spyglass-local-features.html
 grep -q 'Privacy, in plain language' /tmp/spyglass-local-privacy.html
+grep -q 'Text messages are optional and only used for security codes' /tmp/spyglass-local-sms-consent.html
 grep -q 'Affiliate program terms' /tmp/spyglass-local-affiliate-terms.html
 
 public_feature_slugs=(your-turn work knowledge baseline agents schedules finance marketing integrations account-administration security export-lifecycle)
@@ -230,7 +231,7 @@ curl "${curl_common[@]}" --resolve "web.infiniteocean.localhost:${tls_port}:127.
 grep -Fq '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' /tmp/spyglass-local-sitemap.xml
 public_routes=(/ /features)
 for slug in "${public_feature_slugs[@]}"; do public_routes+=("/features/${slug}"); done
-public_routes+=(/pricing /privacy /affiliate-terms)
+public_routes+=(/pricing /privacy /terms /sms-consent /affiliate-terms)
 test "$(grep -o '<url>' /tmp/spyglass-local-sitemap.xml | wc -l)" -eq "${#public_routes[@]}"
 for route in "${public_routes[@]}"; do
   if [[ "$route" = "/" ]]; then
