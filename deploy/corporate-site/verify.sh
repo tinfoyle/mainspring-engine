@@ -17,6 +17,7 @@ for route in index.html spyglass/index.html about/index.html contact/index.html 
 done
 
 test -s "$root/assets/og.png"
+test -s "$root/favicon.svg"
 grep -q 'Your mobile information will not be sold or shared with third parties or affiliates for promotional or marketing purposes.' "$root/privacy/index.html"
 grep -q 'Reply <strong>STOP</strong> to opt out or <strong>HELP</strong> for help.' "$root/terms/index.html"
 grep -q 'Read and check the separate, unchecked consent box.' "$root/sms-consent/index.html"
