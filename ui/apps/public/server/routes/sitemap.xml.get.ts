@@ -1,7 +1,7 @@
 import { publicFeatures } from "../../app/content/features";
 
 const origin = "https://www.infiniteocean.net";
-const routes = ["/", "/features", ...publicFeatures.map((feature) => `/features/${feature.slug}`), "/pricing", "/privacy", "/affiliate-terms"];
+const routes = ["/", "/features", ...publicFeatures.map((feature) => `/features/${feature.slug}`), "/pricing", "/privacy", "/terms", "/affiliate-terms"];
 
 export default defineEventHandler((event): string => {
   setResponseHeader(event, "Content-Type", "application/xml; charset=utf-8");

@@ -35,6 +35,7 @@ const routes = [
   "/features/export-lifecycle",
   "/pricing",
   "/privacy",
+  "/terms",
   "/affiliate-terms"
 ];
 

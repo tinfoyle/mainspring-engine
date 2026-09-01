@@ -72,6 +72,9 @@ describe("first-login account setup", () => {
     const { wrapper, router } = await mountView("/app/work"); await flushPromises();
     await wrapper.findAll("button").find((button) => button.text().includes("Text message"))?.trigger("click");
     expect(wrapper.text()).toContain("Reply STOP to opt out or HELP for help.");
+    expect(wrapper.text()).toContain("Consent is not a condition of purchase.");
+    expect(wrapper.get('a[href="https://www.infiniteocean.net/privacy"]').text()).toBe("Privacy Policy");
+    expect(wrapper.get('a[href="https://www.infiniteocean.net/terms"]').text()).toBe("Terms and Conditions");
     await wrapper.get('input[type="tel"]').setValue("(202) 555-0199"); await wrapper.get("form").trigger("submit"); await flushPromises();
     expect(wrapper.text()).toContain("phone ending in 0199");
     expect((wrapper.get('input[autocomplete="one-time-code"]').element as HTMLInputElement).value).toBe("123456");

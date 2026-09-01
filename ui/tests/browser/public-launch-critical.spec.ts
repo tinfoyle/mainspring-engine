@@ -33,6 +33,7 @@ const publicFeatureAndPolicyRoutes = [
   { path: "/features/security", heading: "Protect the important stuff" },
   { path: "/features/export-lifecycle", heading: "Get your data when you need it" },
   { path: "/privacy", heading: "Privacy, in plain language." },
+  { path: "/terms", heading: "Terms and Conditions" },
   { path: "/affiliate-terms", heading: "Affiliate program terms" }
 ] as const;
 

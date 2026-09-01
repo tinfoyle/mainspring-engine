@@ -116,7 +116,7 @@ void load();
             <h1>{{ choice === 'sms' ? 'What mobile number should we use?' : 'Send a code to your email' }}</h1>
             <p class="setup-lead">{{ choice === 'sms' ? 'We will send a 6-digit code to confirm the phone is yours.' : 'We will send a 6-digit code to the verified email you use for Infinite Ocean.' }}</p>
             <label v-if="choice === 'sms'">US mobile number<input v-model="phone" type="tel" autocomplete="tel" maxlength="32" placeholder="(555) 123-4567" required><small>Enter a US mobile number that can receive text messages.</small></label>
-            <p v-if="choice === 'sms'" class="setup-consent">By continuing, you agree to receive one-time security codes from Infinite Ocean at this number. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help.</p>
+            <p v-if="choice === 'sms'" class="setup-consent">By continuing, you agree to receive one-time security codes from Infinite Ocean at this number. Message frequency varies. Message and data rates may apply. Reply STOP to opt out or HELP for help. Consent is not a condition of purchase. Read our <a href="https://www.infiniteocean.net/privacy" target="_blank" rel="noopener">Privacy Policy</a> and <a href="https://www.infiniteocean.net/terms" target="_blank" rel="noopener">Terms and Conditions</a>.</p>
             <div v-else class="setup-explainer"><strong>Use my verified email</strong><span>You will see a masked address after the code is sent.</span></div>
             <IoButton type="submit" :disabled="saving">{{ saving ? "Sending…" : "Send my code" }}</IoButton>
             <button type="button" class="setup-text-action" @click="changeChoice">Choose a different method</button>
