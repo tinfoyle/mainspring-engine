@@ -8,6 +8,7 @@ import {
 } from "@spyglass/api";
 import { IoButton } from "@spyglass/design-system";
 import { computed, ref } from "vue";
+import { useRoute } from "vue-router";
 import { useSafeNavigation } from "../composables/useSafeNavigation";
 import { useSessionStore } from "../stores/session";
 import { registerPasskey, reauthenticateWithPasskey } from "../webauthn";
@@ -23,10 +24,13 @@ const password = ref(""); const passkeyName = ref(""); const newEmail = ref("");
 const newCodes = ref<ReadonlyArray<string>>([]); const contactNotice = ref("");
 const actionOpen = ref(false); const action = ref<DestructiveAction>("revoke_session"); const targetID = ref(""); const targetName = ref(""); const confirmation = ref("");
 const targetCurrent = ref(false);
+const route = useRoute();
 const sessionStore = useSessionStore();
 const renameDirty = ref(false);
 const ownerReady = computed(() => posture.value?.owner_ready ?? false);
-const returnTo = (() => { const value = new URLSearchParams(window.location.search).get("return_to") ?? ""; return value.startsWith("/") && !value.startsWith("//") ? value : ""; })();
+const returnTo = (() => { const raw = Array.isArray(route.query.return_to) ? route.query.return_to[0] : route.query.return_to; return typeof raw === "string" && raw.startsWith("/") && !raw.startsWith("//") ? raw : ""; })();
+const reauthenticationStatus = (() => { const raw = Array.isArray(route.query.status) ? route.query.status[0] : route.query.status; return typeof raw === "string" ? raw : ""; })();
+const checkoutReauthenticationRequired = reauthenticationStatus === "strong_reauthentication_required" && returnTo.startsWith("/app/checkout");
 const hasUnsavedSecurityWork = computed(() => actionOpen.value
   || Boolean(password.value || passkeyName.value || newEmail.value || recoveryCode.value)
   || Boolean(mfaChallenge.value || mfaCode.value)
@@ -131,6 +135,11 @@ void load();
     <p class="sr-only" aria-live="polite" aria-atomic="true">{{ announcement }}</p>
     <p v-if="navigationNotice && !actionOpen" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
     <header class="page-heading"><p class="eyebrow">Identity security</p><h1>Security follows you</h1><p>Your security methods, recovery options, sessions, and connected applications belong to your Infinite Ocean identity—not to one Account.</p></header>
+    <section v-if="checkoutReauthenticationRequired" class="queue-state queue-state--warning" aria-labelledby="checkout-reauthentication-title">
+      <h2 id="checkout-reauthentication-title">Checkout needs a quick security check</h2>
+      <p>To protect your team's billing, confirm with a passkey, text message, or email code completed within the last ten minutes. Password confirmation does not authorize checkout.</p>
+      <p>Choose a method under <a href="#security-confirmation">Confirm your identity</a>. After the confirmation succeeds, Spyglass will return you to Checkout automatically.</p>
+    </section>
     <section v-if="loading" class="queue-state" role="status"><h2>Loading identity security…</h2></section>
     <section v-else-if="error && !identity" class="queue-state queue-state--error" role="alert"><h2>Security did not load</h2><p>{{ error }}</p><IoButton kind="secondary" @click="load">Try again</IoButton></section>
     <template v-else>
@@ -138,7 +147,7 @@ void load();
       <section class="security-posture"><div><p class="eyebrow">Owner readiness</p><h2>{{ ownerReady ? "Identity secured" : "Setup incomplete" }}</h2><p>{{ identity?.primary_email }}</p></div><dl><div><dt>Passkeys</dt><dd>{{ posture?.passkey_count ?? 0 }}</dd></div><div><dt>Code methods</dt><dd>{{ posture?.mfa_method_count ?? 0 }}</dd></div><div><dt>Recovery codes</dt><dd>{{ posture?.recovery_codes_remaining ?? 0 }}</dd></div></dl></section>
 
       <div class="security-grid">
-        <section class="security-card"><h2>Confirm your identity</h2><p>Password confirmation unlocks factor recovery. A passkey, text, or email code unlocks privileged Account changes for ten minutes.</p><form @submit.prevent="submitPassword"><label>Current password<input v-model="password" type="password" autocomplete="current-password" minlength="12" required></label><IoButton type="submit" :disabled="saving">Confirm password</IoButton></form><IoButton v-if="passkeys.length" kind="secondary" :disabled="saving" @click="confirmPasskey">Confirm with a passkey</IoButton><IoButton v-for="method in mfaMethods" :key="method.id" kind="secondary" :disabled="saving" @click="sendMFACode(method)">Send code to {{ method.destination_hint }}</IoButton><form v-if="mfaChallenge" @submit.prevent="confirmMFACode"><p>Enter the 6-digit code sent to {{ mfaChallenge.destination_hint }}.</p><p v-if="mfaChallenge.development_code" class="form-note">Local test code: {{ mfaChallenge.development_code }}</p><label>Security code<input v-model="mfaCode" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label><IoButton type="submit" :disabled="saving || mfaCode.length !== 6">Confirm code</IoButton></form></section>
+        <section id="security-confirmation" class="security-card"><h2>Confirm your identity</h2><p>Password confirmation unlocks factor recovery. A passkey, text, or email code unlocks privileged Account changes for ten minutes.</p><form @submit.prevent="submitPassword"><label>Current password<input v-model="password" type="password" autocomplete="current-password" minlength="12" required></label><IoButton type="submit" :disabled="saving">Confirm password</IoButton></form><IoButton v-if="passkeys.length" kind="secondary" :disabled="saving" @click="confirmPasskey">Confirm with a passkey</IoButton><IoButton v-for="method in mfaMethods" :key="method.id" kind="secondary" :disabled="saving" @click="sendMFACode(method)">Send code to {{ method.destination_hint }}</IoButton><form v-if="mfaChallenge" @submit.prevent="confirmMFACode"><p>Enter the 6-digit code sent to {{ mfaChallenge.destination_hint }}.</p><p v-if="mfaChallenge.development_code" class="form-note">Local test code: {{ mfaChallenge.development_code }}</p><label>Security code<input v-model="mfaCode" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label><IoButton type="submit" :disabled="saving || mfaCode.length !== 6">Confirm code</IoButton></form></section>
         <section class="security-card"><h2>Verified contact</h2><p>Current login: <strong>{{ identity?.primary_email }}</strong>. A new mailbox must verify the request; completion signs out every session.</p><form @submit.prevent="changeContact"><label>New email<input v-model="newEmail" type="email" autocomplete="email" maxlength="254" required></label><IoButton type="submit" :disabled="saving">Send verification</IoButton></form><p v-if="contactNotice" class="referral-confirmed" role="status">{{ contactNotice }}</p></section>
       </div>
 

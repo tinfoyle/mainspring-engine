@@ -20,7 +20,7 @@ vi.mock("@spyglass/api", async (original) => ({ ...await original<typeof import(
 vi.mock("../webauthn", () => webauthn);
 
 const currentSession = { id: "10000000-0000-4000-8000-000000000001", client_label: "Firefox on laptop", authenticated_at: "2026-08-24T20:00:00Z", reauthenticated_at: "2026-08-24T20:00:00Z", last_seen_at: "2026-08-24T20:00:00Z", expires_at: "2026-09-24T20:00:00Z", current: true, authentication_method: "password", authentication_assurance: "single_factor", reauthentication_method: "password", reauthentication_assurance: "single_factor" } as const;
-async function mountView() { const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/app/security", component: SecurityView }] }); const pinia = createPinia(); useSessionStore(pinia).selectedID = "30000000-0000-4000-8000-000000000003"; await router.push("/app/security"); await router.isReady(); return mount(SecurityView, { global: { plugins: [pinia, router] } }); }
+async function mountView(path = "/app/security") { const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/app/security", component: SecurityView }] }); const pinia = createPinia(); useSessionStore(pinia).selectedID = "30000000-0000-4000-8000-000000000003"; await router.push(path); await router.isReady(); return mount(SecurityView, { global: { plugins: [pinia, router] } }); }
 beforeEach(() => {
   for (const mock of [...Object.values(api), ...Object.values(webauthn)]) mock.mockReset();
   api.getCurrentIdentity.mockResolvedValue({ user_id: "20000000-0000-4000-8000-000000000002", primary_email: "owner@example.com" });
@@ -35,6 +35,15 @@ beforeEach(() => {
   api.emitAnalytics.mockResolvedValue(true);
 });
 describe("Security surface", () => {
+  it("explains a checkout reauthentication handoff before showing security methods", async () => {
+    const wrapper = await mountView("/app/security?return_to=%2Fapp%2Fcheckout&status=strong_reauthentication_required"); await flushPromises();
+    const notice = wrapper.get('[aria-labelledby="checkout-reauthentication-title"]');
+    expect(notice.text()).toContain("Checkout needs a quick security check");
+    expect(notice.text()).toContain("Password confirmation does not authorize checkout");
+    expect(notice.text()).toContain("return you to Checkout automatically");
+    expect(notice.get('a[href="#security-confirmation"]')).toBeDefined();
+    await expectNoAxeViolations(wrapper.element);
+  });
   it("renders the complete identity boundary without Account coupling", async () => {
     const wrapper = await mountView(); await flushPromises();
     expect(wrapper.text()).toContain("owner@example.com"); expect(wrapper.text()).toContain("Laptop");
