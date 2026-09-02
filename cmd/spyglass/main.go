@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"os"
 	"os/signal"
 	"sort"
@@ -1353,7 +1354,7 @@ func runAccountAPI(ctx context.Context, logger *slog.Logger) error {
 	if config.localMCPClientID != "" {
 		localMCPClient = &mcpauth.Client{ID: config.localMCPClientID, Name: config.localMCPClientName, RedirectURIs: []string{config.localMCPClientRedirectURI}}
 	}
-	server, err := accountapi.New(startup, accountapi.Config{Environment: config.environment, DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeMode: config.stripeMode, StripeHTTPClient: stripeClient, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, MCPResourceOrigin: config.mcpResourceOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PrivacyPreferenceKey: config.privacyPreferenceKey, AnalyticsHandoffCookieDomain: config.analyticsHandoffCookieDomain, PasskeyEncryptionKeys: config.passkeyEncryptionKeys, PasskeyActiveKeyVersion: config.passkeyActiveKeyVersion, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval, AffiliateEnrollmentOpen: config.affiliateEnrollmentOpen, AffiliateAttributionEnabled: config.affiliateAttributionEnabled, AffiliateSettlementMode: config.affiliateSettlementMode, AffiliateTermsVersion: config.affiliateTermsVersion, AffiliateRuleVersion: config.affiliateRuleVersion, LocalMCPClientMetadata: localMCPClient, GoogleLoginClientFile: config.googleLoginClientFile,
+	server, err := accountapi.New(startup, accountapi.Config{Environment: config.environment, DatabaseURL: config.databaseURL, StripeWebhookSecret: config.stripeWebhookSecret, StripeSecretKey: config.stripeSecretKey, StripeAPIVersion: config.stripeAPIVersion, StripeBaseURL: config.stripeBaseURL, StripeMode: config.stripeMode, StripeHTTPClient: stripeClient, MaxDatabaseConns: config.maxDatabaseConns, AppOrigin: config.appOrigin, PublicOrigin: config.publicOrigin, MCPResourceOrigin: config.mcpResourceOrigin, NotificationEncryptionKey: config.notificationEncryptionKey, NetworkActorKey: config.networkActorKey, PrivacyPreferenceKey: config.privacyPreferenceKey, AnalyticsHandoffCookieDomain: config.analyticsHandoffCookieDomain, PasskeyEncryptionKeys: config.passkeyEncryptionKeys, PasskeyActiveKeyVersion: config.passkeyActiveKeyVersion, PasskeyRPID: config.passkeyRPID, TrustedProxyCIDRs: config.trustedProxyCIDRs, CatalogRefreshInterval: config.catalogRefreshInterval, AffiliateEnrollmentOpen: config.affiliateEnrollmentOpen, AffiliateAttributionEnabled: config.affiliateAttributionEnabled, AffiliateSettlementMode: config.affiliateSettlementMode, AffiliateTermsVersion: config.affiliateTermsVersion, AffiliateRuleVersion: config.affiliateRuleVersion, LocalMCPClientMetadata: localMCPClient, GoogleLoginClientFile: config.googleLoginClientFile,
 		ExportObject:        s3objects.Config{Endpoint: envOr("SPYGLASS_OBJECT_STORE_ENDPOINT", "object-store:9000"), Region: os.Getenv("SPYGLASS_OBJECT_STORE_REGION"), Bucket: envOr("SPYGLASS_ACCOUNT_EXPORT_OBJECT_STORE_BUCKET", "spyglass-account-exports"), AccessKey: exportObjectAccessKey, SecretKey: exportObjectSecretKey, Secure: objectSecure, ServerSideEncryption: objectSSE},
 		ExportDownloadKeyID: exportKeyID, ExportDownloadKeys: exportKeys, ExportDownloadLifetime: exportLifetime}, logger)
 	if err != nil {
@@ -1873,6 +1874,14 @@ func runBillingWorker(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	environment, err := requiredEnv("SPYGLASS_ENVIRONMENT")
+	if err != nil {
+		return err
+	}
+	stripeBaseURL, err := localStripeBaseURL(environment)
+	if err != nil {
+		return err
+	}
 	maxConns, err := int32Env("SPYGLASS_MAX_DATABASE_CONNS", 5)
 	if err != nil {
 		return err
@@ -1883,7 +1892,7 @@ func runBillingWorker(ctx context.Context, logger *slog.Logger) error {
 	}
 	startup, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	worker, err := billingworker.New(startup, billingworker.Config{DatabaseURL: databaseURL, StripeSecretKey: secretKey, StripeAPIVersion: envOr("SPYGLASS_STRIPE_API_VERSION", stripe.DefaultAPIVersion), StripeMode: mode, MaxDatabaseConns: maxConns, PollInterval: poll}, logger)
+	worker, err := billingworker.New(startup, billingworker.Config{DatabaseURL: databaseURL, StripeSecretKey: secretKey, StripeAPIVersion: envOr("SPYGLASS_STRIPE_API_VERSION", stripe.DefaultAPIVersion), StripeBaseURL: stripeBaseURL, StripeMode: mode, MaxDatabaseConns: maxConns, PollInterval: poll}, logger)
 	if err != nil {
 		return err
 	}
@@ -3576,20 +3585,20 @@ func serveWorker(ctx context.Context, name, healthAddress string, worker runnabl
 }
 
 type persistentConfig struct {
-	environment, databaseURL, stripeWebhookSecret, stripeSecretKey, stripeAPIVersion, stripeMode, appOrigin, publicOrigin, mcpResourceOrigin, passkeyRPID, analyticsHandoffCookieDomain string
-	googleLoginClientFile                                                                                                                                                               string
-	localMCPClientID, localMCPClientName, localMCPClientRedirectURI                                                                                                                     string
-	notificationEncryptionKey                                                                                                                                                           []byte
-	networkActorKey                                                                                                                                                                     []byte
-	privacyPreferenceKey                                                                                                                                                                []byte
-	passkeyEncryptionKeys                                                                                                                                                               map[int][]byte
-	passkeyActiveKeyVersion                                                                                                                                                             int
-	trustedProxyCIDRs                                                                                                                                                                   []string
-	maxDatabaseConns                                                                                                                                                                    int32
-	catalogRefreshInterval                                                                                                                                                              time.Duration
-	affiliateEnrollmentOpen, affiliateAttributionEnabled                                                                                                                                bool
-	affiliateSettlementMode                                                                                                                                                             string
-	affiliateTermsVersion, affiliateRuleVersion                                                                                                                                         uint64
+	environment, databaseURL, stripeWebhookSecret, stripeSecretKey, stripeAPIVersion, stripeBaseURL, stripeMode, appOrigin, publicOrigin, mcpResourceOrigin, passkeyRPID, analyticsHandoffCookieDomain string
+	googleLoginClientFile                                                                                                                                                                              string
+	localMCPClientID, localMCPClientName, localMCPClientRedirectURI                                                                                                                                    string
+	notificationEncryptionKey                                                                                                                                                                          []byte
+	networkActorKey                                                                                                                                                                                    []byte
+	privacyPreferenceKey                                                                                                                                                                               []byte
+	passkeyEncryptionKeys                                                                                                                                                                              map[int][]byte
+	passkeyActiveKeyVersion                                                                                                                                                                            int
+	trustedProxyCIDRs                                                                                                                                                                                  []string
+	maxDatabaseConns                                                                                                                                                                                   int32
+	catalogRefreshInterval                                                                                                                                                                             time.Duration
+	affiliateEnrollmentOpen, affiliateAttributionEnabled                                                                                                                                               bool
+	affiliateSettlementMode                                                                                                                                                                            string
+	affiliateTermsVersion, affiliateRuleVersion                                                                                                                                                        uint64
 }
 
 func productionConfig() (persistentConfig, error) {
@@ -3606,6 +3615,10 @@ func productionConfig() (persistentConfig, error) {
 		}
 	}
 	result.stripeAPIVersion = envOr("SPYGLASS_STRIPE_API_VERSION", stripe.DefaultAPIVersion)
+	result.stripeBaseURL, err = localStripeBaseURL(result.environment)
+	if err != nil {
+		return persistentConfig{}, err
+	}
 	result.localMCPClientID = strings.TrimSpace(os.Getenv("SPYGLASS_LOCAL_MCP_CLIENT_ID"))
 	result.localMCPClientName = strings.TrimSpace(os.Getenv("SPYGLASS_LOCAL_MCP_CLIENT_NAME"))
 	result.localMCPClientRedirectURI = strings.TrimSpace(os.Getenv("SPYGLASS_LOCAL_MCP_CLIENT_REDIRECT_URI"))
@@ -3975,6 +3988,26 @@ func requiredEnv(name string) (string, error) {
 	}
 	return value, nil
 }
+func localStripeBaseURL(environment string) (string, error) {
+	raw := strings.TrimSpace(os.Getenv("SPYGLASS_STRIPE_BASE_URL"))
+	if raw == "" {
+		return "", nil
+	}
+	if environment != "local" && environment != "local-secure" {
+		return "", errors.New("SPYGLASS_STRIPE_BASE_URL is restricted to a local environment")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
+		return "", errors.New("SPYGLASS_STRIPE_BASE_URL must be an absolute local HTTP(S) origin")
+	}
+	host := parsed.Hostname()
+	ip := net.ParseIP(host)
+	if host != "stripe-fixture" && host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+		return "", errors.New("SPYGLASS_STRIPE_BASE_URL must name the local Stripe fixture")
+	}
+	return strings.TrimRight(parsed.String(), "/"), nil
+}
+
 func envOr(name, fallback string) string {
 	if value := os.Getenv(name); value != "" {
 		return value

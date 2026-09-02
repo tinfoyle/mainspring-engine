@@ -61,6 +61,19 @@ COPY --from=openai-fixture-build /out/openai-fixture /openai-fixture
 USER 65532:65532
 ENTRYPOINT ["/openai-fixture"]
 
+FROM ${GO_IMAGE} AS stripe-fixture-build
+WORKDIR /src
+COPY go.mod ./
+COPY cmd/stripe-fixture ./cmd/stripe-fixture
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags="-s -w -buildid=" \
+    -o /out/stripe-fixture ./cmd/stripe-fixture
+
+FROM alpine:3.23.3@sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659 AS stripe-fixture-runtime
+COPY --from=stripe-fixture-build /out/stripe-fixture /stripe-fixture
+USER 65532:65532
+ENTRYPOINT ["/stripe-fixture"]
+
 FROM build AS test-runtime
 
 RUN apk add --no-cache gcc musl-dev

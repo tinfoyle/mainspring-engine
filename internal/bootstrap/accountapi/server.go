@@ -64,6 +64,7 @@ type Config struct {
 	StripeWebhookSecret          string
 	StripeSecretKey              string
 	StripeAPIVersion             string
+	StripeBaseURL                string
 	StripeMode                   string
 	StripeHTTPClient             *http.Client
 	MaxDatabaseConns             int32
@@ -320,7 +321,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
-	stripeProvider, err := stripeadapter.New(config.StripeSecretKey, config.StripeAPIVersion, config.StripeHTTPClient)
+	stripeProvider, err := stripeadapter.NewWithBaseURL(config.StripeSecretKey, config.StripeAPIVersion, config.StripeBaseURL, config.StripeHTTPClient)
 	if err != nil {
 		pool.Close()
 		return nil, err

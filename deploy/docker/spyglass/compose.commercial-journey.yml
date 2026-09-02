@@ -1,0 +1,49 @@
+services:
+  stripe-fixture:
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+      target: stripe-fixture-runtime
+    image: spyglass-stripe-fixture:local
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      STRIPE_FIXTURE_SECRET_KEY: sk_test_local_not_a_real_key
+      STRIPE_FIXTURE_WEBHOOK_SECRET: whsec_local_not_a_real_secret
+      STRIPE_FIXTURE_WEBHOOK_URL: http://account-api:8080/webhooks/stripe
+      STRIPE_FIXTURE_HOSTED_ORIGIN: https://stripe.infiniteocean.localhost:8444
+      STRIPE_FIXTURE_COMPLETION_TOKEN: local-commercial-journey-completion-token
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/health/ready]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
+    networks: [application]
+
+  account-api:
+    environment:
+      SPYGLASS_STRIPE_BASE_URL: http://stripe-fixture:8080
+    depends_on:
+      stripe-fixture: {condition: service_healthy}
+
+  billing-worker:
+    environment:
+      SPYGLASS_STRIPE_BASE_URL: http://stripe-fixture:8080
+    depends_on:
+      stripe-fixture: {condition: service_healthy}
+
+  agent-journey-cert:
+    environment:
+      SPYGLASS_AGENT_JOURNEY_COMMERCIAL_ONLY: "true"
+      SPYGLASS_AGENT_JOURNEY_STRIPE_FIXTURE_URL: http://stripe-fixture:8080
+      SPYGLASS_AGENT_JOURNEY_STRIPE_FIXTURE_TOKEN: local-commercial-journey-completion-token
+    depends_on:
+      stripe-fixture: {condition: service_healthy}
+      account-api: {condition: service_healthy}
+      billing-worker: {condition: service_healthy}

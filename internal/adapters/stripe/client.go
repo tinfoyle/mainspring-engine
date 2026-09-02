@@ -31,6 +31,16 @@ type Client struct {
 }
 
 func New(secretKey, apiVersion string, httpClient *http.Client) (*Client, error) {
+	return NewWithBaseURL(secretKey, apiVersion, "https://api.stripe.com", httpClient)
+}
+
+// NewWithBaseURL exists for deterministic local provider certification. The
+// caller owns the environment boundary that decides whether a non-Stripe URL
+// is permitted; the adapter still requires an absolute HTTP(S) origin.
+func NewWithBaseURL(secretKey, apiVersion, baseURL string, httpClient *http.Client) (*Client, error) {
+	if strings.TrimSpace(baseURL) == "" {
+		baseURL = "https://api.stripe.com"
+	}
 	mode := ""
 	if strings.HasPrefix(secretKey, "sk_test_") {
 		mode = "test"
@@ -47,7 +57,11 @@ func New(secretKey, apiVersion string, httpClient *http.Client) (*Client, error)
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 15 * time.Second}
 	}
-	return &Client{secretKey: secretKey, apiVersion: apiVersion, baseURL: "https://api.stripe.com", http: httpClient, mode: mode}, nil
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
+		return nil, errors.New("Stripe base URL must be an absolute HTTP(S) origin")
+	}
+	return &Client{secretKey: secretKey, apiVersion: apiVersion, baseURL: strings.TrimRight(parsed.String(), "/"), http: httpClient, mode: mode}, nil
 }
 
 func (c *Client) Mode() string { return c.mode }

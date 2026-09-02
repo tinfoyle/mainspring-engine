@@ -43,6 +43,8 @@ const (
 
 type config struct {
 	appOrigin, mcpOrigin, edgeAddress, mailpitURL, databaseURL, providerFixture, output string
+	stripeFixtureURL, stripeFixtureToken                                                string
+	commercialOnly                                                                      bool
 }
 
 type check struct {
@@ -86,6 +88,9 @@ func main() {
 	flag.StringVar(&c.mailpitURL, "mailpit-url", envOr("SPYGLASS_AGENT_JOURNEY_MAILPIT_URL", "http://127.0.0.1:8025"), "local Mailpit API URL")
 	flag.StringVar(&c.databaseURL, "database-url", os.Getenv("SPYGLASS_AGENT_JOURNEY_DATABASE_URL"), "local fixture database URL")
 	flag.StringVar(&c.providerFixture, "provider-fixture", envOr("SPYGLASS_AGENT_JOURNEY_PROVIDER_FIXTURE", "deterministic-fail-once"), "required deterministic local provider behavior")
+	flag.StringVar(&c.stripeFixtureURL, "stripe-fixture-url", os.Getenv("SPYGLASS_AGENT_JOURNEY_STRIPE_FIXTURE_URL"), "local Stripe fixture origin")
+	flag.StringVar(&c.stripeFixtureToken, "stripe-fixture-token", os.Getenv("SPYGLASS_AGENT_JOURNEY_STRIPE_FIXTURE_TOKEN"), "local Stripe fixture completion token")
+	flag.BoolVar(&c.commercialOnly, "commercial-only", strings.EqualFold(os.Getenv("SPYGLASS_AGENT_JOURNEY_COMMERCIAL_ONLY"), "true"), "stop after the real local commercial journey")
 	flag.StringVar(&c.output, "out", "", "optional content-free JSON report path")
 	flag.Parse()
 	if err := run(context.Background(), c); err != nil {
@@ -98,7 +103,7 @@ func run(ctx context.Context, c config) error {
 	if c.appOrigin != "https://app.infiniteocean.localhost:8444" || c.mcpOrigin != "https://mcp.infiniteocean.localhost:8444" {
 		return errors.New("agent journey certificate only accepts the canonical local origins")
 	}
-	if c.providerFixture != "deterministic-fail-once" {
+	if !c.commercialOnly && c.providerFixture != "deterministic-fail-once" {
 		return errors.New("agent journey certificate requires the deterministic fail-once provider fixture")
 	}
 	if err := validateLocalAgentJourneyTargets(c); err != nil {
@@ -116,7 +121,11 @@ func run(ctx context.Context, c config) error {
 			return dialer.DialContext(ctx, network, c.edgeAddress)
 		},
 	}
-	j := &journey{config: c, client: &http.Client{Jar: jar, Transport: transport, Timeout: 15 * time.Second}, report: report{SchemaVersion: "spyglass-agent-journey/v1", ExecutedAt: time.Now().UTC()}, covered: map[string]toolCoverage{}}
+	schemaVersion := "spyglass-agent-journey/v1"
+	if c.commercialOnly {
+		schemaVersion = "spyglass-commercial-journey/v1"
+	}
+	j := &journey{config: c, client: &http.Client{Jar: jar, Transport: transport, Timeout: 15 * time.Second}, report: report{SchemaVersion: schemaVersion, ExecutedAt: time.Now().UTC(), Tools: []string{}, ToolCoverage: []toolCoverage{}}, covered: map[string]toolCoverage{}}
 	defer transport.CloseIdleConnections()
 
 	stamp := time.Now().UTC().Format("20060102t150405.000000000")
@@ -124,6 +133,15 @@ func run(ctx context.Context, c config) error {
 	password := "Local-agent-certification-" + stamp + "!"
 	if err := j.register(ctx, email, password); err != nil {
 		return err
+	}
+	if c.commercialOnly {
+		if err := j.selectAccount(ctx); err != nil {
+			return err
+		}
+		if err := j.purchaseLocalSubscription(ctx); err != nil {
+			return err
+		}
+		return j.writeReport()
 	}
 	if err := provisionLocalCommercialFixture(ctx, c.databaseURL, j.report.AccountID); err != nil {
 		return fmt.Errorf("provision local commercial fixture: %w", err)
@@ -557,6 +575,153 @@ func (j *journey) selectAccount(ctx context.Context) error {
 	}
 	j.pass("Account selection", "owner security posture and placement accepted")
 	return nil
+}
+
+func (j *journey) purchaseLocalSubscription(ctx context.Context) error {
+	base := j.config.appOrigin + "/api/v1/accounts/" + j.report.AccountID
+	status, body, err := j.jsonRequest(ctx, http.MethodPost, base+"/checkout-sessions", map[string]any{
+		"offer_code": "team-monthly-v2", "include_commissioning": false,
+	}, true)
+	if err != nil || status != http.StatusCreated {
+		return fmt.Errorf("create Stripe Checkout session: status=%d body=%s err=%w", status, body, err)
+	}
+	var checkout struct {
+		SessionID string `json:"session_id"`
+		URL       string `json:"url"`
+	}
+	if json.Unmarshal(body, &checkout) != nil || checkout.SessionID == "" || checkout.URL == "" {
+		return errors.New("Stripe Checkout response omitted its session or hosted URL")
+	}
+	if !strings.HasPrefix(checkout.URL, "https://stripe.infiniteocean.localhost:8444/checkout/") {
+		return fmt.Errorf("Stripe Checkout returned an unexpected hosted URL: %s", checkout.URL)
+	}
+	j.pass("Stripe Checkout creation", "the real Account billing API created a hosted $50 monthly subscription session")
+
+	fixtureClient := &http.Client{Timeout: 10 * time.Second}
+	hostedURL := strings.TrimRight(j.config.stripeFixtureURL, "/") + "/checkout/" + url.PathEscape(checkout.SessionID)
+	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, hostedURL, nil)
+	response, err := fixtureClient.Do(request)
+	if err != nil {
+		return fmt.Errorf("open local hosted checkout: %w", err)
+	}
+	hostedBody, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || !bytes.Contains(hostedBody, []byte("$50.00 USD per month")) {
+		return fmt.Errorf("local hosted checkout did not show the expected subscription: status=%d", response.StatusCode)
+	}
+	j.pass("hosted checkout contract", "the deterministic provider page displayed $50 USD per month and no commissioning charge")
+
+	completeURL := strings.TrimRight(j.config.stripeFixtureURL, "/") + "/test/checkout/" + url.PathEscape(checkout.SessionID) + "/complete"
+	request, _ = http.NewRequestWithContext(ctx, http.MethodPost, completeURL, nil)
+	request.Header.Set("X-Stripe-Fixture-Token", j.config.stripeFixtureToken)
+	response, err = fixtureClient.Do(request)
+	if err != nil {
+		return fmt.Errorf("complete local hosted checkout: %w", err)
+	}
+	completionBody, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || !bytes.Contains(completionBody, []byte(`"events_delivered":6`)) {
+		return fmt.Errorf("complete local hosted checkout: status=%d body=%s", response.StatusCode, completionBody)
+	}
+	appURL, _ := url.Parse(j.config.appOrigin)
+	if !slices.ContainsFunc(j.client.Jar.Cookies(appURL), func(cookie *http.Cookie) bool { return cookie.Name == "__Host-spyglass_session" && cookie.Value != "" }) {
+		return errors.New("the authenticated session cookie disappeared while the provider completed checkout")
+	}
+	j.pass("signed Stripe delivery", "current-shape checkout, subscription and invoice events were signed and delivered, including an exact duplicate")
+
+	deadline := time.Now().Add(30 * time.Second)
+	var lastDetail string
+	for time.Now().Before(deadline) {
+		ready, detail, err := j.commercialProjectionReady(ctx, base)
+		if err != nil {
+			lastDetail = err.Error()
+		} else if ready {
+			j.pass("billing projection", "the worker projected one active team subscription after out-of-order provider events")
+			j.pass("provider replay idempotency", "six deliveries produced five unique processed inbox events and one subscription")
+			j.pass("package access", "every package in the purchased team plan became enabled through subscription grants")
+			j.pass("included AI Tokens", "exactly one configurable monthly included-token grant became available")
+			return nil
+		} else {
+			lastDetail = detail
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("commercial projection did not converge: %s", lastDetail)
+}
+
+func (j *journey) commercialProjectionReady(ctx context.Context, base string) (bool, string, error) {
+	status, body, err := j.jsonRequest(ctx, http.MethodGet, base+"/billing", nil, false)
+	if err != nil || status != http.StatusOK {
+		return false, fmt.Sprintf("billing status=%d body=%s", status, body), err
+	}
+	var billingStatus struct {
+		Subscriptions []struct {
+			State     string `json:"state"`
+			OfferCode string `json:"offer_code"`
+		} `json:"subscriptions"`
+	}
+	if err := json.Unmarshal(body, &billingStatus); err != nil {
+		return false, "invalid billing status", err
+	}
+	if len(billingStatus.Subscriptions) != 1 || billingStatus.Subscriptions[0].State != "active" || billingStatus.Subscriptions[0].OfferCode != "team-monthly-v2" {
+		return false, "active team subscription is not projected yet", nil
+	}
+	status, body, err = j.jsonRequest(ctx, http.MethodGet, base+"/ai-tokens", nil, false)
+	if err != nil || status != http.StatusOK {
+		return false, fmt.Sprintf("AI Token status=%d body=%s", status, body), err
+	}
+	var balance struct {
+		Available, Included int64
+	}
+	if err := json.Unmarshal(body, &balance); err != nil {
+		return false, "invalid AI Token balance", err
+	}
+
+	pool, err := pgxpool.New(ctx, j.config.databaseURL)
+	if err != nil {
+		return false, "connect to projection database", err
+	}
+	defer pool.Close()
+	var publicationRaw []byte
+	if err := pool.QueryRow(ctx, `SELECT content FROM catalog_publications WHERE state='published' ORDER BY version DESC LIMIT 1`).Scan(&publicationRaw); err != nil {
+		return false, "read published Catalog", err
+	}
+	var publication catalog.PublishedCatalog
+	if err := json.Unmarshal(publicationRaw, &publication); err != nil {
+		return false, "decode published Catalog", err
+	}
+	var expectedPackages int
+	for _, plan := range publication.Plans {
+		if plan.Code == "team" {
+			expectedPackages = len(plan.Packages)
+		}
+	}
+	if expectedPackages == 0 || publication.AITokenRenewalGrant == nil {
+		return false, "published commercial Catalog is incomplete", nil
+	}
+	if balance.Available != publication.AITokenRenewalGrant.Quantity || balance.Included != publication.AITokenRenewalGrant.Quantity {
+		return false, "included AI Token grant is not projected yet", nil
+	}
+	var uniqueEvents, processedEvents, subscriptions, grants, tokenGrants int
+	err = pool.QueryRow(ctx, `
+		SELECT
+			(SELECT count(*) FROM billing_event_inbox WHERE account_id=$1),
+			(SELECT count(*) FROM billing_event_inbox WHERE account_id=$1 AND processing_state='processed'),
+			(SELECT count(*) FROM subscriptions WHERE account_id=$1 AND state='active' AND offer_code='team-monthly-v2'),
+			(SELECT count(*) FROM entitlement_grants WHERE account_id=$1 AND source='subscription'),
+			(SELECT count(*) FROM ai_token_grants WHERE account_id=$1 AND origin='included' AND state='active')`, j.report.AccountID).
+		Scan(&uniqueEvents, &processedEvents, &subscriptions, &grants, &tokenGrants)
+	if err != nil {
+		return false, "read commercial projections", err
+	}
+	if uniqueEvents != 5 || processedEvents != 5 || subscriptions != 1 || grants != expectedPackages || tokenGrants != 1 {
+		return false, fmt.Sprintf("events=%d/%d subscriptions=%d grants=%d/%d token_grants=%d", processedEvents, uniqueEvents, subscriptions, grants, expectedPackages, tokenGrants), nil
+	}
+	return true, "ready", nil
 }
 
 func (j *journey) authorizeMCP(ctx context.Context) (string, error) {
@@ -1375,6 +1540,14 @@ func validateLocalAgentJourneyTargets(c config) error {
 	}
 	if err := requireLocalFixtureURL(c.databaseURL, []string{"postgres", "postgresql"}, "global-db"); err != nil {
 		return fmt.Errorf("agent journey database must be local: %w", err)
+	}
+	if c.commercialOnly {
+		if err := requireLocalFixtureURL(c.stripeFixtureURL, []string{"http"}, "stripe-fixture"); err != nil {
+			return fmt.Errorf("commercial journey Stripe endpoint must be local: %w", err)
+		}
+		if len(c.stripeFixtureToken) < 24 {
+			return errors.New("commercial journey Stripe completion token is missing")
+		}
 	}
 	return nil
 }

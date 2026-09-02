@@ -4,7 +4,7 @@ COMPOSE = docker compose --project-name spyglass-local --env-file env/local.env 
 TLS_COMPOSE = docker compose --project-name spyglass-local-tls --env-file env/local.env $(LOCAL_PROVIDER_ENV_ARG) --env-file env/workload-tls.env --file compose.yml --file compose.local.yml --file compose.workload-tls.yml
 RUNNER_COMPOSE = docker compose --project-name spyglass-local-runner --env-file env/local.env $(LOCAL_PROVIDER_ENV_ARG) --env-file env/workload-tls.env --file compose.yml --file compose.local.yml --file compose.workload-tls.yml --file compose.runner.yml
 
-.PHONY: build test verify-local-provider-input up verify analytics-report verify-analytics-handoff verify-identity-browser verify-public-catalog-recovery verify-stage-contract verify-stage-reset verify-stage-release-publisher publish-stage-release verify-observability verify-workload-tls verify-docker-runner verify-integration-connector verify-google-oauth verify-imap verify-web-research down down-workload-tls down-docker-runner reset
+.PHONY: build test verify-local-provider-input up verify verify-commercial-journey analytics-report verify-analytics-handoff verify-identity-browser verify-public-catalog-recovery verify-stage-contract verify-stage-reset verify-stage-release-publisher publish-stage-release verify-observability verify-workload-tls verify-docker-runner verify-integration-connector verify-google-oauth verify-imap verify-web-research down down-workload-tls down-docker-runner reset
 
 build:
 	$(COMPOSE) build global-migrate website
@@ -30,6 +30,10 @@ verify: test up
 	bash verify-local.sh
 	bash verify-identity-browser.sh
 	bash verify-analytics-handoff.sh
+	bash verify-commercial-journey.sh
+
+verify-commercial-journey:
+	bash verify-commercial-journey.sh
 
 analytics-report: up
 	$(COMPOSE) run --rm --no-deps global-migrate analytics-report $(ARGS)

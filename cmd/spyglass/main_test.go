@@ -99,6 +99,20 @@ func TestEnvironmentParsersFailClosed(t *testing.T) {
 	}
 }
 
+func TestStripeBaseURLIsRestrictedToTheLocalFixture(t *testing.T) {
+	t.Setenv("SPYGLASS_STRIPE_BASE_URL", "http://stripe-fixture:8080")
+	if value, err := localStripeBaseURL("local-secure"); err != nil || value != "http://stripe-fixture:8080" {
+		t.Fatalf("local fixture value=%q err=%v", value, err)
+	}
+	if _, err := localStripeBaseURL("stage"); err == nil {
+		t.Fatal("Stage accepted a Stripe base URL override")
+	}
+	t.Setenv("SPYGLASS_STRIPE_BASE_URL", "https://api.stripe.com")
+	if _, err := localStripeBaseURL("local"); err == nil {
+		t.Fatal("local override accepted a non-fixture host")
+	}
+}
+
 func TestAffiliateEnvironmentDefaultsAreClosed(t *testing.T) {
 	t.Setenv("SPYGLASS_TEST_AFFILIATE_MODE", "")
 	mode, err := enumEnv("SPYGLASS_TEST_AFFILIATE_MODE", "unconfigured", "unconfigured", "account_credit", "cash")

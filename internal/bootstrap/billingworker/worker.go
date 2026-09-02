@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"sync/atomic"
 	"time"
 
@@ -23,9 +24,10 @@ import (
 )
 
 type Config struct {
-	DatabaseURL, StripeSecretKey, StripeAPIVersion, StripeMode string
-	MaxDatabaseConns                                           int32
-	PollInterval                                               time.Duration
+	DatabaseURL, StripeSecretKey, StripeAPIVersion, StripeBaseURL, StripeMode string
+	StripeHTTPClient                                                          *http.Client
+	MaxDatabaseConns                                                          int32
+	PollInterval                                                              time.Duration
 }
 
 type Worker struct {
@@ -77,7 +79,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Worker, erro
 		pool.Close()
 		return nil, err
 	}
-	provider, err := stripeadapter.New(config.StripeSecretKey, config.StripeAPIVersion, nil)
+	provider, err := stripeadapter.NewWithBaseURL(config.StripeSecretKey, config.StripeAPIVersion, config.StripeBaseURL, config.StripeHTTPClient)
 	if err != nil {
 		pool.Close()
 		return nil, err

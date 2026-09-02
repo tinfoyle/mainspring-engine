@@ -80,7 +80,7 @@ Current privacy-rights deadline amendment (2026-08-26): request deadlines now im
 - Build digest-pinned artifacts from the committed revision.
 - Create one global database, two cell databases, Stripe test mode, TLS SMTP, workload certificates, and the environment overlay.
 - Apply migrations with constrained runtime roles; publish a reviewed Catalog and Stripe mappings.
-- Prove public website -> verification email -> free Account -> owner security enrollment -> Stripe Checkout -> signed projection -> package access.
+- The API-level path from registration email through owner security, Stripe Checkout, signed projection, and package access is now covered by `verify-commercial-journey.sh`. Browser-level visual coverage and a final live Stripe test-mode smoke test remain release activities.
 - Exit only when restart, duplicate-delivery, wrong-origin, wrong-Account, stale-placement, and provider-outage cases are captured as repeatable tests.
 
 ### Gate 2 — operational platform
