@@ -68,7 +68,7 @@ func (o *NotificationOutbox) MarkFailed(ctx context.Context, id string, _ time.T
 	}
 	command, err := o.pool.Exec(ctx, `
 		UPDATE identity_notification_outbox
-		SET processing_state=$2,next_attempt_at=CASE WHEN $2='failed' THEN $3 ELSE NULL END,
+		SET processing_state=$2,next_attempt_at=CASE WHEN $2='failed' THEN $3::timestamptz ELSE NULL END,
 		    lease_expires_at=NULL,last_error_code=$4
 		WHERE id=$1 AND processing_state='processing'`, id, state, next.UTC(), code)
 	if err == nil && command.RowsAffected() != 1 {
