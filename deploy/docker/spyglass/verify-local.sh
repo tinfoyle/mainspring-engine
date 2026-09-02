@@ -102,6 +102,11 @@ subscription_lifecycle_privileges="$("${compose[@]}" exec --no-TTY global-db psq
   --command="SELECT has_table_privilege('spyglass_billing_worker','account_subscription_termination_jobs','SELECT,UPDATE') AND NOT has_table_privilege('spyglass_billing_worker','account_subscription_termination_jobs','INSERT,DELETE') AND has_function_privilege('spyglass_billing_worker','spyglass_project_subscription_lifecycle(uuid,text,text,timestamptz,timestamptz,timestamptz)','EXECUTE') AND has_table_privilege('spyglass_notification_worker','account_subscription_lifecycle_notices','SELECT,UPDATE') AND NOT has_table_privilege('spyglass_notification_worker','account_subscription_lifecycle_notices','INSERT,DELETE') AND has_table_privilege('spyglass_notification_worker','identity_notification_outbox','SELECT,INSERT,UPDATE') AND NOT has_table_privilege('spyglass_notification_worker','identity_notification_outbox','DELETE') AND has_table_privilege('spyglass_notification_worker','account_subscription_lifecycles','SELECT') AND has_table_privilege('spyglass_notification_worker','accounts','SELECT') AND has_table_privilege('spyglass_notification_worker','memberships','SELECT') AND has_table_privilege('spyglass_notification_worker','users','SELECT') AND has_function_privilege('spyglass_account_lifecycle_worker','spyglass_claim_subscription_lifecycle(timestamptz,bigint)','EXECUTE') AND has_function_privilege('spyglass_account_lifecycle_worker','spyglass_advance_subscription_lifecycle(uuid,uuid,timestamptz,bigint)','EXECUTE') AND NOT has_table_privilege('spyglass_account_lifecycle_worker','account_subscription_lifecycles','SELECT,INSERT,UPDATE,DELETE')")"
 test "$subscription_lifecycle_privileges" = "t"
 
+app_router_security_privileges="$("${compose[@]}" exec --no-TTY global-db psql \
+  --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
+  --command="SELECT has_table_privilege('spyglass_app_router','user_mfa_methods','SELECT') AND NOT has_table_privilege('spyglass_app_router','user_mfa_methods','INSERT,UPDATE,DELETE')")"
+test "$app_router_security_privileges" = "t"
+
 for database in cell-a-db cell-b-db; do
   cell_runtime_role_count="$("${compose[@]}" exec --no-TTY "$database" psql \
     --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \

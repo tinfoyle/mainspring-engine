@@ -202,7 +202,7 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO spyglass_account_api;
 
 GRANT SELECT ON users, sessions, accounts, memberships, entitlement_snapshots,
   account_directory, cells, account_erasure_restore_ledger,
-  passkey_credentials, user_recovery_code_sets, user_recovery_codes TO spyglass_app_router;
+  passkey_credentials, user_recovery_code_sets, user_recovery_codes, user_mfa_methods TO spyglass_app_router;
 GRANT UPDATE ON sessions TO spyglass_app_router;
 
 GRANT SELECT ON accounts, memberships, entitlement_snapshots, account_directory, cells,
