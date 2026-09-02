@@ -61,7 +61,6 @@ func parseTokenInvoice(payload []byte) (tokenInvoice, error) {
 				ID            string `json:"id"`
 				AmountPaid    int64  `json:"amount_paid"`
 				BillingReason string `json:"billing_reason"`
-				Paid          bool   `json:"paid"`
 				Status        string `json:"status"`
 				Metadata      struct {
 					AccountID string `json:"spyglass_account_id"`
@@ -80,7 +79,7 @@ func parseTokenInvoice(payload []byte) (tokenInvoice, error) {
 		return tokenInvoice{}, ErrInvalidBillingEvidence
 	}
 	invoice := event.Data.Object
-	if !strings.HasPrefix(invoice.ID, "in_") || invoice.AmountPaid <= 0 || !invoice.Paid || invoice.Status != "paid" || invoice.BillingReason == "" {
+	if !strings.HasPrefix(invoice.ID, "in_") || invoice.AmountPaid <= 0 || invoice.Status != "paid" || invoice.BillingReason == "" {
 		return tokenInvoice{}, ErrInvalidBillingEvidence
 	}
 	rawAccountID := invoice.Parent.SubscriptionDetails.Metadata.AccountID

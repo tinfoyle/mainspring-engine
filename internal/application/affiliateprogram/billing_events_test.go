@@ -21,7 +21,7 @@ func TestPaidRenewalEventAppendsCommissionWithoutCustomerData(t *testing.T) {
 		OfferCode: "team-monthly-v1", RuleVersion: 3, State: affiliates.AttributionLocked, SubscriptionID: "sub_paid"}
 	service, _ := affiliateprogram.New(repository, &generator{values: []string{"10000000-0000-4000-8000-000000000012", "10000000-0000-4000-8000-000000000013"}}, codes{"IO-PARTNER1"}, clock{now}, 2, 3)
 	projector, _ := affiliateprogram.NewBillingEventProjector(service)
-	payload := []byte(`{"data":{"object":{"id":"in_renewal","payment_intent":"pi_renewal","amount_paid":5000,"currency":"usd","billing_reason":"subscription_cycle","paid":true,"status":"paid","parent":{"subscription_details":{"subscription":"sub_paid"}},"lines":{"data":[{"id":"il_renewal","amount":5000,"currency":"usd","pricing":{"price_details":{"price":"price_team"}}}]}}}}`)
+	payload := []byte(`{"data":{"object":{"id":"in_renewal","payment_intent":"pi_renewal","amount_paid":5000,"currency":"usd","billing_reason":"subscription_cycle","status":"paid","parent":{"subscription_details":{"subscription":"sub_paid"}},"lines":{"data":[{"id":"il_renewal","amount":5000,"currency":"usd","pricing":{"price_details":{"price":"price_team"}}}]}}}}`)
 	if err := projector.Project(context.Background(), billing.WorkItem{Entry: billing.InboxEntry{EventType: "invoice.paid", Mode: "test", ProviderCreatedAt: now}, Payload: payload}); err != nil {
 		t.Fatal(err)
 	}

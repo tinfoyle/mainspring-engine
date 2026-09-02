@@ -133,12 +133,27 @@ func TestBillingEventsPrepareAfterTaxCreditAndSettleOnPaidInvoice(t *testing.T) 
 	if len(provider.commands) != 1 || provider.commands[0].AmountMinor != 5350 {
 		t.Fatalf("commands=%+v", provider.commands)
 	}
-	paid := []byte(`{"data":{"object":{"id":"in_affiliate","paid":true,"status":"paid"}}}`)
+	paid := []byte(`{"data":{"object":{"id":"in_affiliate","status":"paid"}}}`)
 	if err := projector.Project(context.Background(), billing.WorkItem{Entry: billing.InboxEntry{EventType: "invoice.paid"}, Payload: paid}); err != nil {
 		t.Fatal(err)
 	}
 	if repository.settled != "in_affiliate" {
 		t.Fatalf("settled=%q", repository.settled)
+	}
+}
+
+func TestBillingEventsIgnoreTerminalCreatedInvoiceSnapshot(t *testing.T) {
+	now := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
+	repository, provider := &repository{}, &provider{}
+	service, _ := affiliatesettlement.New(repository, provider, generator{}, clock{now})
+	projector, _ := affiliatesettlement.NewBillingEventProjector(service)
+	created := []byte(`{"data":{"object":{"id":"in_affiliate","customer":"cus_affiliate","total":5350,"amount_due":5350,"currency":"usd","status":"paid","billing_reason":"subscription_create"}}}`)
+	item := billing.WorkItem{Entry: billing.InboxEntry{AccountID: settlementAccountID, EventType: "invoice.created"}, Payload: created}
+	if err := projector.Project(context.Background(), item); err != nil {
+		t.Fatal(err)
+	}
+	if len(provider.commands) != 0 {
+		t.Fatalf("terminal invoice created %d balance credits", len(provider.commands))
 	}
 }
 

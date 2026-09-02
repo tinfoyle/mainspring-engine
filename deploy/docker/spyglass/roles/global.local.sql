@@ -226,6 +226,8 @@ GRANT INSERT, UPDATE ON ai_token_reservations TO spyglass_admission_api;
 GRANT INSERT ON ai_token_reservation_allocations, ai_token_ledger_entries TO spyglass_admission_api;
 GRANT EXECUTE ON FUNCTION spyglass_lock_account_entitlement_version(uuid)
   TO spyglass_account_api, spyglass_billing_worker, spyglass_admission_api;
+GRANT EXECUTE ON FUNCTION spyglass_project_subscription_lifecycle(uuid,text,text,timestamptz,timestamptz,timestamptz)
+  TO spyglass_billing_worker;
 
 GRANT SELECT ON account_erasure_restore_ledger TO spyglass_billing_worker,
   spyglass_notification_worker, spyglass_entitlement_worker, spyglass_account_lifecycle_worker,

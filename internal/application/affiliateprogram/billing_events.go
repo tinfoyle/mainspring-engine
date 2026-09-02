@@ -82,7 +82,6 @@ func parsePaidInvoice(payload []byte) (paidInvoiceEvidence, error) {
 				AmountPaid    int64           `json:"amount_paid"`
 				Currency      string          `json:"currency"`
 				BillingReason string          `json:"billing_reason"`
-				Paid          bool            `json:"paid"`
 				Status        string          `json:"status"`
 				PaymentIntent json.RawMessage `json:"payment_intent"`
 				Payments      struct {
@@ -153,7 +152,7 @@ func parsePaidInvoice(payload []byte) (paidInvoiceEvidence, error) {
 		lines = append(lines, InvoiceLine{ID: raw.ID, ProviderPriceID: priceID, AmountMinor: raw.Amount, Currency: currency})
 	}
 	if !strings.HasPrefix(invoice.ID, "in_") || subscriptionID == "" || invoice.AmountPaid <= 0 ||
-		len(currency) != 3 || !invoice.Paid || invoice.Status != "paid" || invoice.BillingReason == "" {
+		len(currency) != 3 || invoice.Status != "paid" || invoice.BillingReason == "" {
 		return paidInvoiceEvidence{}, ErrInvalidInvoiceEvidence
 	}
 	firstPaymentIntent := ""

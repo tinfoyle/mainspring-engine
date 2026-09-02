@@ -109,6 +109,12 @@ func parseCreatedInvoice(payload []byte) (createdInvoiceEvidence, bool, error) {
 	if invoice.BillingReason != "subscription_create" && invoice.BillingReason != "subscription_cycle" {
 		return createdInvoiceEvidence{}, false, nil
 	}
+	// Stripe may deliver a current invoice snapshot for invoice.created. If the
+	// invoice is already terminal, it is too late to apply a balance credit to
+	// that invoice and the event is a valid no-op rather than corrupt evidence.
+	if invoice.Status == "paid" || invoice.Status == "void" || invoice.Status == "uncollectible" {
+		return createdInvoiceEvidence{}, false, nil
+	}
 	amount := invoice.Total
 	if amount <= 0 {
 		amount = invoice.AmountDue
@@ -125,7 +131,6 @@ func parsePaidInvoice(payload []byte) (string, bool, error) {
 		Data struct {
 			Object struct {
 				ID     string `json:"id"`
-				Paid   bool   `json:"paid"`
 				Status string `json:"status"`
 			} `json:"object"`
 		} `json:"data"`
@@ -133,7 +138,7 @@ func parsePaidInvoice(payload []byte) (string, bool, error) {
 	if json.Unmarshal(payload, &event) != nil || !strings.HasPrefix(event.Data.Object.ID, "in_") {
 		return "", false, ErrInvalidInvoice
 	}
-	return event.Data.Object.ID, event.Data.Object.Paid && event.Data.Object.Status == "paid", nil
+	return event.Data.Object.ID, event.Data.Object.Status == "paid", nil
 }
 
 var _ billing.EventHandler = (*BillingEventProjector)(nil)

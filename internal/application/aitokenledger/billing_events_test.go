@@ -23,7 +23,7 @@ func TestBillingProjectorIssuesIncludedTokensForPaidServicePeriod(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload := []byte(`{"data":{"object":{"id":"in_paid_1","amount_paid":5000,"billing_reason":"subscription_cycle","paid":true,"status":"paid","parent":{"subscription_details":{"metadata":{"spyglass_account_id":"10000000-0000-4000-8000-000000000001"}}}}}}`)
+	payload := []byte(`{"data":{"object":{"id":"in_paid_1","amount_paid":5000,"billing_reason":"subscription_cycle","status":"paid","parent":{"subscription_details":{"metadata":{"spyglass_account_id":"10000000-0000-4000-8000-000000000001"}}}}}}`)
 	if err := projector.Project(context.Background(), billing.WorkItem{Entry: billing.InboxEntry{EventType: "invoice.paid"}, Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
