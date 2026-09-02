@@ -42,3 +42,16 @@ contact copy was shortened. The homepage was reduced from five sections to
 three, feature lists were removed from the product explanation, and the legal
 and SMS disclosures were preserved verbatim. Public HTTPS verification passed
 for every changed route and the replacement social-preview image.
+
+## 2026-09-01 company-philosophy pass
+
+- Source revision: `0c6a8f3`
+- Release directory: `/opt/infiniteocean/releases/corporate/0c6a8f3`
+- Pre-change recovery copy: `/opt/infiniteocean/backups/site.pre-philosophy.0c6a8f3`
+- Release archive SHA-256: `02859541b0d7e8833c3c5943e83ee1250e61b879b6631affabb72b010ef7a31d`
+
+The About page now explains the capability Infinite Ocean wants to give small
+businesses, names Spyglass as the first product built around that idea, and
+states the company's belief that AI is most useful when it disappears into the
+work. Mainspring remains absent from all public HTML. The changed route and
+public disclosure pages passed local and public HTTPS verification.
