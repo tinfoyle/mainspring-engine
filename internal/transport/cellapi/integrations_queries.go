@@ -105,7 +105,11 @@ func (s *Server) integrationsConnectionList(w http.ResponseWriter, r *http.Reque
 		s.writeIntegrationsError(w, "list connections", err)
 		return
 	}
-	response := map[string]any{"items": page.Items}
+	items := page.Items
+	if items == nil {
+		items = []integrationsdomain.Connection{}
+	}
+	response := map[string]any{"items": items}
 	if page.NextCursor != nil {
 		response["next_cursor"] = encodeIntegrationsCursor("connection", page.NextCursor.UpdatedAt, string(page.NextCursor.ID))
 	}
@@ -160,7 +164,11 @@ func (s *Server) integrationsHealthList(w http.ResponseWriter, r *http.Request) 
 		s.writeIntegrationsError(w, "list health", err)
 		return
 	}
-	response := map[string]any{"items": page.Items}
+	items := page.Items
+	if items == nil {
+		items = []integrationsdomain.HealthObservation{}
+	}
+	response := map[string]any{"items": items}
 	if page.NextCursor != nil {
 		response["next_cursor"] = encodeIntegrationsCursor("health", page.NextCursor.CheckedAt, string(page.NextCursor.ID))
 	}

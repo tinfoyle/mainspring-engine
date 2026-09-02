@@ -9,6 +9,27 @@
 
 No password, code, session token, cookie, provider credential, private key or payment detail was read or recorded during this review.
 
+## Local remediation status — 2026-09-02
+
+All findings below have now been corrected on `main` locally. Stage remains on the release identified above and has not been changed; the original observations remain the Stage acceptance result until a new candidate is deployed and retested.
+
+- The application router now admits the exact Baseline-current route and every implemented Finance and Marketing customer route. Exhaustive route tests cover the allowed method and path combinations.
+- Integration list responses are emitted as arrays by the cell API and normalized defensively by the TypeScript client. An authenticated Chromium regression proves that legacy `null` lists render a visible empty state instead of a blank application region.
+- The previously corrected least-privilege MFA-posture grants remain included.
+- Schedule creation now loads named Boardrooms and presents named Persona choices; customers no longer enter UUIDs.
+- Sensitive-action guidance now describes identity confirmation and the supported passkey, text-message and email-code methods instead of requiring a passkey specifically.
+- Paid package navigation waits for authoritative session loading before showing any plan-upgrade boundary.
+
+Local evidence:
+
+- `go test ./...`
+- API and application TypeScript type checks
+- changed-file ESLint
+- focused Vue tests for navigation, Account guidance, Schedules and Integration response normalization
+- Vite production build
+- authenticated Chromium empty-account journey across Baseline, Finance, Marketing and Integrations
+- disposable Docker `make verify-product-journey`, including all 94 MCP tools and the complete external-agent journey certificate
+
 ## Launch-blocking findings
 
 ### 1. Work creation and Agent execution fail because Stage admission cannot read MFA posture

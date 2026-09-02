@@ -201,7 +201,7 @@ function containMenuFocus(event: KeyboardEvent): void {
           <RouterLink v-for="item in visibleWorkspaceNavigation" :key="item.to" :to="item.to" class="nav-link">
             <span>{{ item.label }}</span>
           </RouterLink>
-          <RouterLink v-if="!restricted && hiddenPackageCount" to="/app/checkout" class="nav-link nav-link--packages">
+          <RouterLink v-if="session.loaded && !restricted && hiddenPackageCount" to="/app/checkout" class="nav-link nav-link--packages">
             <span>Explore plans</span><small>{{ hiddenPackageCount }} more areas</small>
           </RouterLink>
         </div>

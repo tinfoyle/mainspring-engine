@@ -35,6 +35,7 @@ const (
 
 type integrationsQueryTransportService struct {
 	now             time.Time
+	empty           bool
 	connectionQuery integrationsapp.ConnectionListQuery
 	healthQuery     integrationsapp.HealthListQuery
 	executionQuery  integrationsapp.ExecutionListQuery
@@ -74,12 +75,18 @@ func (service *integrationsQueryTransportService) GetConnectionDetail(context.Co
 
 func (service *integrationsQueryTransportService) ListConnections(_ context.Context, _ access.Actor, _ ids.AccountID, query integrationsapp.ConnectionListQuery) (integrationsapp.ConnectionPage, error) {
 	service.connectionQuery = query
+	if service.empty {
+		return integrationsapp.ConnectionPage{}, nil
+	}
 	value := service.connection()
 	return integrationsapp.ConnectionPage{Items: []integrationsdomain.Connection{value}, NextCursor: &integrationsapp.ConnectionCursor{UpdatedAt: value.UpdatedAt, ID: value.ID}}, nil
 }
 
 func (service *integrationsQueryTransportService) ListHealth(_ context.Context, _ access.Actor, _ ids.AccountID, query integrationsapp.HealthListQuery) (integrationsapp.HealthPage, error) {
 	service.healthQuery = query
+	if service.empty {
+		return integrationsapp.HealthPage{}, nil
+	}
 	value := service.health()
 	return integrationsapp.HealthPage{Items: []integrationsdomain.HealthObservation{value}, NextCursor: &integrationsapp.HealthCursor{CheckedAt: value.CheckedAt, ID: value.ID}}, nil
 }
@@ -94,8 +101,26 @@ func (service *integrationsQueryTransportService) GetExecution(context.Context, 
 
 func (service *integrationsQueryTransportService) ListExecutions(_ context.Context, _ access.Actor, _ ids.AccountID, query integrationsapp.ExecutionListQuery) (integrationsapp.ExecutionPage, error) {
 	service.executionQuery = query
+	if service.empty {
+		return integrationsapp.ExecutionPage{}, nil
+	}
 	value := service.execution()
 	return integrationsapp.ExecutionPage{Items: []integrationsdomain.Execution{value}, NextCursor: &integrationsapp.ExecutionCursor{UpdatedAt: value.UpdatedAt, ID: value.ID}}, nil
+}
+
+func TestIntegrationsEmptyPagesEncodeCollectionsAsArrays(t *testing.T) {
+	service := &integrationsQueryTransportService{now: time.Date(2026, 8, 23, 22, 0, 0, 0, time.UTC), empty: true}
+	server, err := New(claimAcceptor{claims: integrationsQueryClaims()}, slog.New(slog.NewTextHandler(io.Discard, nil)), DefaultMaxBody, WithIntegrations(service))
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := "/api/v1/accounts/" + integrationsAccountID + "/integrations"
+	for _, target := range []string{base + "/connections", base + "/connections/" + integrationsConnectionID + "/health", base + "/executions"} {
+		response := integrationsQueryRequest(server.Handler(), target)
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"items":[]`) || strings.Contains(response.Body.String(), `"items":null`) {
+			t.Fatalf("%s status=%d body=%s", target, response.Code, response.Body.String())
+		}
+	}
 }
 
 func TestIntegrationsQueryRoutesExposeOnlyTypedContentFreeEvidence(t *testing.T) {

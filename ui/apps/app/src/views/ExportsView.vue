@@ -67,9 +67,9 @@ watch(() => [session.selectedID, session.selected?.role], () => void load(), { i
     <section v-if="!session.selectedID" class="queue-state"><h2>Select an Account</h2><p>Exports always belong to one Account.</p></section>
     <section v-else-if="!owner" class="queue-state"><h2>Owner access required</h2><p>Only an Account owner can request or download a complete Account export.</p></section>
     <template v-else>
-      <section v-if="session.selected?.owner_enrollment_required" class="queue-state queue-state--warning"><h2>Secure this owner identity first</h2><p>Add a passkey and save recovery codes before exporting Account data.</p><a href="/app/security?return_to=%2Fapp%2Faccount-exports">Continue security setup</a></section>
+      <section v-if="session.selected?.owner_enrollment_required" class="queue-state queue-state--warning"><h2>Secure this owner identity first</h2><p>Finish two-factor authentication before exporting Account data.</p><a href="/app/security?return_to=%2Fapp%2Faccount-exports">Continue security setup</a></section>
       <p v-if="error" class="queue-inline-status queue-inline-status--error" role="alert">{{ error }} <a v-if="securityRequired" href="/app/security?return_to=%2Fapp%2Faccount-exports">Confirm in Security</a></p>
-      <section class="export-request"><div><p class="eyebrow">New snapshot</p><h2>Request Account export</h2><p>Requires a passkey confirmation from the last ten minutes. Only one build may be active for an Account.</p></div><IoButton :disabled="saving" @click="begin('create')">Request export</IoButton></section>
+      <section class="export-request"><div><p class="eyebrow">New snapshot</p><h2>Request Account export</h2><p>Requires an identity confirmation from the last ten minutes. Only one build may be active for an Account.</p></div><IoButton :disabled="saving" @click="begin('create')">Request export</IoButton></section>
       <section class="export-history">
         <header><div><p class="eyebrow">Export history</p><h2>Requests and artifacts</h2></div><span>{{ exports.length }} records</span></header>
         <div v-if="loading" class="queue-state" role="status">Loading export history…</div><div v-else-if="exports.length === 0" class="queue-state"><h3>No export history</h3><p>Requested Account snapshots will appear here.</p></div>

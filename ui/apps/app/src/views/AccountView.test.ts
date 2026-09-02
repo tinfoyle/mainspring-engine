@@ -67,7 +67,7 @@ describe("Account team surface", () => {
     const wrapper = await render();
     await wrapper.get(".invite-form input[type=email]").setValue("new@example.com");
     await wrapper.get(".invite-form").trigger("submit"); await flushPromises();
-    expect(wrapper.text()).toContain("Confirm with a passkey before changing team access.");
+    expect(wrapper.text()).toContain("Confirm your identity in Security before changing team access.");
     expect(wrapper.get('a[href="/app/security?return_to=%2Fapp%2Faccount"]').text()).toBe("Continue to Security");
   });
 });

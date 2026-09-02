@@ -270,8 +270,8 @@ function rightsStateDescription(state: PrivacyRightsRequest["state"]): string {
       </form>
 
       <section class="rights-panel" aria-labelledby="rights-heading">
-        <div class="privacy-section-heading"><div><p class="eyebrow">GDPR rights</p><h2 id="rights-heading">Make a tracked request</h2></div><span>Passkey required</span></div>
-        <p class="section-intro">Choose a right and the data boundary it concerns. Submission and cancellation require a recent passkey confirmation. We track the response deadline; submitting a request does not silently delete legally retained billing or Affiliate evidence.</p>
+        <div class="privacy-section-heading"><div><p class="eyebrow">GDPR rights</p><h2 id="rights-heading">Make a tracked request</h2></div><span>Identity confirmation required</span></div>
+        <p class="section-intro">Choose a right and the data boundary it concerns. Submission and cancellation require a recent passkey, text, or email-code confirmation. We track the response deadline; submitting a request does not silently delete legally retained billing or Affiliate evidence.</p>
         <form class="rights-form" @submit.prevent="submitRightsRequest">
           <label for="rights-kind">What would you like to do?</label>
           <select id="rights-kind" v-model="kind">

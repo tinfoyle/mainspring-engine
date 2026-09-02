@@ -89,7 +89,7 @@ async function load(): Promise<void> {
 function handleMutationError(cause: unknown): void {
   if (cause instanceof APIProblem && cause.status === 403 && ["strong_reauthentication_required", "owner_security_enrollment_required"].includes(cause.problem?.code ?? "")) {
     securityRequired.value = true;
-    error.value = cause.problem?.code === "owner_security_enrollment_required" ? "Secure this owner Account before changing team access." : "Confirm with a passkey before changing team access.";
+    error.value = cause.problem?.code === "owner_security_enrollment_required" ? "Secure this owner Account before changing team access." : "Confirm your identity in Security before changing team access.";
     return;
   }
   error.value = cause instanceof APIProblem ? cause.message : "The Account change could not be completed.";
@@ -154,7 +154,7 @@ watch(() => session.selectedID, () => void load(), { immediate: true });
     </section>
     <section v-else-if="!loading" class="queue-state"><h2>Select an Account</h2><p>Team access always belongs to one Account.</p></section>
 
-    <section v-if="selected?.owner_enrollment_required" class="queue-state queue-state--warning"><h2>Secure this owner Account first</h2><p>Add a passkey and save recovery codes before using owner authority.</p><a href="/app/security?return_to=%2Fapp%2Faccount">Continue security setup</a></section>
+    <section v-if="selected?.owner_enrollment_required" class="queue-state queue-state--warning"><h2>Secure this owner Account first</h2><p>Finish two-factor authentication before using owner authority.</p><a href="/app/security?return_to=%2Fapp%2Faccount">Continue security setup</a></section>
     <p v-if="error" class="queue-inline-status queue-inline-status--error" role="alert">{{ error }} <a v-if="securityRequired" href="/app/security?return_to=%2Fapp%2Faccount">Continue to Security</a></p>
     <section v-if="loading" class="queue-state" role="status"><h2>Loading Account access…</h2></section>
 

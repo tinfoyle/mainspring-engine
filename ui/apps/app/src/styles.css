@@ -299,6 +299,12 @@ a.knowledge-card:hover { border-color: var(--io-ocean-500); }
 .weekday-grid { grid-template-columns: 1fr 1fr; }
 .weekday-grid legend { grid-column: 1 / -1; }
 .weekday-grid label { min-height: 48px; }
+.schedule-personas { margin: 0; padding: .9rem; display: grid; gap: .55rem; border: 1px solid var(--io-line); border-radius: .75rem; background: var(--io-sky); }
+.schedule-personas legend { padding: 0 .35rem; color: var(--io-ocean-950); font-weight: 800; }
+.schedule-personas > p { margin: 0; }
+.schedule-personas > label { min-height: 52px; padding: .65rem; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: .65rem; border: 1px solid var(--io-line); border-radius: .65rem; background: var(--io-paper); }
+.schedule-personas > label span { min-width: 0; display: grid; gap: .15rem; }
+.schedule-personas > label small { color: var(--io-ink-soft); font-weight: 500; }
 .schedule-options { padding: .8rem; border: 1px solid var(--io-line); border-radius: .75rem; background: var(--io-sky); }
 .schedule-options summary, .schedule-detail summary { min-height: 44px; display: flex; align-items: center; color: var(--io-ocean-800); font-weight: 780; cursor: pointer; }
 .schedule-options > label, .schedule-options > .schedule-grid { margin-top: .7rem; }

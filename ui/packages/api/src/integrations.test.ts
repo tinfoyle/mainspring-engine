@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { IntegrationConnection } from "./generated/api-types";
-import { listIntegrationConnections, readIntegrationWeb, reviseIntegrationConnection, searchIntegrationWeb } from "./integrations";
+import { listIntegrationConnections, listIntegrationExecutions, listIntegrationHealth, readIntegrationWeb, reviseIntegrationConnection, searchIntegrationWeb } from "./integrations";
 
 afterEach(() => vi.unstubAllGlobals());
 const connection = { id: "connection/id", account_id: "account", name: "Research", kind: "web_research", state: "active", current_revision_id: "revision", current_revision: 2, credential_id: "credential", credential_generation: 1, version: 4, created_by: { user_id: "user" }, created_at: "2026-08-24T00:00:00Z", updated_at: "2026-08-24T00:00:00Z" } satisfies IntegrationConnection;
@@ -25,5 +25,13 @@ describe("Integrations client", () => {
     await expect(reviseIntegrationConnection("account", connection, input)).rejects.toThrow();
     await expect(reviseIntegrationConnection("account", connection, input)).rejects.toThrow();
     expect(new Headers(fetcher.mock.calls[0]?.[1]?.headers).get("Idempotency-Key")).toBe(new Headers(fetcher.mock.calls[1]?.[1]?.headers).get("Idempotency-Key"));
+  });
+
+  it("normalizes legacy null list payloads into empty collections", async () => {
+    const fetcher = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ items: null }), { status: 200, headers: { "content-type": "application/json" } })));
+    vi.stubGlobal("fetch", fetcher);
+    await expect(listIntegrationConnections("account")).resolves.toMatchObject({ items: [] });
+    await expect(listIntegrationExecutions("account")).resolves.toMatchObject({ items: [] });
+    await expect(listIntegrationHealth("account", "connection")).resolves.toMatchObject({ items: [] });
   });
 });

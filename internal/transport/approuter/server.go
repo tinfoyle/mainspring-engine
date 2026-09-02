@@ -225,10 +225,7 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost && r.PathValue("resource") == "integrations/web-research/read" {
 		authority.DelegatedWorkloadIDs = []string{"integration-web-research"}
 	}
-	if authenticated.Session.ReauthenticationMethod == sessions.AuthenticationMethodPasskey && !authenticated.Session.ReauthenticatedAt.IsZero() {
-		value := authenticated.Session.ReauthenticatedAt.UTC()
-		authority.StrongAuthenticatedAt = &value
-	}
+	authority.StrongAuthenticatedAt = strongAuthenticatedAt(authenticated.Session)
 	requestID := s.ids.New()
 	outbound, err := s.newCellRequest(r, cellRoute.Origin, body, authority, binding, requestID)
 	if err != nil {
@@ -382,6 +379,9 @@ func routeRequirement(method, resource string) (access.Requirement, bool) {
 		if len(parts) == 1 {
 			return access.Requirement{Package: catalog.PackageKnowledge, Mutation: true}, method == http.MethodPost
 		}
+		if len(parts) == 2 && parts[1] == "current" {
+			return access.Requirement{Package: catalog.PackageKnowledge}, method == http.MethodGet
+		}
 		if ids.Validate(parts[1]) != nil {
 			return access.Requirement{}, false
 		}
@@ -435,6 +435,12 @@ func routeRequirement(method, resource string) (access.Requirement, bool) {
 			}
 		}
 		return access.Requirement{}, false
+	}
+	if len(parts) >= 2 && parts[0] == "finance" {
+		return financeRouteRequirement(method, parts)
+	}
+	if len(parts) >= 2 && parts[0] == "marketing" {
+		return marketingRouteRequirement(method, parts)
 	}
 	if len(parts) >= 2 && parts[0] == "integrations" {
 		read := access.Requirement{Package: catalog.PackageIntegrations}
@@ -519,6 +525,98 @@ func routeRequirement(method, resource string) (access.Requirement, bool) {
 		}
 		if len(parts) == 6 && parts[1] == "actions" && ids.Validate(parts[2]) == nil && parts[3] == "resolutions" && ids.Validate(parts[4]) == nil && parts[5] == "confirmations" {
 			return access.Requirement{Package: packageCode, Mutation: true}, method == http.MethodPost
+		}
+	}
+	return access.Requirement{}, false
+}
+
+func strongAuthenticatedAt(session sessions.Session) *time.Time {
+	assurance := session.ReauthenticationMethod.Assurance()
+	if session.ReauthenticatedAt.IsZero() || (assurance != sessions.AssuranceUserVerifiedCryptographic && assurance != sessions.AssuranceMultiFactor) {
+		return nil
+	}
+	value := session.ReauthenticatedAt.UTC()
+	return &value
+}
+
+func financeRouteRequirement(method string, parts []string) (access.Requirement, bool) {
+	read := access.Requirement{Package: catalog.PackageFinance}
+	mutation := access.Requirement{Package: catalog.PackageFinance, Mutation: true}
+	switch parts[1] {
+	case "ledgers":
+		if len(parts) == 2 {
+			return access.Requirement{Package: catalog.PackageFinance, Mutation: method == http.MethodPost}, method == http.MethodGet || method == http.MethodPost
+		}
+		if ids.Validate(parts[2]) != nil {
+			return access.Requirement{}, false
+		}
+		if len(parts) == 3 {
+			return access.Requirement{Package: catalog.PackageFinance, Mutation: method == http.MethodPut || method == http.MethodDelete}, method == http.MethodGet || method == http.MethodPut || method == http.MethodDelete
+		}
+		if len(parts) == 4 {
+			switch parts[3] {
+			case "period-closes":
+				return mutation, method == http.MethodPost
+			case "accounts", "entries", "reconciliations":
+				return access.Requirement{Package: catalog.PackageFinance, Mutation: method == http.MethodPost}, method == http.MethodGet || method == http.MethodPost
+			}
+		}
+	case "accounts":
+		if len(parts) == 3 && ids.Validate(parts[2]) == nil {
+			return access.Requirement{Package: catalog.PackageFinance, Mutation: method == http.MethodPut || method == http.MethodDelete}, method == http.MethodGet || method == http.MethodPut || method == http.MethodDelete
+		}
+	case "entries":
+		if len(parts) >= 3 && ids.Validate(parts[2]) == nil {
+			if len(parts) == 3 {
+				return access.Requirement{Package: catalog.PackageFinance, Mutation: method == http.MethodPut}, method == http.MethodGet || method == http.MethodPut
+			}
+			if len(parts) == 4 && (parts[3] == "postings" || parts[3] == "reversals") {
+				return mutation, method == http.MethodPost
+			}
+		}
+	case "reconciliations":
+		if len(parts) >= 3 && ids.Validate(parts[2]) == nil {
+			if len(parts) == 3 {
+				return read, method == http.MethodGet
+			}
+			if len(parts) == 4 && parts[3] == "confirmations" {
+				return mutation, method == http.MethodPost
+			}
+		}
+	}
+	return access.Requirement{}, false
+}
+
+func marketingRouteRequirement(method string, parts []string) (access.Requirement, bool) {
+	read := access.Requirement{Package: catalog.PackageMarketing}
+	mutation := access.Requirement{Package: catalog.PackageMarketing, Mutation: true}
+	switch parts[1] {
+	case "campaigns":
+		if len(parts) == 2 {
+			return access.Requirement{Package: catalog.PackageMarketing, Mutation: method == http.MethodPost}, method == http.MethodGet || method == http.MethodPost
+		}
+		if ids.Validate(parts[2]) != nil {
+			return access.Requirement{}, false
+		}
+		if len(parts) == 3 {
+			return access.Requirement{Package: catalog.PackageMarketing, Mutation: method == http.MethodPut || method == http.MethodDelete}, method == http.MethodGet || method == http.MethodPut || method == http.MethodDelete
+		}
+		if len(parts) == 4 {
+			switch parts[3] {
+			case "asset-revisions", "releases":
+				return access.Requirement{Package: catalog.PackageMarketing, Mutation: method == http.MethodPost}, method == http.MethodGet || method == http.MethodPost
+			case "activations", "pauses", "completions":
+				return mutation, method == http.MethodPost
+			}
+		}
+	case "releases":
+		if len(parts) >= 3 && ids.Validate(parts[2]) == nil {
+			if len(parts) == 3 {
+				return read, method == http.MethodGet
+			}
+			if len(parts) == 4 && (parts[3] == "submissions" || parts[3] == "approvals" || parts[3] == "cancellations") {
+				return mutation, method == http.MethodPost
+			}
 		}
 	}
 	return access.Requirement{}, false

@@ -141,7 +141,7 @@ watch(() => [session.selectedID, session.userID, session.attentionAccess.work, s
 
     <section v-if="session.selected?.owner_enrollment_required" class="queue-state queue-state--warning">
       <h2>Secure this owner Account first</h2>
-      <p>Add a passkey and save recovery codes before Spyglass enables owner authority.</p>
+      <p>Finish two-factor authentication before Spyglass enables owner authority.</p>
       <a href="/app/security">Continue security setup</a>
     </section>
 

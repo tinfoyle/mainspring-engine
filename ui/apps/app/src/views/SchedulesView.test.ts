@@ -3,14 +3,15 @@ import { flushPromises, mount, RouterLinkStub } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { APIProblem, type AccountChoice, type Schedule } from "@spyglass/api";
+import { APIProblem, type AccountChoice, type AgentBoardroom, type AgentPersona, type Schedule } from "@spyglass/api";
 import { useSessionStore } from "../stores/session";
 import { expectNoAxeViolations } from "../test/accessibility";
 import SchedulesView from "./SchedulesView.vue";
 
 const api = vi.hoisted(() => ({
   listSchedules: vi.fn(), getSchedule: vi.fn(), createSchedule: vi.fn(), reviseSchedule: vi.fn(),
-  pauseSchedule: vi.fn(), resumeSchedule: vi.fn(), deleteSchedule: vi.fn(), triggerSchedule: vi.fn()
+  pauseSchedule: vi.fn(), resumeSchedule: vi.fn(), deleteSchedule: vi.fn(), triggerSchedule: vi.fn(),
+  listAgentBoardrooms: vi.fn(), listAgentPersonas: vi.fn()
 }));
 vi.mock("@spyglass/api", async (importOriginal) => ({ ...await importOriginal<typeof import("@spyglass/api")>(), ...api }));
 
@@ -29,6 +30,9 @@ const schedule = {
   state: "active", next_run_at: "2026-08-31T13:30:00Z", version: 4,
   created_by: "50000000-0000-4000-8000-000000000005", created_at: "2026-08-24T20:00:00Z", updated_at: "2026-08-24T20:00:00Z"
 } satisfies Schedule;
+const personaID = "40000000-0000-4000-8000-000000000004";
+const boardroom = { id: schedule.template.boardroom_id, manager_persona_id: personaID, name: "Operations Boardroom", purpose: "Coordinate the week.", state: "active", version: 2, created_at: "2026-08-24T20:00:00Z", updated_at: "2026-08-24T20:00:00Z" } satisfies AgentBoardroom;
+const persona = { id: personaID, boardroom_id: boardroom.id, persona_version_id: "60000000-0000-4000-8000-000000000006", name: "Shop Coordinator", role: "Coordinator", description: "Keeps field work moving.", system_instructions: "Coordinate.", policy: { complexity: "balanced", maximum_input_tokens: 1000, maximum_output_tokens: 1000, maximum_tool_steps: 2, maximum_cost_micros: 1000, citation_policy: "best_effort", action_policy: "propose", tools: [], output_schema: {} }, content_digest: "a".repeat(64), latest_version: 1, state: "active", created_at: "2026-08-24T20:00:00Z", updated_at: "2026-08-24T20:00:00Z" } satisfies AgentPersona;
 
 async function mountAt(path: string) {
   const router = createRouter({ history: createMemoryHistory(), routes: [
@@ -46,6 +50,8 @@ beforeEach(() => {
   for (const mock of Object.values(api)) mock.mockReset();
   api.listSchedules.mockResolvedValue({ items: [schedule] });
   api.getSchedule.mockResolvedValue(schedule);
+  api.listAgentBoardrooms.mockResolvedValue([boardroom]);
+  api.listAgentPersonas.mockResolvedValue([persona]);
   const session = useSessionStore();
   session.accounts = [account]; session.selectedID = account.account_id; session.userID = "50000000-0000-4000-8000-000000000005";
 });
@@ -57,6 +63,20 @@ describe("Schedules surface", () => {
     expect(wrapper.text()).toContain("Monday launch review");
     expect(wrapper.text()).toContain("Mon at 09:30");
     expect(wrapper.findAllComponents(RouterLinkStub).some((link) => link.props("to") === `/app/schedules/${schedule.id}`)).toBe(true);
+  });
+
+  it("uses named Boardroom and Persona choices instead of requiring UUID entry", async () => {
+    const wrapper = await mountAt("/app/schedules");
+    await wrapper.findAll("button").find((button) => button.text() === "New schedule")?.trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).toContain("Operations Boardroom");
+    expect(wrapper.text()).not.toContain("Boardroom ID");
+    const boardroomField = wrapper.findAll("label").find((label) => label.text().startsWith("Boardroom"));
+    await boardroomField?.get("select").setValue(boardroom.id);
+    await flushPromises();
+    expect(api.listAgentPersonas).toHaveBeenCalledWith(account.account_id, boardroom.id);
+    expect(wrapper.text()).toContain("Shop Coordinator");
+    expect(wrapper.text()).not.toContain("Persona IDs");
   });
 
   it("reloads current durable state after a command conflict", async () => {

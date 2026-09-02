@@ -342,6 +342,8 @@ func TestBaselineRouteAllowlistMatchesCellSurface(t *testing.T) {
 		mutation, allowed bool
 	}{
 		{http.MethodPost, "baseline-assessments", catalog.PackageKnowledge, true, true},
+		{http.MethodGet, "baseline-assessments/current", catalog.PackageKnowledge, false, true},
+		{http.MethodPost, "baseline-assessments/current", "", false, false},
 		{http.MethodGet, "baseline-assessments/" + routerRequest, catalog.PackageKnowledge, false, true},
 		{http.MethodPost, "baseline-assessments/" + routerRequest + "/answers", catalog.PackageKnowledge, true, true},
 		{http.MethodPost, "baseline-assessments/" + routerRequest + "/reassessments", catalog.PackageKnowledge, true, true},
@@ -364,6 +366,120 @@ func TestBaselineRouteAllowlistMatchesCellSurface(t *testing.T) {
 				t.Fatalf("requirement=%+v", requirement)
 			}
 		})
+	}
+}
+
+func TestFinanceRouteAllowlistMatchesCellSurface(t *testing.T) {
+	tests := []struct {
+		method, resource  string
+		mutation, allowed bool
+	}{
+		{http.MethodGet, "finance/ledgers", false, true},
+		{http.MethodPost, "finance/ledgers", true, true},
+		{http.MethodGet, "finance/ledgers/" + routerRequest, false, true},
+		{http.MethodPut, "finance/ledgers/" + routerRequest, true, true},
+		{http.MethodDelete, "finance/ledgers/" + routerRequest, true, true},
+		{http.MethodPost, "finance/ledgers/" + routerRequest + "/period-closes", true, true},
+		{http.MethodGet, "finance/ledgers/" + routerRequest + "/accounts", false, true},
+		{http.MethodPost, "finance/ledgers/" + routerRequest + "/accounts", true, true},
+		{http.MethodGet, "finance/accounts/" + routerRequest, false, true},
+		{http.MethodPut, "finance/accounts/" + routerRequest, true, true},
+		{http.MethodDelete, "finance/accounts/" + routerRequest, true, true},
+		{http.MethodGet, "finance/ledgers/" + routerRequest + "/entries", false, true},
+		{http.MethodPost, "finance/ledgers/" + routerRequest + "/entries", true, true},
+		{http.MethodGet, "finance/entries/" + routerRequest, false, true},
+		{http.MethodPut, "finance/entries/" + routerRequest, true, true},
+		{http.MethodPost, "finance/entries/" + routerRequest + "/postings", true, true},
+		{http.MethodPost, "finance/entries/" + routerRequest + "/reversals", true, true},
+		{http.MethodGet, "finance/ledgers/" + routerRequest + "/reconciliations", false, true},
+		{http.MethodPost, "finance/ledgers/" + routerRequest + "/reconciliations", true, true},
+		{http.MethodGet, "finance/reconciliations/" + routerRequest, false, true},
+		{http.MethodPost, "finance/reconciliations/" + routerRequest + "/confirmations", true, true},
+		{http.MethodGet, "finance/ledgers/not-a-uuid", false, false},
+		{http.MethodPatch, "finance/ledgers/" + routerRequest, false, false},
+		{http.MethodGet, "finance/entries/" + routerRequest + "/postings", false, false},
+		{http.MethodPost, "finance/reconciliations/" + routerRequest, false, false},
+		{http.MethodGet, "finance/unknown", false, false},
+	}
+	for _, test := range tests {
+		t.Run(test.method+" "+test.resource, func(t *testing.T) {
+			requirement, allowed := routeRequirement(test.method, test.resource)
+			if allowed != test.allowed {
+				t.Fatalf("allowed=%t want %t requirement=%+v", allowed, test.allowed, requirement)
+			}
+			if allowed && (requirement.Package != catalog.PackageFinance || requirement.Mutation != test.mutation) {
+				t.Fatalf("requirement=%+v", requirement)
+			}
+		})
+	}
+}
+
+func TestMarketingRouteAllowlistMatchesCellSurface(t *testing.T) {
+	tests := []struct {
+		method, resource  string
+		mutation, allowed bool
+	}{
+		{http.MethodGet, "marketing/campaigns", false, true},
+		{http.MethodPost, "marketing/campaigns", true, true},
+		{http.MethodGet, "marketing/campaigns/" + routerRequest, false, true},
+		{http.MethodPut, "marketing/campaigns/" + routerRequest, true, true},
+		{http.MethodDelete, "marketing/campaigns/" + routerRequest, true, true},
+		{http.MethodGet, "marketing/campaigns/" + routerRequest + "/asset-revisions", false, true},
+		{http.MethodPost, "marketing/campaigns/" + routerRequest + "/asset-revisions", true, true},
+		{http.MethodGet, "marketing/campaigns/" + routerRequest + "/releases", false, true},
+		{http.MethodPost, "marketing/campaigns/" + routerRequest + "/releases", true, true},
+		{http.MethodPost, "marketing/campaigns/" + routerRequest + "/activations", true, true},
+		{http.MethodPost, "marketing/campaigns/" + routerRequest + "/pauses", true, true},
+		{http.MethodPost, "marketing/campaigns/" + routerRequest + "/completions", true, true},
+		{http.MethodGet, "marketing/releases/" + routerRequest, false, true},
+		{http.MethodPost, "marketing/releases/" + routerRequest + "/submissions", true, true},
+		{http.MethodPost, "marketing/releases/" + routerRequest + "/approvals", true, true},
+		{http.MethodPost, "marketing/releases/" + routerRequest + "/cancellations", true, true},
+		{http.MethodGet, "marketing/campaigns/not-a-uuid", false, false},
+		{http.MethodPatch, "marketing/campaigns/" + routerRequest, false, false},
+		{http.MethodGet, "marketing/campaigns/" + routerRequest + "/activations", false, false},
+		{http.MethodPut, "marketing/releases/" + routerRequest, false, false},
+		{http.MethodPost, "marketing/releases/not-a-uuid/approvals", false, false},
+	}
+	for _, test := range tests {
+		t.Run(test.method+" "+test.resource, func(t *testing.T) {
+			requirement, allowed := routeRequirement(test.method, test.resource)
+			if allowed != test.allowed {
+				t.Fatalf("allowed=%t want %t requirement=%+v", allowed, test.allowed, requirement)
+			}
+			if allowed && (requirement.Package != catalog.PackageMarketing || requirement.Mutation != test.mutation) {
+				t.Fatalf("requirement=%+v", requirement)
+			}
+		})
+	}
+}
+
+func TestStrongAuthenticationEvidenceIncludesEveryStrongMethod(t *testing.T) {
+	confirmedAt := time.Date(2026, 9, 2, 18, 30, 0, 123, time.FixedZone("local", -4*60*60))
+	for _, test := range []struct {
+		name   string
+		method sessions.AuthenticationMethod
+		strong bool
+	}{
+		{"passkey", sessions.AuthenticationMethodPasskey, true},
+		{"sms", sessions.AuthenticationMethodSMSOTP, true},
+		{"email", sessions.AuthenticationMethodEmailOTP, true},
+		{"password", sessions.AuthenticationMethodPassword, false},
+		{"oidc", sessions.AuthenticationMethodOIDC, false},
+		{"unknown", "", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			value := strongAuthenticatedAt(sessions.Session{ReauthenticationMethod: test.method, ReauthenticatedAt: confirmedAt})
+			if (value != nil) != test.strong {
+				t.Fatalf("strongAuthenticatedAt()=%v strong=%t", value, test.strong)
+			}
+			if value != nil && !value.Equal(confirmedAt.UTC()) {
+				t.Fatalf("strongAuthenticatedAt()=%s want=%s", value, confirmedAt.UTC())
+			}
+		})
+	}
+	if value := strongAuthenticatedAt(sessions.Session{ReauthenticationMethod: sessions.AuthenticationMethodPasskey}); value != nil {
+		t.Fatalf("zero reauthentication time produced %v", value)
 	}
 }
 

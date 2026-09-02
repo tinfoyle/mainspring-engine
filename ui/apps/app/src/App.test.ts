@@ -31,7 +31,11 @@ describe("application shell", () => {
   it("makes Your Turn the default and keeps unavailable packages out of the mobile menu", async () => {
     await router.push("/app");
     await router.isReady();
-    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } });
+    const pinia = createPinia();
+    const session = useSessionStore(pinia);
+    session.loaded = true;
+    vi.spyOn(session, "load").mockResolvedValue();
+    const wrapper = mount(App, { global: { plugins: [pinia, router] } });
     expect(wrapper.get("h1").text()).toBe("Your Turn");
     expect(wrapper.get("nav").attributes("aria-label")).toBe("Main navigation");
     expect(wrapper.get("nav").text()).toContain("Workspace");
@@ -82,6 +86,8 @@ describe("application shell", () => {
       }
     }];
     session.selectedID = session.accounts[0]?.account_id;
+    session.loaded = true;
+    vi.spyOn(session, "load").mockResolvedValue();
     const wrapper = mount(App, { global: { plugins: [pinia, router] } });
     const workspace = wrapper.get('[aria-labelledby="workspace-navigation-label"]');
     expect(workspace.text()).toContain("Work");

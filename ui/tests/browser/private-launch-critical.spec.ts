@@ -1372,6 +1372,42 @@ test("Account administration keeps authority, billing, portability, and closure 
   }
 });
 
+test("new Accounts preserve actionable empty states across customer workspaces", async ({ page }) => {
+  allowedBrowserErrors.push(/Failed to load resource:.*404/);
+  await page.route(`**/api/v1/accounts/${accountID}/baseline-assessments/current`, async (route) => {
+    await fulfillProblem(route, 404, "baseline_assessment_not_found", "No Business Baseline has been started.");
+  });
+  await page.route(`**/api/v1/accounts/${accountID}/finance/ledgers?*`, async (route) => {
+    await fulfillJSON(route, { items: [] });
+  });
+  await page.route(`**/api/v1/accounts/${accountID}/marketing/campaigns?*`, async (route) => {
+    await fulfillJSON(route, { items: [] });
+  });
+  await page.route(`**/api/v1/accounts/${accountID}/integrations/connections?*`, async (route) => {
+    await fulfillJSON(route, { items: null });
+  });
+  await page.route(`**/api/v1/accounts/${accountID}/integrations/executions?*`, async (route) => {
+    await fulfillJSON(route, { items: null });
+  });
+
+  const routes = [
+    { path: "/app/baseline", heading: "Business Baseline", evidence: "Start my Baseline" },
+    { path: "/app/finance", heading: "A governed ledger for operating truth", evidence: "No ledgers yet" },
+    { path: "/app/marketing", heading: "Prepare the message. Govern the release.", evidence: "No campaigns yet" },
+    { path: "/app/integrations", heading: "Connect deliberately. Observe every effect.", evidence: "No connections match this view." }
+  ] as const;
+
+  for (const route of routes) {
+    await test.step(route.path, async () => {
+      await page.goto(route.path);
+      await expect(page.getByRole("heading", { level: 1, name: route.heading })).toBeVisible();
+      await expect(page.getByText(route.evidence, { exact: false }).first()).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+      await expectAccessible(page);
+    });
+  }
+});
+
 test("Work, Knowledge, and Baseline preserve governed operating context", async ({ page }) => {
   const routes = [
     {
