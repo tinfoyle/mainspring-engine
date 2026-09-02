@@ -40,7 +40,7 @@ services:
 
   agent-journey-cert:
     environment:
-      SPYGLASS_AGENT_JOURNEY_COMMERCIAL_ONLY: "true"
+      SPYGLASS_AGENT_JOURNEY_COMMERCIAL_ONLY: ${SPYGLASS_AGENT_JOURNEY_COMMERCIAL_ONLY:-true}
       SPYGLASS_AGENT_JOURNEY_STRIPE_FIXTURE_URL: http://stripe-fixture:8080
       SPYGLASS_AGENT_JOURNEY_STRIPE_FIXTURE_TOKEN: local-commercial-journey-completion-token
     depends_on:

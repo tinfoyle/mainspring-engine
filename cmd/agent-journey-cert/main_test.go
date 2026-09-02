@@ -24,3 +24,27 @@ func TestValidateLocalAgentJourneyTargets(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateLocalAgentJourneyTargetsWithStripeFixture(t *testing.T) {
+	valid := config{
+		appOrigin: "https://app.infiniteocean.localhost:8444", mcpOrigin: "https://mcp.infiniteocean.localhost:8444",
+		edgeAddress: "edge:443", mailpitURL: "http://mailpit:8025", databaseURL: "postgres://fixture@global-db:5432/spyglass", providerFixture: "deterministic-fail-once",
+		stripeFixtureURL: "http://stripe-fixture:8080", stripeFixtureToken: "local-commercial-journey-completion-token",
+	}
+	if err := validateLocalAgentJourneyTargets(valid); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, mutate := range map[string]func(*config){
+		"remote Stripe": func(value *config) { value.stripeFixtureURL = "https://api.stripe.com" },
+		"short token":   func(value *config) { value.stripeFixtureToken = "too-short" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := valid
+			mutate(&candidate)
+			if err := validateLocalAgentJourneyTargets(candidate); err == nil {
+				t.Fatal("expected invalid Stripe fixture rejection")
+			}
+		})
+	}
+}

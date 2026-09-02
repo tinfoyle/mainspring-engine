@@ -1,20 +1,20 @@
 # Agent-only local platform certification
 
-- Certificate date: 2026-08-28
+- Certificate date: 2026-09-02
 - Environment: UbuntuRojo WSL 2 and the isolated `spyglass-agent-journey` Docker Compose project
 - Client posture: authorized external client using documented HTTPS and MCP interfaces only
 - Customer browser UI: not used
 - Remote systems: not contacted
-- Result: **passed — 27/27 journey checks and 94/94 published MCP tools**
-- Evidence: [agent-only-platform-certificate.json](evidence/agent-only-platform-certificate.json)
-- Evidence SHA-256: `1eb649a66233d849fb1988836fefc2a7b8a5171e26bf5b98c49cc0f2348f5bef`
+- Result: **passed — 32/32 journey checks and 94/94 published MCP tools**
+- Evidence: generated on demand with `make verify-product-journey`; the earlier 2026-08-28 report remains at [agent-only-platform-certificate.json](evidence/agent-only-platform-certificate.json) as historical evidence.
 
 ## What this certifies
 
-A fresh synthetic owner registered through the documented HTTP boundary, verified the local notification, logged in, enrolled a real software-backed ES256 user-verifying WebAuthn credential and recovery codes, selected the newly provisioned Account and then operated the product without the customer browser interface. The journey used the same Account routing, authentication, authorization, optimistic-version, entitlement, token-admission, runner and persistence boundaries available to an external client.
+A fresh synthetic owner registered through the documented HTTP boundary, verified the local notification, logged in, enrolled a real software-backed ES256 user-verifying WebAuthn credential and recovery codes, selected the newly provisioned Account, completed a locally hosted Stripe Checkout simulation through the real billing and signed-webhook boundaries, received the purchased package and included AI Tokens, and then operated the product without the customer browser interface. The journey uses the same Account routing, authentication, authorization, optimistic-version, billing projection, entitlement, token-admission, runner and persistence boundaries available to an external client. It no longer inserts commercial access directly into the database.
 
 The journey completed:
 
+- $50 monthly Checkout creation, hosted-checkout contract inspection, signed out-of-order Stripe deliveries, duplicate replay, billing projection, purchased-package access and included AI-Token grant;
 - Work creation and lifecycle, Your Turn summary, stale-version rejection and authoritative recovery;
 - Boardroom and Persona publication, manager configuration, Agent planning, deterministic provider failure, human-authorized retry, metered completion and insufficient-AI-Token rejection before provider use;
 - Schedule creation, pause, stale retry, resume and manual trigger;
@@ -33,7 +33,7 @@ The local deterministic provider deliberately returned one availability failure 
 
 ## Tool-by-tool coverage
 
-The revision-controlled JSON evidence names every tool and records its outcome. `executed` means the synthetic journey supplied a complete valid object graph and received structured success. `safe_rejection` means the authenticated call reached the correct Account-scoped handler and rejected incomplete or inapplicable synthetic input without crossing an authority or provider boundary. A safe rejection is handler/authorization coverage, not a claim that every possible business-state permutation completed successfully.
+The generated JSON report names every tool and records its outcome. `executed` means the synthetic journey supplied a complete valid object graph and received structured success. `safe_rejection` means the authenticated call reached the correct Account-scoped handler and rejected incomplete or inapplicable synthetic input without crossing an authority or provider boundary. A safe rejection is handler/authorization coverage, not a claim that every possible business-state permutation completed successfully.
 
 | MCP family | Published | Executed | Safe rejection |
 |---|---:|---:|---:|
@@ -50,12 +50,14 @@ Work, Your Turn, Agent/Boardroom and Scheduling are also exercised through their
 
 ## Defects found and corrected
 
-The mission found four locally reproducible platform defects. Each was fixed at the shared boundary and received regression coverage:
+The mission found six locally reproducible platform defects. Each was fixed at the shared boundary and received regression coverage:
 
 1. Docker runner verification supplied the engine's 64-character container ID where the database contract required a UUID. The adapter now derives a stable namespace-separated UUID from the full Docker ID while retaining the raw ID only as the job identifier.
 2. Agent retry digests used nanosecond timestamps while PostgreSQL persisted microseconds, making an otherwise valid retry appear corrupt. Run resolution now normalizes timestamps to PostgreSQL precision before hashing.
 3. A dispatch that exhausted its retry budget after an AI-Token admission denial became dead-lettered while its Agent Run remained planned. The cell migration now terminalizes the invocation, successor cohort, Run and queue projection consistently; the processor also preserves the specific `ai_tokens_insufficient` failure class.
 4. The secure local topology generated no client identity for the MCP gateway and did not authorize that workload at the application APIs. The local certificate graph, gateway TLS configuration and exact API allowlists now include the dedicated gateway identity. Stage configuration already had that identity and was not changed.
+5. The admission service could not evaluate the expanded MFA security posture because its least-privilege role lacked read access to `user_mfa_methods`. The exact read-only grant and a privilege regression assertion now cover it.
+6. The MCP gateway had the same migration-era security-posture grant drift. Its role now has the same narrow read-only access, and the existing MCP privilege assertion checks both the required read and forbidden writes.
 
 Fresh Account cell provisioning was also made durable and retryable rather than depending on a pre-created test Account. The certificate observed one fail-closed `account_unavailable` response, retried through the public contract and succeeded after provisioning completed.
 
@@ -80,7 +82,10 @@ Stage, GHCR, Hostinger, LKE and production release work remain a separate final 
 From UbuntuRojo at the repository root:
 
 ```bash
-deploy/docker/spyglass/verify-agent-journey.sh --out /tmp/spyglass-agent-journey.json
+make -C deploy/docker/spyglass verify-product-journey
+
+# Write the content-free machine-readable report when evidence is needed:
+deploy/docker/spyglass/verify-agent-journey.sh --out /tmp/spyglass-product-journey.json
 ```
 
-The script uses an isolated `spyglass-agent-journey` Compose project, resets the deterministic provider fixture, starts the certificate exactly once and writes the report with mode `0600`. Each run creates new synthetic User and Account identities, so its timestamp, identifiers and file digest will differ while the schema, 27 passed checks, 94 covered tools and 49/45 outcome split remain the acceptance contract.
+The script uses an isolated `spyglass-agent-journey` Compose project, preserves its named test volumes, recreates its containers and networks, resets the deterministic provider fixture, starts the certificate exactly once and writes an optional report with mode `0600`. Each run creates new synthetic User and Account identities, so its timestamp, identifiers and file digest will differ while the schema, 32 passed checks, 94 covered tools and 49/45 outcome split remain the acceptance contract.

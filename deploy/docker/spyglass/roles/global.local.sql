@@ -207,7 +207,7 @@ GRANT UPDATE ON sessions TO spyglass_app_router;
 
 GRANT SELECT ON accounts, memberships, entitlement_snapshots, account_directory, cells,
   account_erasure_restore_ledger, passkey_credentials, user_recovery_code_sets, user_recovery_codes,
-  account_export_requests
+  user_mfa_methods, account_export_requests
   TO spyglass_mcp_gateway;
 GRANT INSERT, UPDATE ON account_export_requests TO spyglass_mcp_gateway;
 GRANT INSERT ON account_export_events TO spyglass_mcp_gateway;
@@ -217,7 +217,7 @@ GRANT EXECUTE ON FUNCTION spyglass_authenticate_mcp_access_token(bytea,text,text
 GRANT SELECT ON accounts, memberships, entitlement_snapshots,
   entitlement_usage_counters, entitlement_usage_reservations,
   account_erasure_restore_ledger, catalog_publications,
-  passkey_credentials, user_recovery_code_sets, user_recovery_codes,
+  passkey_credentials, user_recovery_code_sets, user_recovery_codes, user_mfa_methods,
   ai_token_grants, ai_token_reservations, ai_token_reservation_allocations,
   ai_token_ledger_entries TO spyglass_admission_api;
 GRANT INSERT, UPDATE ON entitlement_usage_counters, entitlement_usage_reservations TO spyglass_admission_api;

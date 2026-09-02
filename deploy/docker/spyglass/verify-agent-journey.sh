@@ -5,6 +5,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 generated="$script_dir/workload-tls/generated"
 mkdir -p "$generated/runner-identities-a" "$generated/runner-identities-b"
 export SPYGLASS_STAGE_SECRETS_DIRECTORY="$generated"
+export SPYGLASS_AGENT_JOURNEY_COMMERCIAL_ONLY=false
 
 compose=(docker compose --project-name spyglass-agent-journey \
   --env-file "$script_dir/env/local.env" \
@@ -14,7 +15,12 @@ compose=(docker compose --project-name spyglass-agent-journey \
   --file "$script_dir/compose.local.yml" \
   --file "$script_dir/compose.workload-tls.yml" \
   --file "$script_dir/compose.stage-runner.yml" \
-  --file "$script_dir/compose.agent-journey.yml")
+  --file "$script_dir/compose.agent-journey.yml" \
+  --file "$script_dir/compose.commercial-journey.yml")
+
+# Recreate the isolated execution graph so stopped containers cannot retain a
+# removed Docker network. Named test database volumes intentionally survive.
+"${compose[@]}" --profile agent-execution down --remove-orphans
 
 # Keep the one-shot certificate service out of the topology startup. Starting it
 # here and then using `run` below would execute the journey twice and consume the
@@ -23,6 +29,7 @@ compose=(docker compose --project-name spyglass-agent-journey \
 # Reset the in-memory failure counter so every invocation, including a rerun
 # against an existing isolated project, proves the same fail-once/retry path.
 "${compose[@]}" --profile agent-execution up --detach --force-recreate --no-deps --wait openai-fixture
+"${compose[@]}" --profile agent-execution --profile agent-cert build agent-journey-cert
 
 if [[ $# -eq 2 && $1 == "--out" ]]; then
   report_target="$2"

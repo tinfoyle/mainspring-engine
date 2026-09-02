@@ -89,7 +89,7 @@ test "$export_global_privileges" = "t"
 
 mcp_export_privileges="$("${compose[@]}" exec --no-TTY global-db psql \
   --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
-  --command="SELECT has_table_privilege('spyglass_mcp_gateway','account_export_requests','SELECT,INSERT,UPDATE') AND NOT has_table_privilege('spyglass_mcp_gateway','account_export_requests','DELETE') AND has_table_privilege('spyglass_mcp_gateway','account_export_events','INSERT') AND NOT has_table_privilege('spyglass_mcp_gateway','account_export_events','SELECT,UPDATE,DELETE') AND has_function_privilege('spyglass_mcp_gateway','spyglass_authenticate_mcp_access_token(bytea,text,text,timestamptz)','EXECUTE')")"
+  --command="SELECT has_table_privilege('spyglass_mcp_gateway','account_export_requests','SELECT,INSERT,UPDATE') AND NOT has_table_privilege('spyglass_mcp_gateway','account_export_requests','DELETE') AND has_table_privilege('spyglass_mcp_gateway','account_export_events','INSERT') AND NOT has_table_privilege('spyglass_mcp_gateway','account_export_events','SELECT,UPDATE,DELETE') AND has_table_privilege('spyglass_mcp_gateway','user_mfa_methods','SELECT') AND NOT has_table_privilege('spyglass_mcp_gateway','user_mfa_methods','INSERT,UPDATE,DELETE') AND has_function_privilege('spyglass_mcp_gateway','spyglass_authenticate_mcp_access_token(bytea,text,text,timestamptz)','EXECUTE')")"
 test "$mcp_export_privileges" = "t"
 
 admission_token_privileges="$("${compose[@]}" exec --no-TTY global-db psql \
@@ -106,6 +106,11 @@ app_router_security_privileges="$("${compose[@]}" exec --no-TTY global-db psql \
   --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
   --command="SELECT has_table_privilege('spyglass_app_router','user_mfa_methods','SELECT') AND NOT has_table_privilege('spyglass_app_router','user_mfa_methods','INSERT,UPDATE,DELETE')")"
 test "$app_router_security_privileges" = "t"
+
+admission_security_privileges="$("${compose[@]}" exec --no-TTY global-db psql \
+  --username=spyglass_migrator --dbname=spyglass --tuples-only --no-align \
+  --command="SELECT has_table_privilege('spyglass_admission_api','user_mfa_methods','SELECT') AND NOT has_table_privilege('spyglass_admission_api','user_mfa_methods','INSERT,UPDATE,DELETE')")"
+test "$admission_security_privileges" = "t"
 
 for database in cell-a-db cell-b-db; do
   cell_runtime_role_count="$("${compose[@]}" exec --no-TTY "$database" psql \

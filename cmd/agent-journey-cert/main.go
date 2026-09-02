@@ -134,21 +134,24 @@ func run(ctx context.Context, c config) error {
 	if err := j.register(ctx, email, password); err != nil {
 		return err
 	}
-	if c.commercialOnly {
+	if c.stripeFixtureURL != "" {
 		if err := j.selectAccount(ctx); err != nil {
 			return err
 		}
 		if err := j.purchaseLocalSubscription(ctx); err != nil {
 			return err
 		}
-		return j.writeReport()
-	}
-	if err := provisionLocalCommercialFixture(ctx, c.databaseURL, j.report.AccountID); err != nil {
-		return fmt.Errorf("provision local commercial fixture: %w", err)
-	}
-	j.pass("local commercial fixture", "all packages enabled and deterministic AI Tokens granted")
-	if err := j.selectAccount(ctx); err != nil {
-		return err
+		if c.commercialOnly {
+			return j.writeReport()
+		}
+	} else {
+		if err := provisionLocalCommercialFixture(ctx, c.databaseURL, j.report.AccountID); err != nil {
+			return fmt.Errorf("provision local commercial fixture: %w", err)
+		}
+		j.pass("local commercial fixture", "all packages enabled and deterministic AI Tokens granted")
+		if err := j.selectAccount(ctx); err != nil {
+			return err
+		}
 	}
 	if err := j.exerciseHTTPPlatform(ctx); err != nil {
 		return err
@@ -1541,7 +1544,7 @@ func validateLocalAgentJourneyTargets(c config) error {
 	if err := requireLocalFixtureURL(c.databaseURL, []string{"postgres", "postgresql"}, "global-db"); err != nil {
 		return fmt.Errorf("agent journey database must be local: %w", err)
 	}
-	if c.commercialOnly {
+	if c.commercialOnly || c.stripeFixtureURL != "" {
 		if err := requireLocalFixtureURL(c.stripeFixtureURL, []string{"http"}, "stripe-fixture"); err != nil {
 			return fmt.Errorf("commercial journey Stripe endpoint must be local: %w", err)
 		}
