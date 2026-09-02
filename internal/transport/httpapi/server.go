@@ -356,7 +356,7 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) currentIdentity(w http.ResponseWriter, r *http.Request) {
-	if s.contactChanges == nil {
+	if s.contactChanges == nil || s.authentication == nil {
 		writeProblem(w, http.StatusServiceUnavailable, "identity_unconfigured", "identity details are not configured")
 		return
 	}
@@ -369,7 +369,12 @@ func (s *Server) currentIdentity(w http.ResponseWriter, r *http.Request) {
 		writeProblem(w, http.StatusServiceUnavailable, "identity_unavailable", "identity details could not be loaded")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"user_id": user.ID, "primary_email": user.PrimaryEmail})
+	hasPassword, err := s.authentication.HasLocalCredential(r.Context(), authenticated.Session.UserID)
+	if err != nil {
+		writeProblem(w, http.StatusServiceUnavailable, "identity_unavailable", "identity credential capabilities could not be loaded")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"user_id": user.ID, "primary_email": user.PrimaryEmail, "has_password": hasPassword})
 }
 
 func (s *Server) listMCPGrants(w http.ResponseWriter, r *http.Request) {

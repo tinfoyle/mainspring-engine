@@ -1159,6 +1159,7 @@ export interface CreateWorkReviewRequest {
 }
 
 export interface CurrentIdentity {
+  readonly "has_password": boolean;
   readonly "primary_email": string;
   readonly "user_id": string;
 }

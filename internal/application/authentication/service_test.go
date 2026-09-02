@@ -117,6 +117,36 @@ func TestUnknownIdentityStillUsesFailureLimiter(t *testing.T) {
 	}
 }
 
+func TestHasLocalCredentialDistinguishesPasswordlessIdentity(t *testing.T) {
+	passwords := authn.Passwords{}
+	dummy, err := passwords.Hash("dummy password material")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 17, 12, 0, 0, 0, time.UTC)
+	sessionService, err := sessions.NewService(memory.NewSessionStore(), &generator{}, clock{now}, time.Hour, 30*time.Minute, 10*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	withPassword, err := authentication.NewService(identitySource{value: authentication.LocalIdentity{User: identity.User{ID: ids.UserID("user-a")}, PasswordHash: "hash"}}, &limiter{}, networkGuard(true), passwords, sessionService, clock{now}, dummy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasPassword, err := withPassword.HasLocalCredential(context.Background(), ids.UserID("user-a"))
+	if err != nil || !hasPassword {
+		t.Fatalf("password credential: has=%v err=%v", hasPassword, err)
+	}
+
+	passwordless, err := authentication.NewService(identitySource{err: authentication.ErrIdentityNotFound}, &limiter{}, networkGuard(true), passwords, sessionService, clock{now}, dummy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasPassword, err = passwordless.HasLocalCredential(context.Background(), ids.UserID("user-b"))
+	if err != nil || hasPassword {
+		t.Fatalf("passwordless identity: has=%v err=%v", hasPassword, err)
+	}
+}
+
 func TestNetworkBudgetDeniesOtherwiseValidLogin(t *testing.T) {
 	passwords := authn.Passwords{}
 	hash, _ := passwords.Hash("correct horse battery staple")

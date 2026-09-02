@@ -23,7 +23,7 @@ const currentSession = { id: "10000000-0000-4000-8000-000000000001", client_labe
 async function mountView(path = "/app/security") { const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/app/security", component: SecurityView }] }); const pinia = createPinia(); useSessionStore(pinia).selectedID = "30000000-0000-4000-8000-000000000003"; await router.push(path); await router.isReady(); return mount(SecurityView, { global: { plugins: [pinia, router] } }); }
 beforeEach(() => {
   for (const mock of [...Object.values(api), ...Object.values(webauthn)]) mock.mockReset();
-  api.getCurrentIdentity.mockResolvedValue({ user_id: "20000000-0000-4000-8000-000000000002", primary_email: "owner@example.com" });
+  api.getCurrentIdentity.mockResolvedValue({ user_id: "20000000-0000-4000-8000-000000000002", primary_email: "owner@example.com", has_password: true });
   api.getSecurityPosture.mockResolvedValue({ passkey_count: 1, recovery_codes_configured: true, recovery_codes_remaining: 8, mfa_method_count: 0, owner_ready: true });
   api.getMFAMethods.mockResolvedValue({ methods: [] });
   api.getPasskeys.mockResolvedValue({ passkeys: [{ id: "key", name: "Laptop", created_at: "2026-08-24T20:00:00Z", backup_eligible: true, backed_up: true }] });
@@ -35,6 +35,16 @@ beforeEach(() => {
   api.emitAnalytics.mockResolvedValue(true);
 });
 describe("Security surface", () => {
+  it("hides password confirmation for a Google-only identity", async () => {
+    api.getCurrentIdentity.mockResolvedValue({ user_id: "20000000-0000-4000-8000-000000000002", primary_email: "owner@example.com", has_password: false });
+    const wrapper = await mountView(); await flushPromises();
+    const confirmation = wrapper.get("#security-confirmation");
+    expect(confirmation.text()).toContain("does not have a Spyglass password");
+    expect(confirmation.find('input[type="password"]').exists()).toBe(false);
+    expect(confirmation.text()).not.toContain("Confirm password");
+    expect(confirmation.text()).toContain("Confirm with a passkey");
+    await expectNoAxeViolations(wrapper.element);
+  });
   it("explains a checkout reauthentication handoff before showing security methods", async () => {
     const wrapper = await mountView("/app/security?return_to=%2Fapp%2Fcheckout&status=strong_reauthentication_required"); await flushPromises();
     const notice = wrapper.get('[aria-labelledby="checkout-reauthentication-title"]');

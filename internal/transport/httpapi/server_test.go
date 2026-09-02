@@ -114,7 +114,7 @@ func TestRegistrationHTTPJourney(t *testing.T) {
 		t.Fatalf("unexpected session cookie: %#v", cookies)
 	}
 	currentIdentity := requestJSONCookie(t, http.MethodGet, server.URL+"/api/v1/identity", "", cookies[0])
-	if currentIdentity.StatusCode != http.StatusOK || !bytes.Contains(currentIdentity.Body, []byte(`"user_id":"`+provisioned.User.ID+`"`)) || !bytes.Contains(currentIdentity.Body, []byte(`"primary_email":"avery@example.com"`)) {
+	if currentIdentity.StatusCode != http.StatusOK || !bytes.Contains(currentIdentity.Body, []byte(`"user_id":"`+provisioned.User.ID+`"`)) || !bytes.Contains(currentIdentity.Body, []byte(`"primary_email":"avery@example.com"`)) || !bytes.Contains(currentIdentity.Body, []byte(`"has_password":true`)) {
 		t.Fatalf("current identity: %d %s", currentIdentity.StatusCode, currentIdentity.Body)
 	}
 	tokenBalance := requestJSONCookie(t, http.MethodGet, server.URL+"/api/v1/accounts/"+provisioned.Account.ID+"/ai-tokens", "", cookies[0])

@@ -138,3 +138,16 @@ func (s *Service) Reauthenticate(ctx context.Context, command ReauthenticateComm
 	}
 	return s.sessions.MarkReauthenticatedWithMethod(ctx, command.UserID, command.SessionID, sessions.AuthenticationMethodPassword)
 }
+
+// HasLocalCredential reports whether the identity can use Spyglass password
+// authentication without exposing credential material to callers.
+func (s *Service) HasLocalCredential(ctx context.Context, userID ids.UserID) (bool, error) {
+	if userID == "" {
+		return false, ErrIdentityNotFound
+	}
+	_, err := s.identities.LocalIdentityForUser(ctx, userID)
+	if errors.Is(err, ErrIdentityNotFound) {
+		return false, nil
+	}
+	return err == nil, err
+}
