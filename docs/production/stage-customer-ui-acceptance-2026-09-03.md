@@ -12,6 +12,28 @@
 
 No password, code, session token, cookie, provider credential, private key or payment detail was read or recorded during this review.
 
+## Conversational Business Baseline deployment — RC.29
+
+RC.29 replaces the internal-looking gap-review form with a customer conversation while retaining the same governed state machine. The live authenticated assessment now displays the named **Spyglass / Setup guide**, plain-language stage names and the question **Do you have one place to track customer problems, complaints, and feedback?** The owner chooses **Yes, we have a way**, **Not yet—add it to my plan**, or **This doesn’t apply to us**. Knowledge Evidence identifiers and disposition terminology are no longer customer inputs. A positive reply registers attributable owner-statement Evidence behind the interface and binds it to the explicit Baseline decision; retry reuses the first Evidence identity.
+
+RC.29 deployment evidence:
+
+- Source revision: `0867ebfcbc716294c045c53b1d2e95bc8ef2b6a2`.
+- Release-manifest revision and clean VPS checkout: `b98f4a161ae88efe9d65f91c0ae65bdc26c8a5f9`.
+- Release manifest: `deploy/releases/0.3.0-rc.29.env`.
+- All three release images carry provenance and SBOM attestations and passed HIGH/CRITICAL vulnerability plus secret scanning with zero findings.
+- The protected Stage configuration verified before mutation.
+- The deployment retained the existing PostgreSQL and object-store volumes.
+- 49 long-running containers are present; all 48 healthchecked workloads are healthy and the internal edge is running.
+- Public, login and durable authenticated Baseline origins return `200`.
+- A fresh authenticated browser reload visibly served the RC.29 conversational prompt and choices from the deployed private UI.
+
+| Artifact | Digest |
+| --- | --- |
+| Application | `sha256:939730ca32451425e6d557320ba70404909b558a9ccb0be987da524a34af3b56` |
+| Public UI | `sha256:9fe36cfd76a22531c8d80564e1a92d20c17b1c93aeadc2c2e13c84f2c1c41658` |
+| Private UI | `sha256:c8d6fae98061a27517bafbe01ae0d9fbb76ac2182ad38f47536fa92bcb3867be` |
+
 ## Post-acceptance Baseline correction — RC.26
 
 The RC.24 route sweep proved only that the Baseline page shell loaded. It did not prove the fresh-account or creation workflow. User review correctly found that Baseline was still broken, invalidating that part of the initial acceptance conclusion.
