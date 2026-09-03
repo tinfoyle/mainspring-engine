@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { KnowledgeClaim } from "./generated/api-types";
-import { captureOwnerKnowledgeFact, decideKnowledgeClaim, listProposedKnowledgeClaims } from "./knowledge";
+import { captureOwnerKnowledgeEvidence, captureOwnerKnowledgeFact, decideKnowledgeClaim, listProposedKnowledgeClaims } from "./knowledge";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -42,5 +42,17 @@ describe("Knowledge client", () => {
     expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toMatchObject({ source_kind: "owner_statement", content_sha256: expect.stringMatching(/^[0-9a-f]{64}$/) });
     expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toMatchObject({ key: "organization.legal_name", value: "Northstar Studio LLC", confidence: 1000, citations: [{ evidence_id: evidence.id }] });
     expect(new Headers(fetcher.mock.calls[2]?.[1]?.headers).get("If-Match")).toBe('W/"1"');
+  });
+
+  it("records a plain-language Baseline review as attributable owner evidence", async () => {
+    const evidence = { id: "60000000-0000-4000-8000-000000000006", source_kind: "owner_statement" };
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(evidence), { status: 201, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetcher);
+
+    await expect(captureOwnerKnowledgeEvidence("account", "We track complaints in the service log.", "baseline/assessment/customer_feedback")).resolves.toMatchObject(evidence);
+
+    const request = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body));
+    expect(request).toMatchObject({ source_kind: "owner_statement", source_reference: "baseline/assessment/customer_feedback", content_sha256: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect(new Headers(fetcher.mock.calls[0]?.[1]?.headers).get("Idempotency-Key")).toBeTruthy();
   });
 });

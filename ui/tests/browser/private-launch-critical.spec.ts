@@ -1391,7 +1391,7 @@ test("new Accounts preserve actionable empty states across customer workspaces",
   });
 
   const routes = [
-    { path: "/app/baseline", heading: "Business Baseline", evidence: "Start my Baseline" },
+    { path: "/app/baseline", heading: "Business Baseline", evidence: "Let’s get started" },
     { path: "/app/finance", heading: "A governed ledger for operating truth", evidence: "No ledgers yet" },
     { path: "/app/marketing", heading: "Prepare the message. Govern the release.", evidence: "No campaigns yet" },
     { path: "/app/integrations", heading: "Connect deliberately. Observe every effect.", evidence: "No connections match this view." }
@@ -1433,7 +1433,7 @@ test("Work, Knowledge, and Baseline preserve governed operating context", async 
     {
       path: `/app/baseline/${baselineID}`,
       heading: "Business Baseline",
-      evidence: ["What is the legal or registered name", "Confirm my answer now", "Use an existing Knowledge fact"]
+      evidence: ["What is the legal or registered name", "I can answer this", "I’m not sure yet"]
     }
   ] as const;
 
@@ -1460,6 +1460,7 @@ test("Business Baseline completes the customer journey through accountable Work 
   const ownerEvidenceID = "47000000-0000-4000-8000-000000000047";
   const ownerClaimID = "48000000-0000-4000-8000-000000000048";
   const ownerFactID = "49000000-0000-4000-8000-000000000049";
+  const requirementEvidenceID = "4a000000-0000-4000-8000-00000000004a";
   const commandTrail: string[] = [];
   let started = false;
   let workState: "open" | "in_progress" | "done" = "open";
@@ -1529,13 +1530,20 @@ test("Business Baseline completes the customer journey through accountable Work 
     if (path === `${assessmentRoot}/inventories`) {
       commandTrail.push("inventory-complete");
       const requirement = (id: string, code: string, title: string) => ({ id, code, title, responsibility: { kind: "account" }, renew_after_days: 365, catalog_version: journeyBaseline.catalog_version, scope_policy_version: journeyBaseline.scope_policy_version, disposition: "pending", reason: "", evidence: [] });
-      await fulfillJSON(route, mutateBaseline({ state: "gap_review", requirements: [requirement(firstRequirementID, "legal.formation", "Confirm the formation record"), requirement(secondRequirementID, "operations.continuity", "Review the continuity plan")] }));
+      await fulfillJSON(route, mutateBaseline({ state: "gap_review", requirements: [requirement(firstRequirementID, "identity_registration", "Confirm the formation record"), requirement(secondRequirementID, "customer_feedback", "Customer issue and feedback record")] }));
       return;
     }
     if (path === `${assessmentRoot}/dispositions`) {
       const input = request.postDataJSON() as { requirement_id: string; disposition: string; reason: string };
       commandTrail.push(`disposition:${input.disposition}`);
       await fulfillJSON(route, mutateBaseline({ requirements: journeyBaseline.requirements.map((item) => item.id === input.requirement_id ? { ...item, disposition: input.disposition, reason: input.reason } : item) }));
+      return;
+    }
+    if (path === `${assessmentRoot}/evidence-decisions`) {
+      const input = request.postDataJSON() as { requirement_id: string; evidence_id: string; decision: string; reason: string };
+      expect(input).toMatchObject({ requirement_id: secondRequirementID, evidence_id: requirementEvidenceID, decision: "accepted", reason: "We log customer complaints in Jobber and review them every Friday." });
+      commandTrail.push("evidence:accepted");
+      await fulfillJSON(route, mutateBaseline({ requirements: journeyBaseline.requirements.map((item) => item.id === input.requirement_id ? { ...item, disposition: "satisfied", reason: input.reason, evidence: [{ evidence_id: input.evidence_id, decision: input.decision }] } : item) }));
       return;
     }
     if (path === `${assessmentRoot}/plans`) {
@@ -1596,9 +1604,14 @@ test("Business Baseline completes the customer journey through accountable Work 
     if (path === `/api/v1/accounts/${accountID}/knowledge/evidence` && request.method() === "POST") {
       const input = request.postDataJSON() as { source_kind: string; source_reference: string; content_sha256: string; captured_at: string };
       expect(input.source_kind).toBe("owner_statement");
-      expect(input.source_reference).toContain(`baseline/${journeyBaselineID}/organization.legal_name`);
       expect(input.content_sha256).toMatch(/^[0-9a-f]{64}$/);
       expect(Date.parse(input.captured_at)).not.toBeNaN();
+      if (input.source_reference.includes("/requirements/customer_feedback/owner-confirmation")) {
+        commandTrail.push("knowledge:review-evidence");
+        await fulfillJSON(route, { id: requirementEvidenceID }, 201);
+        return;
+      }
+      expect(input.source_reference).toContain(`baseline/${journeyBaselineID}/organization.legal_name`);
       commandTrail.push("knowledge:evidence");
       await fulfillJSON(route, { id: ownerEvidenceID }, 201);
       return;
@@ -1630,38 +1643,39 @@ test("Business Baseline completes the customer journey through accountable Work 
   });
 
   await page.goto("/app/baseline");
-  await page.getByRole("button", { name: "Start my Baseline" }).click();
+  await page.getByRole("button", { name: "Let’s get started" }).click();
   await expect(page).toHaveURL(new RegExp(`/app/baseline/${journeyBaselineID}$`));
   const requiredPrompts = [
-    "What is the legal or registered name of the business?",
-    "What trade, industry or business model best describes the company?",
-    "Where does the business primarily operate?",
-    "What products or services produce revenue today?",
-    "How many people work in the business, including owners and regular contractors?",
-    "What uncertainty or operating problem should the first plan prioritize?"
+    "What is the legal or registered name of your business?",
+    "What kind of work does your business do?",
+    "Where do you mainly do business?",
+    "What do customers pay you to do?",
+    "How many people regularly work in the business?",
+    "What is the biggest thing you want help getting under control?"
   ];
   for (let index = 0; index < requiredPrompts.length; index += 1) {
     await expect(page.getByRole("heading", { level: 2, name: requiredPrompts[index] })).toBeVisible();
     if (index === 0) {
-      await page.getByLabel("Your confirmed answer").fill("Synthetic Wrench Works");
+      await page.getByLabel("Your answer").fill("Synthetic Wrench Works");
     } else {
-      await page.getByRole("radio", { name: "I don’t know yet" }).check();
-      await page.getByLabel("What still needs confirmation?").fill(`Owner confirmation remains explicit for Baseline question ${index + 1}.`);
+      await page.getByRole("radio", { name: "I’m not sure yet" }).check();
+      await page.getByLabel("What should I help you confirm?").fill(`Owner confirmation remains explicit for Baseline question ${index + 1}.`);
     }
-    await page.getByRole("button", { name: "Confirm and continue" }).click();
-    if (index === 0) await page.getByRole("button", { name: "Skip optional question" }).click();
+    await page.getByRole("button", { name: "Continue" }).click();
+    if (index === 0) await page.getByRole("button", { name: "Skip this question" }).click();
   }
-  await page.getByRole("button", { name: "Begin inventory" }).click();
-  await expect(page.getByText("Inventory", { exact: true }).last()).toBeVisible();
-  await page.getByRole("button", { name: "Build my evidence inventory" }).click();
-  await page.getByLabel("Reason").fill("The formation record still needs reviewed evidence.");
-  await page.getByRole("button", { name: "Record decision" }).click();
-  await page.getByRole("radio", { name: "Not applicable" }).check();
-  await page.getByLabel("Reason").fill("The owner reviewed this requirement and it does not apply.");
-  await page.getByRole("button", { name: "Record decision" }).click();
-  await page.getByRole("button", { name: "Review frozen plan" }).click();
-  await expect(page.getByText("1 proposed Work items", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Approve exact plan" }).click();
+  await page.getByRole("button", { name: "Build my checklist" }).click();
+  await expect(page.getByText("What matters", { exact: true }).last()).toBeVisible();
+  await page.getByRole("button", { name: "Show me the checklist" }).click();
+  await page.getByRole("radio", { name: "Not yet—add it to my plan" }).check();
+  await page.getByLabel(/Anything I should know before adding this to your plan/).fill("The formation record still needs to be collected.");
+  await page.getByRole("button", { name: "Save and keep going" }).click();
+  await page.getByRole("radio", { name: "Yes, we have a way" }).check();
+  await page.getByLabel("What do you use, and where is it kept?").fill("We log customer complaints in Jobber and review them every Friday.");
+  await page.getByRole("button", { name: "Save and keep going" }).click();
+  await page.getByRole("button", { name: "Show me my plan" }).click();
+  await expect(page.getByText("Confirm the formation record", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Looks good—approve this plan" }).click();
   await page.getByRole("button", { name: "Create 1 Work items" }).click();
   await page.getByRole("link", { name: /Collect the formation record/ }).click();
   await page.getByRole("button", { name: "Start", exact: true }).click();
@@ -1697,7 +1711,8 @@ test("Business Baseline completes the customer journey through accountable Work 
     "inventory",
     "inventory-complete",
     "disposition:gap",
-    "disposition:not_applicable",
+    "knowledge:review-evidence",
+    "evidence:accepted",
     "plan",
     "approve",
     "materialize",
@@ -2265,13 +2280,13 @@ test("package workspaces preserve customer intent through capacity and downstrea
     });
 
     await page.goto(`/app/baseline/${baselineID}`);
-    await page.getByRole("radio", { name: "I don’t know yet" }).check();
-    await page.getByLabel("What still needs confirmation?").fill("The registered name is still being confirmed.");
-    await page.getByRole("button", { name: "Confirm and continue" }).click();
+    await page.getByRole("radio", { name: "I’m not sure yet" }).check();
+    await page.getByLabel("What should I help you confirm?").fill("The registered name is still being confirmed.");
+    await page.getByRole("button", { name: "Continue" }).click();
     await expect(page.getByRole("alert")).toContainText("Your answer remains in this page for retry");
-    await expect(page.getByRole("radio", { name: "I don’t know yet" })).toBeChecked();
-    await expect(page.getByLabel("What still needs confirmation?")).toHaveValue("The registered name is still being confirmed.");
-    await expect(page.getByRole("button", { name: "Confirm and continue" })).toBeEnabled();
+    await expect(page.getByRole("radio", { name: "I’m not sure yet" })).toBeChecked();
+    await expect(page.getByLabel("What should I help you confirm?")).toHaveValue("The registered name is still being confirmed.");
+    await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled();
     expect(answers).toEqual([{ question_key: "organization.legal_name", kind: "unknown", reason: "The registered name is still being confirmed." }]);
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
@@ -2289,7 +2304,7 @@ test("package workspaces preserve customer intent through capacity and downstrea
     await expect(dismissed).resolves.toBe("Leave Business Baseline? Your unsubmitted answer or review will be lost.");
     await expect(page).toHaveURL(new RegExp(`/app/baseline/${baselineID}$`));
     if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
-    await expect(page.getByLabel("What still needs confirmation?")).toHaveValue("The registered name is still being confirmed.");
+    await expect(page.getByLabel("What should I help you confirm?")).toHaveValue("The registered name is still being confirmed.");
     await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your Baseline answer or review remains" })).toBeVisible();
 
     page.once("dialog", (dialog) => dialog.accept());
