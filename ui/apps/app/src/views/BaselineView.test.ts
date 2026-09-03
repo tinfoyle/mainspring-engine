@@ -51,7 +51,9 @@ describe("Business Baseline surface", () => {
   });
 
   it("offers an owner a clean start when no current assessment exists", async () => {
-    api.getCurrentBaseline.mockRejectedValue(new APIProblem(404)); const wrapper = await mountAt("/app/baseline");
+    const crossBundleProblem = Object.assign(new Error("Request failed with status 404"), { name: "APIProblem", status: 404 });
+    expect(crossBundleProblem).not.toBeInstanceOf(APIProblem);
+    api.getCurrentBaseline.mockRejectedValue(crossBundleProblem); const wrapper = await mountAt("/app/baseline");
     expect(wrapper.text()).toContain("You can leave and resume on any device"); expect(wrapper.text()).toContain("Start my Baseline");
   });
 

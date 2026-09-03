@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import {
-  APIProblem, answerBaseline, approveBaselinePlan, beginBaselineInventory, captureOwnerKnowledgeFact, completeBaselineInventory,
+  answerBaseline, approveBaselinePlan, beginBaselineInventory, captureOwnerKnowledgeFact, completeBaselineInventory,
   confirmBaselineWorkEvidence, createBaselineSourceGrant, decideBaselineEvidence, dispositionBaselineRequirement,
-  getBaseline, getCurrentBaseline, getIntegrationConnection, listBaselineSourceGrants, listIntegrationConnections,
+  getBaseline, getCurrentBaseline, getIntegrationConnection, isAPIProblem, listBaselineSourceGrants, listIntegrationConnections,
   listKnowledgeFacts, listWork, markBaselineReady, materializeBaselineMaintenance, materializeBaselinePlan,
   reassessBaseline, revokeBaselineSourceGrant, startBaseline, submitBaselinePlan,
   type BaselineAssessment, type BaselineRequirement, type BaselineSourceGrant, type IntegrationConnection,
@@ -99,7 +99,7 @@ async function load(): Promise<void> {
   try {
     const id = typeof route.params.assessmentID === "string" ? route.params.assessmentID : "";
     try { baseline.value = id ? await getBaseline(accountID, id) : await getCurrentBaseline(accountID); }
-    catch (caught) { if (!(caught instanceof APIProblem) || caught.status !== 404 || id) throw caught; }
+    catch (caught) { if (!isAPIProblem(caught) || caught.status !== 404 || id) throw caught; }
     if (current !== sequence) return;
     if (baseline.value && !id) await router.replace(`/app/baseline/${baseline.value.id}`);
     await reloadSupporting(accountID);

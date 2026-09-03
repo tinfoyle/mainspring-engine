@@ -19,6 +19,13 @@ export class APIProblem extends Error {
   }
 }
 
+export function isAPIProblem(value: unknown): value is APIProblem {
+  if (value instanceof APIProblem) return true;
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as { readonly name?: unknown; readonly status?: unknown };
+  return candidate.name === "APIProblem" && typeof candidate.status === "number";
+}
+
 export async function requestJSON<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");

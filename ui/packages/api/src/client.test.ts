@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { APIProblem, requestJSON, setUnauthorizedHandler } from "./client";
+import { APIProblem, isAPIProblem, requestJSON, setUnauthorizedHandler } from "./client";
 import { emitAnalytics } from "./analytics";
 
 afterEach(() => {
@@ -34,6 +34,19 @@ describe("requestJSON", () => {
     await expect(requestJSON("/api/v1/accounts/account-a/work-items")).rejects.toEqual(expect.objectContaining<Partial<APIProblem>>({ status: 401 }));
     expect(expired).toHaveBeenCalledOnce();
     expect(expired).toHaveBeenCalledWith("/api/v1/accounts/account-a/work-items");
+  });
+});
+
+describe("isAPIProblem", () => {
+  it("recognizes API problems that crossed a JavaScript bundle boundary", () => {
+    const foreignProblem = Object.assign(new Error("Request failed with status 404"), {
+      name: "APIProblem",
+      status: 404
+    });
+
+    expect(foreignProblem).not.toBeInstanceOf(APIProblem);
+    expect(isAPIProblem(foreignProblem)).toBe(true);
+    expect(isAPIProblem(new Error("ordinary failure"))).toBe(false);
   });
 });
 
