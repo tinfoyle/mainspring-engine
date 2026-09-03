@@ -454,13 +454,28 @@ func (d *RunnerContainers) prepareIdentity(invocationID string) (string, error) 
 	if err := os.MkdirAll(identityDirectory, 0o700); err != nil {
 		return "", err
 	}
+	if err := os.Chmod(identityDirectory, 0o700); err != nil && !d.allowPermissionlessIdentityFiles {
+		return "", err
+	}
 	if err := os.MkdirAll(brokerDirectory, 0o700); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(brokerDirectory, 0o700); err != nil && !d.allowPermissionlessIdentityFiles {
 		return "", err
 	}
 	if err := writeAtomic(filepath.Join(identityDirectory, "token"), []byte(token), 0o444, d.allowPermissionlessIdentityFiles); err != nil {
 		return "", err
 	}
 	if err := writeAtomic(filepath.Join(brokerDirectory, "ca.crt"), ca, 0o444, d.allowPermissionlessIdentityFiles); err != nil {
+		return "", err
+	}
+	// The runner is deliberately non-root. The two directories become the
+	// roots of read-only bind mounts, so they must be traversable by uid 65532
+	// even though only the root launcher may create or replace their contents.
+	if err := os.Chmod(identityDirectory, 0o555); err != nil && !d.allowPermissionlessIdentityFiles {
+		return "", err
+	}
+	if err := os.Chmod(brokerDirectory, 0o555); err != nil && !d.allowPermissionlessIdentityFiles {
 		return "", err
 	}
 	digest := sha256.Sum256([]byte(token))
@@ -481,7 +496,11 @@ func writeAtomic(path string, contents []byte, mode os.FileMode, allowPermission
 
 func (d *RunnerContainers) removeIdentity(invocationID string) {
 	if ids.Validate(invocationID) == nil {
-		_ = os.RemoveAll(filepath.Join(d.identityDirectory, invocationID))
+		directory := filepath.Join(d.identityDirectory, invocationID)
+		_ = os.Chmod(filepath.Join(directory, "identity"), 0o700)
+		_ = os.Chmod(filepath.Join(directory, "broker"), 0o700)
+		_ = os.Chmod(directory, 0o700)
+		_ = os.RemoveAll(directory)
 	}
 }
 

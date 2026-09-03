@@ -132,6 +132,18 @@ func TestRunnerContainersEnforcesSecurityContractAndCleansExpiredOrphans(t *test
 	if len(host["CapDrop"].([]any)) != 1 || host["CapDrop"].([]any)[0] != "ALL" || len(host["Binds"].([]any)) != 2 || len(container.payload["Env"].([]any)) != 0 {
 		t.Fatalf("runner authority contract=%v", host)
 	}
+	for _, directory := range []string{
+		filepath.Join(config.IdentityDirectory, invocation.ID, "identity"),
+		filepath.Join(config.IdentityDirectory, invocation.ID, "broker"),
+	} {
+		info, err := os.Stat(directory)
+		if err != nil {
+			t.Fatalf("stat runner read-only bind directory %s: %v", directory, err)
+		}
+		if info.Mode().Perm() != 0o555 {
+			t.Fatalf("runner read-only bind directory %s mode=%v", directory, info.Mode().Perm())
+		}
+	}
 
 	container.labels[deadlineLabel] = "1"
 	removed, err := launcher.CleanupExpired(context.Background(), time.Now().UTC(), 10)
