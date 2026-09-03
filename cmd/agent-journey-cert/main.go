@@ -220,8 +220,22 @@ func (j *journey) exerciseBaselineJourney(ctx context.Context) error {
 		return fmt.Errorf("decode started Baseline: assessment=%+v err=%w", assessment, err)
 	}
 	assessmentPath := baselineBase + "/" + assessment.ID
+	legalNameFactID, legalNameFactRevision, err := j.captureBaselineOwnerFact(ctx, base)
+	if err != nil {
+		return err
+	}
+	assessment, err = j.baselineCommand(ctx, assessmentPath+"/answers", assessment.Version, map[string]any{
+		"question_key": "organization.legal_name",
+		"kind":         "fact",
+		"fact": map[string]any{
+			"fact_id":  legalNameFactID,
+			"revision": legalNameFactRevision,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("bind owner-confirmed legal name to Baseline: %w", err)
+	}
 	requiredQuestions := []string{
-		"organization.legal_name",
 		"organization.industry",
 		"organization.primary_location",
 		"organization.services",
@@ -354,6 +368,72 @@ func (j *journey) exerciseBaselineJourney(ctx context.Context) error {
 	}
 	j.pass("Business Baseline end-to-end", "started a real assessment, reviewed a generated inventory, rejected a changed frozen plan, approved the exact plan, generated and completed accountable Work, bound owner-reviewed evidence, and reloaded the durable ready Baseline")
 	return nil
+}
+
+func (j *journey) captureBaselineOwnerFact(ctx context.Context, base string) (string, uint64, error) {
+	statement := "Synthetic Wrench Works"
+	canonical, err := json.Marshal(statement)
+	if err != nil {
+		return "", 0, err
+	}
+	digest := sha256.Sum256(canonical)
+	status, body, err := j.jsonRequest(ctx, http.MethodPost, base+"/knowledge/evidence", map[string]any{
+		"source_kind":      "owner_statement",
+		"source_reference": "baseline-journey/organization.legal_name",
+		"source_revision":  "owner-confirmed-v1",
+		"content_sha256":   hex.EncodeToString(digest[:]),
+		// Deliberately simulate a browser clock ahead of the Cell. This keeps the
+		// real failure that motivated the certificate in permanent coverage.
+		"captured_at": time.Now().UTC().Add(30 * time.Second),
+	}, true)
+	if err != nil || status != http.StatusCreated {
+		return "", 0, fmt.Errorf("register owner-confirmed Baseline evidence: status=%d body=%s err=%w", status, body, err)
+	}
+	evidenceID, _, err := objectIdentity(body)
+	if err != nil {
+		return "", 0, fmt.Errorf("decode owner-confirmed Baseline evidence: %w", err)
+	}
+
+	status, body, err = j.jsonRequest(ctx, http.MethodPost, base+"/knowledge/claims", map[string]any{
+		"scope":       map[string]any{"kind": "account"},
+		"key":         "organization.legal_name",
+		"value":       statement,
+		"confidence":  1000,
+		"sensitivity": "internal",
+		"citations": []map[string]any{{
+			"evidence_id": evidenceID, "evidence_kind": "owner_statement", "relation": "supports",
+			"locator": "Owner-confirmed Business Baseline answer",
+		}},
+	}, true)
+	if err != nil || status != http.StatusCreated {
+		return "", 0, fmt.Errorf("propose owner-confirmed Baseline claim: status=%d body=%s err=%w", status, body, err)
+	}
+	claimID, claimVersion, err := objectIdentity(body)
+	if err != nil {
+		return "", 0, fmt.Errorf("decode owner-confirmed Baseline claim: %w", err)
+	}
+
+	status, body, err = j.jsonRequestWithHeaders(ctx, http.MethodPost, base+"/knowledge/claims/"+claimID+"/decisions", map[string]any{
+		"accept": true,
+		"reason": "Owner confirmed during Business Baseline onboarding",
+	}, true, map[string]string{"If-Match": fmt.Sprintf(`W/"%d"`, claimVersion)})
+	if err != nil || status != http.StatusOK {
+		return "", 0, fmt.Errorf("accept owner-confirmed Baseline claim: status=%d body=%s err=%w", status, body, err)
+	}
+	var decision struct {
+		Fact *struct {
+			ID       string `json:"id"`
+			Revision uint64 `json:"revision"`
+		} `json:"fact"`
+	}
+	if err := json.Unmarshal(body, &decision); err != nil {
+		return "", 0, fmt.Errorf("decode accepted owner-confirmed Baseline fact: %w", err)
+	}
+	if decision.Fact == nil || ids.Validate(decision.Fact.ID) != nil || decision.Fact.Revision == 0 {
+		return "", 0, errors.New("accepted owner-confirmed Baseline claim omitted a valid Fact identity or revision")
+	}
+	j.pass("Baseline owner Knowledge capture", "a browser-skewed owner statement became attributable evidence, an accepted claim, and a durable Fact before the interview answer was saved")
+	return decision.Fact.ID, decision.Fact.Revision, nil
 }
 
 func baselineRequirementDisposition(assessment baselineJourneyAssessment, requirementID string) (string, bool) {

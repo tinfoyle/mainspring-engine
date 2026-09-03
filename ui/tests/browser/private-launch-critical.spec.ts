@@ -1457,6 +1457,9 @@ test("Business Baseline completes the customer journey through accountable Work 
   const planID = "44000000-0000-4000-8000-000000000044";
   const generatedWorkID = "45000000-0000-4000-8000-000000000045";
   const evidenceID = "46000000-0000-4000-8000-000000000046";
+  const ownerEvidenceID = "47000000-0000-4000-8000-000000000047";
+  const ownerClaimID = "48000000-0000-4000-8000-000000000048";
+  const ownerFactID = "49000000-0000-4000-8000-000000000049";
   const commandTrail: string[] = [];
   let started = false;
   let workState: "open" | "in_progress" | "done" = "open";
@@ -1465,7 +1468,7 @@ test("Business Baseline completes the customer journey through accountable Work 
     ...baseline,
     id: journeyBaselineID,
     state: "interview",
-    answers: [] as Array<{ question_key: string; kind: string; reason: string; answered_by_user_id: string; answered_at: string }>,
+    answers: [] as Array<{ question_key: string; kind: string; reason: string; fact?: { fact_id: string; revision: number }; answered_by_user_id: string; answered_at: string }>,
     requirements: [] as Array<{ id: string; code: string; title: string; responsibility: { kind: string }; renew_after_days: number; catalog_version: string; scope_policy_version: string; disposition: string; reason: string; evidence: unknown[] }>,
     plan: undefined as undefined | { id: string; assessment_version: number; content_sha256: string; proposed_work_count: number; approved_by_user_id?: string; approved_at?: string },
     reassess_at: undefined as string | undefined
@@ -1513,9 +1516,9 @@ test("Business Baseline completes the customer journey through accountable Work 
       return;
     }
     if (path === `${assessmentRoot}/answers`) {
-      const input = request.postDataJSON() as { question_key: string; kind: string; reason: string };
+      const input = request.postDataJSON() as { question_key: string; kind: string; reason?: string; fact?: { fact_id: string; revision: number } };
       commandTrail.push(`answer:${input.question_key}`);
-      await fulfillJSON(route, mutateBaseline({ answers: [...journeyBaseline.answers, { ...input, answered_by_user_id: userID, answered_at: "2026-09-03T12:01:00Z" }] }));
+      await fulfillJSON(route, mutateBaseline({ answers: [...journeyBaseline.answers, { ...input, reason: input.reason ?? "", answered_by_user_id: userID, answered_at: "2026-09-03T12:01:00Z" }] }));
       return;
     }
     if (path === `${assessmentRoot}/inventory-starts`) {
@@ -1590,6 +1593,31 @@ test("Business Baseline completes the customer journey through accountable Work 
       await fulfillJSON(route, { items: commandTrail.includes("materialize") ? [workView()] : [] });
       return;
     }
+    if (path === `/api/v1/accounts/${accountID}/knowledge/evidence` && request.method() === "POST") {
+      const input = request.postDataJSON() as { source_kind: string; source_reference: string; content_sha256: string; captured_at: string };
+      expect(input.source_kind).toBe("owner_statement");
+      expect(input.source_reference).toContain(`baseline/${journeyBaselineID}/organization.legal_name`);
+      expect(input.content_sha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(Date.parse(input.captured_at)).not.toBeNaN();
+      commandTrail.push("knowledge:evidence");
+      await fulfillJSON(route, { id: ownerEvidenceID }, 201);
+      return;
+    }
+    if (path === `/api/v1/accounts/${accountID}/knowledge/claims` && request.method() === "POST") {
+      const input = request.postDataJSON() as { key: string; value: string; citations: Array<{ evidence_id: string }> };
+      expect(input).toMatchObject({ key: "organization.legal_name", value: "Synthetic Wrench Works" });
+      expect(input.citations[0]?.evidence_id).toBe(ownerEvidenceID);
+      commandTrail.push("knowledge:claim");
+      await fulfillJSON(route, { id: ownerClaimID, version: 1 }, 201);
+      return;
+    }
+    if (path === `/api/v1/accounts/${accountID}/knowledge/claims/${ownerClaimID}/decisions` && request.method() === "POST") {
+      const input = request.postDataJSON() as { accept: boolean };
+      expect(input.accept).toBe(true);
+      commandTrail.push("knowledge:accept");
+      await fulfillJSON(route, { claim: { id: ownerClaimID, version: 2 }, fact: { id: ownerFactID, revision: 1 } });
+      return;
+    }
     if (path === `/api/v1/accounts/${accountID}/knowledge/facts`) {
       await fulfillJSON(route, { items: [] });
       return;
@@ -1614,8 +1642,12 @@ test("Business Baseline completes the customer journey through accountable Work 
   ];
   for (let index = 0; index < requiredPrompts.length; index += 1) {
     await expect(page.getByRole("heading", { level: 2, name: requiredPrompts[index] })).toBeVisible();
-    await page.getByRole("radio", { name: "I don’t know yet" }).check();
-    await page.getByLabel("What still needs confirmation?").fill(`Owner confirmation remains explicit for Baseline question ${index + 1}.`);
+    if (index === 0) {
+      await page.getByLabel("Your confirmed answer").fill("Synthetic Wrench Works");
+    } else {
+      await page.getByRole("radio", { name: "I don’t know yet" }).check();
+      await page.getByLabel("What still needs confirmation?").fill(`Owner confirmation remains explicit for Baseline question ${index + 1}.`);
+    }
     await page.getByRole("button", { name: "Confirm and continue" }).click();
     if (index === 0) await page.getByRole("button", { name: "Skip optional question" }).click();
   }
@@ -1653,6 +1685,9 @@ test("Business Baseline completes the customer journey through accountable Work 
   await expect(page.getByText("Next reassessment", { exact: false })).toBeVisible();
   expect(commandTrail).toEqual([
     "start",
+    "knowledge:evidence",
+    "knowledge:claim",
+    "knowledge:accept",
     "answer:organization.legal_name",
     "answer:organization.industry",
     "answer:organization.primary_location",

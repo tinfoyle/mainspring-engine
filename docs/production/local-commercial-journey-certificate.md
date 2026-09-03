@@ -22,13 +22,19 @@ The certificate proves:
    current Team plan, and exactly one current Catalog-defined included AI Token
    grant;
 9. the logged-in customer can read the resulting billing and token state;
-10. that customer completes a real Business Baseline from interview through
+10. the first real Baseline answer passes through the same owner-statement,
+    Knowledge evidence, claim acceptance, durable Fact and answer-binding chain
+    used by the Vue application;
+11. that capture deliberately presents a timestamp 30 seconds ahead of the Cell,
+    proving bounded browser clock skew is normalized without weakening rejection
+    of unreasonable future evidence;
+12. that customer completes a real Business Baseline from interview through
     generated inventory, explicit gap review, frozen plan approval, and
     capacity-governed Work materialization;
-11. the generated Work item retains its Baseline provenance, moves through
+13. the generated Work item retains its Baseline provenance, moves through
     `open`, `in_progress`, and `done`, and is paired with exact owner-reviewed
     Knowledge evidence; and
-12. the customer confirms that evidence, marks the Baseline ready, and reloads
+14. the customer confirms that evidence, marks the Baseline ready, and reloads
     the same durable ready assessment with its reassessment date intact.
 
 The `invoice.paid` fixture deliberately contains `status: "paid"` and omits the
@@ -75,3 +81,18 @@ The application accepts `SPYGLASS_STRIPE_BASE_URL` only for `local` and
 loopback address. Stage and production fail startup if an override is supplied.
 The fixture is a separate Docker target and is not present in the production
 application image.
+
+## Baseline release gate
+
+Use the focused gate before any Stage deployment that changes Baseline,
+Knowledge, Work, routing, entitlements, authentication, or the private UI:
+
+```bash
+cd /mnt/c/Users/Tinfo/Documents/Mainspring/deploy/docker/spyglass
+make verify-baseline-journey
+```
+
+That one command combines focused domain/API regressions, the full Vue Baseline
+workflow with accessibility and overflow checks, and this connected disposable
+Docker journey. It therefore catches presentation/state-machine failures and
+real cross-package persistence failures without contacting Stage or production.
