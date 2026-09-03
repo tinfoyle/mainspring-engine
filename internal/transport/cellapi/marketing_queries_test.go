@@ -33,6 +33,7 @@ type marketingQueryTransportService struct {
 	assetQuery    marketingapp.AssetRevisionListQuery
 	releaseQuery  marketingapp.ReleaseListQuery
 	now           time.Time
+	empty         bool
 }
 
 func (service *marketingQueryTransportService) campaign() marketingdomain.Campaign {
@@ -56,12 +57,18 @@ func (service *marketingQueryTransportService) GetCampaign(context.Context, acce
 
 func (service *marketingQueryTransportService) ListCampaigns(_ context.Context, _ access.Actor, _ ids.AccountID, query marketingapp.CampaignListQuery) (marketingapp.CampaignPage, error) {
 	service.campaignQuery = query
+	if service.empty {
+		return marketingapp.CampaignPage{}, nil
+	}
 	value := service.campaign()
 	return marketingapp.CampaignPage{Items: []marketingdomain.Campaign{value}, NextCursor: &marketingapp.CampaignCursor{UpdatedAt: value.UpdatedAt, ID: value.ID}}, nil
 }
 
 func (service *marketingQueryTransportService) ListAssetRevisions(_ context.Context, _ access.Actor, _ ids.AccountID, query marketingapp.AssetRevisionListQuery) (marketingapp.AssetRevisionPage, error) {
 	service.assetQuery = query
+	if service.empty {
+		return marketingapp.AssetRevisionPage{}, nil
+	}
 	digest := [32]byte{}
 	for index := range digest {
 		digest[index] = 0x11
@@ -79,6 +86,9 @@ func (service *marketingQueryTransportService) GetRelease(context.Context, acces
 
 func (service *marketingQueryTransportService) ListReleases(_ context.Context, _ access.Actor, _ ids.AccountID, query marketingapp.ReleaseListQuery) (marketingapp.ReleasePage, error) {
 	service.releaseQuery = query
+	if service.empty {
+		return marketingapp.ReleasePage{}, nil
+	}
 	value := service.release()
 	return marketingapp.ReleasePage{Items: []marketingdomain.ReleasePlan{value}, NextCursor: &marketingapp.ReleaseCursor{CreatedAt: value.CreatedAt, ID: value.ID}}, nil
 }
@@ -156,6 +166,25 @@ func TestMarketingQueryRoutesRejectCrossAccountAndCursorKindConfusion(t *testing
 	unknown := marketingQueryRequest(server.Handler(), "/api/v1/accounts/"+marketingAccountID+"/marketing/campaigns?unknown=value")
 	if unknown.Code != http.StatusBadRequest {
 		t.Fatalf("unknown query=%d body=%s", unknown.Code, unknown.Body.String())
+	}
+}
+
+func TestMarketingQueryRoutesEncodeEmptyCollectionsAsArrays(t *testing.T) {
+	service := &marketingQueryTransportService{now: time.Date(2026, 8, 23, 1, 0, 0, 0, time.UTC), empty: true}
+	server, err := New(claimAcceptor{claims: marketingQueryClaims()}, slog.New(slog.NewTextHandler(io.Discard, nil)), DefaultMaxBody, WithMarketing(service))
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := "/api/v1/accounts/" + marketingAccountID + "/marketing"
+	for _, target := range []string{
+		base + "/campaigns",
+		base + "/campaigns/" + marketingCampaignID + "/asset-revisions",
+		base + "/campaigns/" + marketingCampaignID + "/releases",
+	} {
+		response := marketingQueryRequest(server.Handler(), target)
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"items":[]`) {
+			t.Fatalf("target=%s status=%d body=%s", target, response.Code, response.Body.String())
+		}
 	}
 }
 

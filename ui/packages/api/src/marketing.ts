@@ -58,16 +58,18 @@ export interface MarketingAssetUpload {
   file: File;
 }
 
-export function listMarketingCampaigns(accountID: string, filters: MarketingCampaignFilters = {}): Promise<MarketingCampaignPage> {
-  return requestJSON(page(`${root(accountID)}/campaigns`, { state: filters.state, cursor: filters.cursor, limit: filters.limit ?? 100 }));
+export async function listMarketingCampaigns(accountID: string, filters: MarketingCampaignFilters = {}): Promise<MarketingCampaignPage> {
+  const result = await requestJSON<MarketingCampaignPage>(page(`${root(accountID)}/campaigns`, { state: filters.state, cursor: filters.cursor, limit: filters.limit ?? 100 }));
+  return { ...result, items: result.items ?? [] };
 }
 export function getMarketingCampaign(accountID: string, campaignID: string): Promise<MarketingCampaign> { return requestJSON(campaign(accountID, campaignID)); }
 export function createMarketingCampaign(accountID: string, input: CreateMarketingCampaignRequest): Promise<MarketingCampaign> { return command("POST", `${root(accountID)}/campaigns`, input); }
 export function reviseMarketingCampaign(accountID: string, value: MarketingCampaign, input: CreateMarketingCampaignRequest): Promise<MarketingCampaign> { return command("PUT", campaign(accountID, value.id), input, value.version); }
 export function archiveMarketingCampaign(accountID: string, value: MarketingCampaign): Promise<MarketingCampaign> { return command("DELETE", campaign(accountID, value.id), undefined, value.version); }
 
-export function listMarketingAssetRevisions(accountID: string, campaignID: string, filters: MarketingAssetRevisionFilters = {}): Promise<MarketingAssetRevisionPage> {
-  return requestJSON(page(`${campaign(accountID, campaignID)}/asset-revisions`, { asset_id: filters.assetID, cursor: filters.cursor, limit: filters.limit ?? 100 }));
+export async function listMarketingAssetRevisions(accountID: string, campaignID: string, filters: MarketingAssetRevisionFilters = {}): Promise<MarketingAssetRevisionPage> {
+  const result = await requestJSON<MarketingAssetRevisionPage>(page(`${campaign(accountID, campaignID)}/asset-revisions`, { asset_id: filters.assetID, cursor: filters.cursor, limit: filters.limit ?? 100 }));
+  return { ...result, items: result.items ?? [] };
 }
 export async function uploadMarketingAssetRevision(accountID: string, campaignID: string, input: MarketingAssetUpload): Promise<MarketingAssetRevision> {
   const path = `${campaign(accountID, campaignID)}/asset-revisions`;
@@ -81,7 +83,10 @@ export async function uploadMarketingAssetRevision(accountID: string, campaignID
   return result;
 }
 
-export function listMarketingReleases(accountID: string, campaignID: string, cursor?: string): Promise<MarketingReleasePage> { return requestJSON(page(`${campaign(accountID, campaignID)}/releases`, { cursor, limit: 100 })); }
+export async function listMarketingReleases(accountID: string, campaignID: string, cursor?: string): Promise<MarketingReleasePage> {
+  const result = await requestJSON<MarketingReleasePage>(page(`${campaign(accountID, campaignID)}/releases`, { cursor, limit: 100 }));
+  return { ...result, items: result.items ?? [] };
+}
 export function getMarketingRelease(accountID: string, releaseID: string): Promise<MarketingRelease> { return requestJSON(release(accountID, releaseID)); }
 export function createMarketingRelease(accountID: string, campaignID: string, input: CreateMarketingReleaseRequest): Promise<MarketingRelease> { return command("POST", `${campaign(accountID, campaignID)}/releases`, input); }
 export function submitMarketingRelease(accountID: string, value: MarketingRelease, input: SubmitMarketingReleaseRequest): Promise<MarketingRelease> { return command("POST", `${release(accountID, value.id)}/submissions`, input, value.version); }

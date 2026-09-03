@@ -22,6 +22,13 @@ describe("Marketing client", () => {
     expect(String(fetcher.mock.calls[4]?.[0])).toContain("asset_id=asset%2Fid"); expect(String(fetcher.mock.calls[5]?.[0])).toContain("cursor=release%2B%2F%3D");
   });
 
+  it("normalizes legacy null collection pages to empty arrays", async () => {
+    const fetcher = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({ items: null }), { status: 200, headers: { "content-type": "application/json" } }))); vi.stubGlobal("fetch", fetcher);
+    await expect(listMarketingCampaigns("account")).resolves.toMatchObject({ items: [] });
+    await expect(listMarketingAssetRevisions("account", "campaign")).resolves.toMatchObject({ items: [] });
+    await expect(listMarketingReleases("account", "campaign")).resolves.toMatchObject({ items: [] });
+  });
+
   it("uploads a real multipart file without setting storage metadata", async () => {
     const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: "revision" }), { status: 201, headers: { "content-type": "application/json" } })); vi.stubGlobal("fetch", fetcher);
     const file = new File(["Launch copy"], "launch.txt", { type: "text/plain", lastModified: 1 });

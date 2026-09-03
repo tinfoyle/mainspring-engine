@@ -72,7 +72,11 @@ func (s *Server) marketingCampaignList(w http.ResponseWriter, r *http.Request) {
 		s.writeMarketingError(w, "list campaigns", err)
 		return
 	}
-	response := map[string]any{"items": page.Items}
+	items := page.Items
+	if items == nil {
+		items = []marketingdomain.Campaign{}
+	}
+	response := map[string]any{"items": items}
 	if page.NextCursor != nil {
 		response["next_cursor"] = encodeMarketingCursor(marketingCursorEnvelope{Version: 1, Kind: "campaign", Date: page.NextCursor.UpdatedAt, ID: string(page.NextCursor.ID)})
 	}
@@ -179,7 +183,11 @@ func (s *Server) marketingReleaseList(w http.ResponseWriter, r *http.Request) {
 		s.writeMarketingError(w, "list releases", err)
 		return
 	}
-	response := map[string]any{"items": page.Items}
+	items := page.Items
+	if items == nil {
+		items = []marketingdomain.ReleasePlan{}
+	}
+	response := map[string]any{"items": items}
 	if page.NextCursor != nil {
 		response["next_cursor"] = encodeMarketingCursor(marketingCursorEnvelope{Version: 1, Kind: "release", Date: page.NextCursor.CreatedAt, ID: string(page.NextCursor.ID)})
 	}
