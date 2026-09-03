@@ -14,7 +14,7 @@
 }
 
 (app_routes) {
-	@cell_api path_regexp cell_api ^/api/v1/accounts/[^/]+/(context|attention(?:/.*)?|knowledge(?:/.*)?|work-items(?:/.*)?|agent-(?:boardrooms|conversations|runs)(?:/.*)?|schedules(?:/.*)?|finance(?:/.*)?|integrations(?:/.*)?)$
+	@cell_api path_regexp cell_api ^/api/v1/accounts/[^/]+/(context|attention(?:/.*)?|knowledge(?:/.*)?|work-items(?:/.*)?|agent-(?:boardrooms|conversations|runs)(?:/.*)?|schedules(?:/.*)?|finance(?:/.*)?|integrations(?:/.*)?|marketing(?:/.*)?)$
 	handle @cell_api {
 		reverse_proxy app-router:8080
 	}

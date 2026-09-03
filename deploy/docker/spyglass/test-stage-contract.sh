@@ -76,6 +76,12 @@ docker run --rm --network none --read-only \
   --mount "type=bind,src=$stack_dir/Caddyfile.stage,dst=/etc/caddy/Caddyfile,readonly" \
   caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d \
   caddy validate --config /etc/caddy/Caddyfile >/dev/null
+for caddy_file in "$stack_dir/Caddyfile.local" "$stack_dir/Caddyfile.stage"; do
+  grep -Eq 'marketing\(\?:/\.\*\)\?' "$caddy_file" || {
+    echo "$(basename "$caddy_file") does not route the Marketing Account API through app-router" >&2
+    exit 1
+  }
+done
 
 release_file="$repository_root/deploy/releases/0.3.0-rc.6.env"
 bash "$stack_dir/verify-stage.sh" "$release_file" "$env_file"
