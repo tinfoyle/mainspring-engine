@@ -623,8 +623,20 @@ func marketingRouteRequirement(method string, parts []string) (access.Requiremen
 }
 
 func additionalRouteRequirement(method, resource string) (access.Requirement, bool) {
-	if strings.EqualFold(method, http.MethodPost) && resource == "integrations/web-research/read" {
+	if !strings.EqualFold(method, http.MethodPost) {
+		return access.Requirement{}, false
+	}
+	if resource == "integrations/web-research/read" {
 		return access.Requirement{Package: catalog.PackageKnowledge, Mutation: true}, true
+	}
+	parts := strings.Split(resource, "/")
+	if len(parts) == 3 && parts[0] == "baseline-assessments" && ids.Validate(parts[1]) == nil {
+		switch parts[2] {
+		case "work-materializations", "maintenance-work-materializations":
+			return access.Requirement{Package: catalog.PackageWork, Mutation: true}, true
+		case "work-evidence-confirmations":
+			return access.Requirement{Package: catalog.PackageWork}, true
+		}
 	}
 	return access.Requirement{}, false
 }

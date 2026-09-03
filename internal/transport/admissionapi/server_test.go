@@ -80,6 +80,35 @@ func TestWorkMutationBindingIsAnExactAllowlist(t *testing.T) {
 	}
 }
 
+func TestWorkCapacityBindingAllowsOnlySignedBaselineChildMaterializations(t *testing.T) {
+	assessmentID := "60000000-0000-4000-8000-000000000006"
+	base := "/api/v1/accounts/" + testAccount + "/baseline-assessments/" + assessmentID
+	for _, test := range []struct {
+		name    string
+		method  string
+		target  string
+		op      string
+		request string
+		allowed bool
+	}{
+		{name: "approved plan", method: http.MethodPost, target: base + "/work-materializations", op: testOperation, request: testOtherOp, allowed: true},
+		{name: "maintenance", method: http.MethodPost, target: base + "/maintenance-work-materializations", op: testOperation, request: testOtherOp, allowed: true},
+		{name: "same operation still needs Work route", method: http.MethodPost, target: base + "/work-materializations", op: testOperation, request: testOperation},
+		{name: "read", method: http.MethodGet, target: base + "/work-materializations", op: testOperation, request: testOtherOp},
+		{name: "unknown action", method: http.MethodPost, target: base + "/other", op: testOperation, request: testOtherOp},
+		{name: "invalid assessment", method: http.MethodPost, target: "/api/v1/accounts/" + testAccount + "/baseline-assessments/nope/work-materializations", op: testOperation, request: testOtherOp},
+		{name: "other account", method: http.MethodPost, target: "/api/v1/accounts/" + testOtherOp + "/baseline-assessments/" + assessmentID + "/work-materializations", op: testOperation, request: testOtherOp},
+		{name: "missing parent operation", method: http.MethodPost, target: base + "/work-materializations", request: testOtherOp},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			claims := routecontext.Claims{Authority: routecontext.Authority{AccountID: ids.AccountID(testAccount), OperationID: test.op}, Binding: routecontext.Binding{Method: test.method, Target: test.target}}
+			if got := workCapacityBinding(claims, test.request); got != test.allowed {
+				t.Fatalf("allowed=%t want=%t", got, test.allowed)
+			}
+		})
+	}
+}
+
 func TestReviewCreationBindingIsAnExactAllowlist(t *testing.T) {
 	base := "/api/v1/accounts/" + testAccount + "/attention/work-reviews"
 	for _, test := range []struct {

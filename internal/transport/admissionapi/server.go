@@ -541,11 +541,42 @@ func (s *Server) accept(w http.ResponseWriter, r *http.Request) (capacityRequest
 		writeProblem(w, http.StatusUnauthorized, "invalid_route_proof", "the routed operation proof is invalid")
 		return capacityRequest{}, routecontext.Claims{}, access.Actor{}, false
 	}
-	if claims.Authority.CellID != request.CellID || claims.Authority.OperationID != request.RequestID || claims.Authority.ActorKind != "user" || !workMutationBinding(claims) || claims.Authority.PackageAccess == nil || claims.Authority.PackageAccess.Code != string(catalog.PackageWork) || claims.Authority.PackageAccess.Mode != string(catalog.ModeEnabled) {
+	if claims.Authority.CellID != request.CellID || claims.Authority.ActorKind != "user" || !workCapacityBinding(claims, request.RequestID) || !enabledWorkAccess(claims.Authority) {
 		writeProblem(w, http.StatusForbidden, "admission_scope_denied", "the routed operation cannot manage Work capacity")
 		return capacityRequest{}, routecontext.Claims{}, access.Actor{}, false
 	}
 	return request, claims, access.Actor{UserID: ids.UserID(claims.Authority.ActorID)}, true
+}
+
+func workCapacityBinding(claims routecontext.Claims, requestID string) bool {
+	if claims.Authority.OperationID == requestID {
+		return workMutationBinding(claims)
+	}
+	if ids.Validate(claims.Authority.OperationID) != nil || claims.Binding.Method != http.MethodPost {
+		return false
+	}
+	base := "/api/v1/accounts/" + string(claims.Authority.AccountID) + "/baseline-assessments/"
+	remaining, found := strings.CutPrefix(claims.Binding.Target, base)
+	if !found {
+		return false
+	}
+	assessmentID, action, found := strings.Cut(remaining, "/")
+	if !found || ids.Validate(assessmentID) != nil {
+		return false
+	}
+	return action == "work-materializations" || action == "maintenance-work-materializations"
+}
+
+func enabledWorkAccess(authority routecontext.Authority) bool {
+	if authority.PackageAccess != nil && authority.PackageAccess.Code == string(catalog.PackageWork) && authority.PackageAccess.Mode == string(catalog.ModeEnabled) {
+		return true
+	}
+	for _, packageAccess := range authority.PackageAccesses {
+		if packageAccess.Code == string(catalog.PackageWork) && packageAccess.Mode == string(catalog.ModeEnabled) {
+			return true
+		}
+	}
+	return false
 }
 
 func workMutationBinding(claims routecontext.Claims) bool {

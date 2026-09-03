@@ -142,6 +142,9 @@ func run(ctx context.Context, c config) error {
 			return err
 		}
 		if c.commercialOnly {
+			if err := j.exerciseBaselineJourney(ctx); err != nil {
+				return err
+			}
 			return j.writeReport()
 		}
 	} else {
@@ -152,6 +155,9 @@ func run(ctx context.Context, c config) error {
 		if err := j.selectAccount(ctx); err != nil {
 			return err
 		}
+	}
+	if err := j.exerciseBaselineJourney(ctx); err != nil {
+		return err
 	}
 	if err := j.exerciseHTTPPlatform(ctx); err != nil {
 		return err
@@ -178,28 +184,235 @@ func run(ctx context.Context, c config) error {
 	return j.writeReport()
 }
 
-func (j *journey) exerciseHTTPPlatform(ctx context.Context) error {
+type baselineJourneyAssessment struct {
+	ID           string `json:"id"`
+	State        string `json:"state"`
+	Version      uint64 `json:"version"`
+	Requirements []struct {
+		ID          string `json:"id"`
+		Disposition string `json:"disposition"`
+	} `json:"requirements"`
+	Plan *struct {
+		ID                string `json:"id"`
+		ContentSHA256     string `json:"content_sha256"`
+		AssessmentVersion uint64 `json:"assessment_version"`
+		ProposedWorkCount uint64 `json:"proposed_work_count"`
+	} `json:"plan"`
+	ReassessAt *time.Time `json:"reassess_at"`
+}
+
+func (j *journey) exerciseBaselineJourney(ctx context.Context) error {
 	base := j.config.appOrigin + "/api/v1/accounts/" + j.report.AccountID
-	retries := 0
-	for ; retries < 20; retries++ {
+	retries, err := j.awaitAccountCell(ctx, base)
+	if err != nil {
+		return err
+	}
+	if retries > 0 {
+		j.pass("fresh Account HTTP retry", fmt.Sprintf("recovered after %d fail-closed route probes while cell provisioning completed", retries))
+	}
+	baselineBase := base + "/baseline-assessments"
+	status, body, err := j.jsonRequest(ctx, http.MethodPost, baselineBase, map[string]any{}, true)
+	if err != nil || status != http.StatusCreated {
+		return fmt.Errorf("start Baseline: status=%d body=%s err=%w", status, body, err)
+	}
+	assessment, err := decodeBaselineJourneyAssessment(body)
+	if err != nil || assessment.State != "interview" || assessment.Version == 0 {
+		return fmt.Errorf("decode started Baseline: assessment=%+v err=%w", assessment, err)
+	}
+	assessmentPath := baselineBase + "/" + assessment.ID
+	requiredQuestions := []string{
+		"organization.legal_name",
+		"organization.industry",
+		"organization.primary_location",
+		"organization.services",
+		"organization.team_size",
+		"baseline.immediate_concern",
+	}
+	for _, question := range requiredQuestions {
+		assessment, err = j.baselineCommand(ctx, assessmentPath+"/answers", assessment.Version, map[string]any{
+			"question_key": question,
+			"kind":         "unknown",
+			"reason":       "The owner will confirm this during the certified Baseline review.",
+		})
+		if err != nil {
+			return fmt.Errorf("answer Baseline question %s: %w", question, err)
+		}
+	}
+	assessment, err = j.baselineCommand(ctx, assessmentPath+"/inventory-starts", assessment.Version, map[string]any{})
+	if err != nil || assessment.State != "inventory" {
+		return fmt.Errorf("begin Baseline inventory: state=%q err=%w", assessment.State, err)
+	}
+	assessment, err = j.baselineCommand(ctx, assessmentPath+"/inventories", assessment.Version, map[string]any{})
+	if err != nil || assessment.State != "gap_review" || len(assessment.Requirements) < 2 {
+		return fmt.Errorf("build Baseline inventory: state=%q requirements=%d err=%w", assessment.State, len(assessment.Requirements), err)
+	}
+	gapID := assessment.Requirements[0].ID
+	for index, requirement := range assessment.Requirements {
+		disposition, reason := "not_applicable", "The owner reviewed this requirement and confirmed it does not apply to the certification fixture."
+		if index == 0 {
+			disposition, reason = "gap", "The certification fixture needs reviewed formation evidence."
+		}
+		assessment, err = j.baselineCommand(ctx, assessmentPath+"/dispositions", assessment.Version, map[string]any{
+			"requirement_id": requirement.ID,
+			"disposition":    disposition,
+			"reason":         reason,
+		})
+		if err != nil {
+			return fmt.Errorf("review Baseline requirement %s: %w", requirement.ID, err)
+		}
+	}
+	assessment, err = j.baselineCommand(ctx, assessmentPath+"/plans", assessment.Version, map[string]any{})
+	if err != nil || assessment.State != "plan_approval" || assessment.Plan == nil || assessment.Plan.ProposedWorkCount != 1 {
+		return fmt.Errorf("freeze Baseline plan: state=%q plan=%+v err=%w", assessment.State, assessment.Plan, err)
+	}
+	plan := *assessment.Plan
+	changedDigest := strings.Repeat("0", sha256.Size*2)
+	status, rejected, requestErr := j.jsonRequestWithHeaders(ctx, http.MethodPost, assessmentPath+"/plan-approvals", map[string]any{
+		"plan_id": plan.ID, "content_sha256": changedDigest, "assessment_version": plan.AssessmentVersion,
+	}, true, map[string]string{"If-Match": fmt.Sprintf(`W/"%d"`, assessment.Version)})
+	if requestErr != nil || status != http.StatusUnprocessableEntity {
+		return fmt.Errorf("changed Baseline plan did not fail closed: status=%d body=%s err=%w", status, rejected, requestErr)
+	}
+	assessment, err = j.baselineCommand(ctx, assessmentPath+"/plan-approvals", assessment.Version, map[string]any{
+		"plan_id": plan.ID, "content_sha256": plan.ContentSHA256, "assessment_version": plan.AssessmentVersion,
+	})
+	if err != nil || assessment.State != "active" {
+		return fmt.Errorf("approve exact Baseline plan: state=%q err=%w", assessment.State, err)
+	}
+	status, body, err = j.jsonRequestWithHeaders(ctx, http.MethodPost, assessmentPath+"/work-materializations", map[string]any{
+		"plan_id": plan.ID, "content_sha256": plan.ContentSHA256, "assessment_version": plan.AssessmentVersion,
+	}, true, map[string]string{"If-Match": fmt.Sprintf(`W/"%d"`, assessment.Version)})
+	if err != nil || status != http.StatusOK {
+		return fmt.Errorf("materialize Baseline Work: status=%d body=%s err=%w", status, body, err)
+	}
+	var materialized struct {
+		Items []struct {
+			ID         string `json:"id"`
+			State      string `json:"state"`
+			Version    uint64 `json:"version"`
+			Provenance struct {
+				Source                string `json:"source"`
+				BaselineRequirementID string `json:"baseline_requirement_id"`
+			} `json:"provenance"`
+		} `json:"items"`
+	}
+	if json.Unmarshal(body, &materialized) != nil || len(materialized.Items) != 1 {
+		return fmt.Errorf("materialized Baseline plan did not return exactly one Work item: %s", body)
+	}
+	work := materialized.Items[0]
+	if work.State != "open" || work.Provenance.Source != "baseline" || work.Provenance.BaselineRequirementID != gapID {
+		return fmt.Errorf("materialized Work lost Baseline provenance: %+v", work)
+	}
+	status, body, err = j.jsonRequestWithHeaders(ctx, http.MethodPost, base+"/work-items/"+work.ID+"/transitions", map[string]any{
+		"to": "in_progress", "reason": "Begin the certified Baseline evidence task.",
+	}, true, map[string]string{"If-Match": fmt.Sprintf(`W/"%d"`, work.Version)})
+	if err != nil || status != http.StatusOK {
+		return fmt.Errorf("start Baseline Work: status=%d body=%s err=%w", status, body, err)
+	}
+	_, work.Version, err = objectIdentity(body)
+	if err != nil {
+		return fmt.Errorf("decode started Baseline Work: %w", err)
+	}
+	status, body, err = j.jsonRequestWithHeaders(ctx, http.MethodPost, base+"/work-items/"+work.ID+"/transitions", map[string]any{
+		"to": "done", "reason": "Reviewed owner evidence is ready to bind to the Baseline.",
+	}, true, map[string]string{"If-Match": fmt.Sprintf(`W/"%d"`, work.Version)})
+	if err != nil || status != http.StatusOK {
+		return fmt.Errorf("complete Baseline Work: status=%d body=%s err=%w", status, body, err)
+	}
+	statement := []byte("Synthetic owner-reviewed formation evidence for the Baseline journey.")
+	digest := sha256.Sum256(statement)
+	status, body, err = j.jsonRequest(ctx, http.MethodPost, base+"/knowledge/evidence", map[string]any{
+		"source_kind": "owner_statement", "source_reference": "baseline-journey/formation-evidence",
+		"source_revision": "certified-v1", "content_sha256": hex.EncodeToString(digest[:]), "captured_at": time.Now().UTC(),
+	}, true)
+	if err != nil || status != http.StatusCreated {
+		return fmt.Errorf("register Baseline evidence: status=%d body=%s err=%w", status, body, err)
+	}
+	evidenceID, _, err := objectIdentity(body)
+	if err != nil {
+		return fmt.Errorf("decode Baseline evidence: %w", err)
+	}
+	assessment, err = j.baselineCommand(ctx, assessmentPath+"/work-evidence-confirmations", assessment.Version, map[string]any{
+		"requirement_id": gapID, "work_item_id": work.ID, "evidence_id": evidenceID,
+		"reason": "The owner reviewed the completed Work and exact formation evidence.",
+	})
+	disposition, found := baselineRequirementDisposition(assessment, gapID)
+	if err != nil || !found || disposition != "satisfied" {
+		return fmt.Errorf("confirm Baseline Work evidence: requirement=%s disposition=%q found=%t err=%w", gapID, disposition, found, err)
+	}
+	assessment, err = j.baselineCommand(ctx, assessmentPath+"/readiness", assessment.Version, map[string]any{})
+	if err != nil || assessment.State != "ready" || assessment.ReassessAt == nil {
+		return fmt.Errorf("mark Baseline ready: state=%q reassess_at=%v err=%w", assessment.State, assessment.ReassessAt, err)
+	}
+	status, body, err = j.jsonRequest(ctx, http.MethodGet, baselineBase+"/current", nil, false)
+	if err != nil || status != http.StatusOK {
+		return fmt.Errorf("reload current Baseline: status=%d body=%s err=%w", status, body, err)
+	}
+	reloaded, decodeErr := decodeBaselineJourneyAssessment(body)
+	if decodeErr != nil || reloaded.ID != assessment.ID || reloaded.State != "ready" || reloaded.Version != assessment.Version {
+		return fmt.Errorf("current Baseline lost durable ready state: assessment=%+v err=%w", reloaded, decodeErr)
+	}
+	j.pass("Business Baseline end-to-end", "started a real assessment, reviewed a generated inventory, rejected a changed frozen plan, approved the exact plan, generated and completed accountable Work, bound owner-reviewed evidence, and reloaded the durable ready Baseline")
+	return nil
+}
+
+func baselineRequirementDisposition(assessment baselineJourneyAssessment, requirementID string) (string, bool) {
+	for _, requirement := range assessment.Requirements {
+		if requirement.ID == requirementID {
+			return requirement.Disposition, true
+		}
+	}
+	return "", false
+}
+
+func (j *journey) baselineCommand(ctx context.Context, target string, version uint64, input map[string]any) (baselineJourneyAssessment, error) {
+	status, body, err := j.jsonRequestWithHeaders(ctx, http.MethodPost, target, input, true, map[string]string{"If-Match": fmt.Sprintf(`W/"%d"`, version)})
+	if err != nil {
+		return baselineJourneyAssessment{}, err
+	}
+	if status != http.StatusOK {
+		return baselineJourneyAssessment{}, fmt.Errorf("status=%d body=%s", status, body)
+	}
+	return decodeBaselineJourneyAssessment(body)
+}
+
+func decodeBaselineJourneyAssessment(body []byte) (baselineJourneyAssessment, error) {
+	var assessment baselineJourneyAssessment
+	if err := json.Unmarshal(body, &assessment); err != nil {
+		return baselineJourneyAssessment{}, err
+	}
+	if ids.Validate(assessment.ID) != nil || assessment.Version == 0 {
+		return baselineJourneyAssessment{}, errors.New("Baseline response omitted a valid identity or version")
+	}
+	return assessment, nil
+}
+
+func (j *journey) awaitAccountCell(ctx context.Context, base string) (int, error) {
+	for retries := 0; retries < 20; retries++ {
 		status, body, err := j.jsonRequest(ctx, http.MethodGet, base+"/work-items/summary", nil, false)
 		if err != nil {
-			return fmt.Errorf("probe fresh Account route: %w", err)
+			return retries, fmt.Errorf("probe fresh Account route: %w", err)
 		}
 		if status == http.StatusOK {
-			break
+			return retries, nil
 		}
 		if status != http.StatusServiceUnavailable || !bytes.Contains(body, []byte(`"code":"account_unavailable"`)) {
-			return fmt.Errorf("probe fresh Account route: status=%d body=%s", status, body)
+			return retries, fmt.Errorf("probe fresh Account route: status=%d body=%s", status, body)
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return retries, ctx.Err()
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
-	if retries == 20 {
-		return errors.New("fresh Account cell projection did not become available")
+	return 20, errors.New("fresh Account cell projection did not become available")
+}
+
+func (j *journey) exerciseHTTPPlatform(ctx context.Context) error {
+	base := j.config.appOrigin + "/api/v1/accounts/" + j.report.AccountID
+	retries, err := j.awaitAccountCell(ctx, base)
+	if err != nil {
+		return err
 	}
 	if retries > 0 {
 		j.pass("fresh Account HTTP retry", fmt.Sprintf("recovered after %d fail-closed route probes while cell provisioning completed", retries))

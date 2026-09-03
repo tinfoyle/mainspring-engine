@@ -262,6 +262,31 @@ func TestWebResearchReadRequiresIndependentKnowledgeMutation(t *testing.T) {
 	}
 }
 
+func TestBaselineWorkCommandsRequireIndependentWorkAuthority(t *testing.T) {
+	for _, test := range []struct {
+		resource string
+		mutation bool
+	}{
+		{"baseline-assessments/" + routerRequest + "/work-materializations", true},
+		{"baseline-assessments/" + routerRequest + "/maintenance-work-materializations", true},
+		{"baseline-assessments/" + routerRequest + "/work-evidence-confirmations", false},
+	} {
+		requirement, ok := additionalRouteRequirement(http.MethodPost, test.resource)
+		if !ok || requirement.Package != catalog.PackageWork || requirement.Mutation != test.mutation {
+			t.Fatalf("resource=%s requirement=%+v ok=%t", test.resource, requirement, ok)
+		}
+	}
+	for _, test := range []struct{ method, resource string }{
+		{http.MethodGet, "baseline-assessments/" + routerRequest + "/work-materializations"},
+		{http.MethodPost, "baseline-assessments/not-a-uuid/work-materializations"},
+		{http.MethodPost, "baseline-assessments/" + routerRequest + "/plans"},
+	} {
+		if requirement, ok := additionalRouteRequirement(test.method, test.resource); ok {
+			t.Fatalf("unexpected secondary requirement=%+v for %s %s", requirement, test.method, test.resource)
+		}
+	}
+}
+
 func TestAgentRunRoutesOnlyRequestedContextPackages(t *testing.T) {
 	tests := []struct {
 		name string

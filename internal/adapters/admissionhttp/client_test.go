@@ -92,6 +92,40 @@ func TestClientMapsAdmissionDenialsAndRequiresMatchingOperation(t *testing.T) {
 	}
 }
 
+func TestClientAllowsSignedBaselineMaterializationToReserveChildWorkCapacity(t *testing.T) {
+	now := time.Date(2026, 9, 3, 5, 0, 0, 0, time.UTC)
+	clock := admissionClock{now}
+	key := []byte("0123456789abcdef0123456789abcdef")
+	cellID := ids.CellID("cell-us-east-01")
+	assessmentID := "51000000-0000-4000-8000-000000000005"
+	childWorkID := "52000000-0000-4000-8000-000000000005"
+	signer, _ := routecontext.NewSigner("router", "current", key, 20*time.Second, clock)
+	verifier, _ := routecontext.NewVerifier("router", routecontext.Audience(cellID), map[string][]byte{"current": key}, routecontext.MaximumLifetime, 0, clock)
+	usage := &admissionUsage{result: usageadmission.Reservation{RequestID: childWorkID, State: usageadmission.ReservationActive, Current: 1, Maximum: 100}}
+	server, err := admissionapi.New(usage, map[ids.CellID]admissionapi.Verifier{cellID: verifier}, slog.New(slog.NewTextHandler(io.Discard, nil)), admissionapi.DefaultMaxBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+	client, _ := New(httpServer.URL, true, nil)
+	target := "/api/v1/accounts/" + admissionAccount + "/baseline-assessments/" + assessmentID + "/work-materializations"
+	binding, _ := routecontext.Bind(http.MethodPost, target, []byte(`{"plan_id":"approved"}`))
+	authority := routecontext.Authority{
+		RequestID: admissionRoute, OperationID: admissionOperation, AccountID: ids.AccountID(admissionAccount), ActorKind: "user", ActorID: admissionUser,
+		Role: "owner", CellID: cellID, PlacementGeneration: 2, EntitlementVersion: 7,
+		PackageAccess:   &routecontext.PackageAccess{Code: string(catalog.PackageKnowledge), Version: 1, Mode: string(catalog.ModeEnabled)},
+		PackageAccesses: []routecontext.PackageAccess{{Code: string(catalog.PackageWork), Version: 1, Mode: string(catalog.ModeEnabled), Limits: map[string]int64{"active_items": 100}, LimitPolicies: map[string]routecontext.LimitPolicy{"active_items": {Kind: "capacity", Combine: "maximum"}}}},
+	}
+	token, _ := signer.Issue(routecontext.Audience(cellID), authority, binding)
+	claims, _ := verifier.Verify(token, binding)
+	ctx := routecontext.WithProof(routecontext.WithClaims(context.Background(), claims), routecontext.Proof{Token: token, Binding: binding})
+	reservation, err := client.Reserve(ctx, usageadmission.ReserveCommand{Actor: access.Actor{UserID: ids.UserID(admissionUser)}, AccountID: ids.AccountID(admissionAccount), PackageCode: catalog.PackageWork, LimitCode: "active_items", Amount: 1, RequestID: childWorkID})
+	if err != nil || reservation.RequestID != childWorkID || usage.reserve.RequestID != childWorkID {
+		t.Fatalf("reservation=%+v command=%+v err=%v", reservation, usage.reserve, err)
+	}
+}
+
 func TestClientRetriesIdempotentAdmissionTransportFailureOnce(t *testing.T) {
 	var payloads []string
 	client, _ := New("https://admission.test", false, roundTripFunc(func(request *http.Request) (*http.Response, error) {

@@ -20,11 +20,33 @@ The certificate proves:
 7. an exact provider replay remains idempotent;
 8. the billing worker projects one active subscription, every package in the
    current Team plan, and exactly one current Catalog-defined included AI Token
-   grant; and
-9. the logged-in customer can read the resulting billing and token state.
+   grant;
+9. the logged-in customer can read the resulting billing and token state;
+10. that customer completes a real Business Baseline from interview through
+    generated inventory, explicit gap review, frozen plan approval, and
+    capacity-governed Work materialization;
+11. the generated Work item retains its Baseline provenance, moves through
+    `open`, `in_progress`, and `done`, and is paired with exact owner-reviewed
+    Knowledge evidence; and
+12. the customer confirms that evidence, marks the Baseline ready, and reloads
+    the same durable ready assessment with its reassessment date intact.
 
 The `invoice.paid` fixture deliberately contains `status: "paid"` and omits the
 deprecated `paid` boolean. This keeps the Stage regression in permanent coverage.
+
+The Baseline leg also deliberately submits a changed plan digest and requires a
+`422` rejection before approving the exact frozen plan. Its Work creation crosses
+the Knowledge-owned Baseline and Work-owned capacity boundaries using separately
+authorized package grants. The broker accepts deterministic child Work operations
+only for signed Baseline plan or maintenance materialization routes; ordinary Work
+commands remain bound to their exact top-level operation ID.
+
+The companion Chromium journey in
+`ui/tests/browser/private-launch-critical.spec.ts` drives the same customer-visible
+sequence through the Vue application, including Work completion, evidence binding,
+ready-state reload, overflow checks, and axe accessibility inspection. That browser
+test uses a stateful synthetic API so presentation failures stay easy to isolate;
+the Compose certificate above is the connected HTTP/database proof.
 
 ## Run it
 

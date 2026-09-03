@@ -166,7 +166,7 @@ type problemResponse struct {
 func (c *Client) do(ctx context.Context, operation string, accountID ids.AccountID, requestID string) (usageadmission.Reservation, error) {
 	claims, claimsOK := routecontext.FromContext(ctx)
 	proof, proofOK := routecontext.ProofFromContext(ctx)
-	if !claimsOK || !proofOK || claims.Authority.AccountID != accountID || claims.Authority.OperationID != requestID || ids.Validate(requestID) != nil {
+	if !claimsOK || !proofOK || claims.Authority.AccountID != accountID || ids.Validate(requestID) != nil || !capacityOperationAllowed(claims, requestID) {
 		return usageadmission.Reservation{}, usageadmission.ErrInvalidRequest
 	}
 	payload, err := json.Marshal(capacityRequest{CellID: claims.Authority.CellID, RequestID: requestID, RouteContext: proof.Token, Binding: proof.Binding})
@@ -211,6 +211,25 @@ func (c *Client) do(ctx context.Context, operation string, accountID ids.Account
 		return usageadmission.Reservation{}, errors.New("Work capacity admission returned an invalid receipt")
 	}
 	return usageadmission.Reservation{AccountID: accountID, RequestID: value.RequestID, PackageCode: catalog.PackageWork, LimitCode: "active_items", Amount: 1, State: value.State, Current: value.Current, Maximum: value.Maximum, ExpiresAt: value.ExpiresAt, NewlyCreated: value.NewlyCreated}, nil
+}
+
+func capacityOperationAllowed(claims routecontext.Claims, requestID string) bool {
+	if claims.Authority.OperationID == requestID {
+		return true
+	}
+	if ids.Validate(claims.Authority.OperationID) != nil || claims.Binding.Method != http.MethodPost {
+		return false
+	}
+	base := "/api/v1/accounts/" + string(claims.Authority.AccountID) + "/baseline-assessments/"
+	remaining, found := strings.CutPrefix(claims.Binding.Target, base)
+	if !found {
+		return false
+	}
+	assessmentID, action, found := strings.Cut(remaining, "/")
+	if !found || ids.Validate(assessmentID) != nil {
+		return false
+	}
+	return action == "work-materializations" || action == "maintenance-work-materializations"
 }
 
 func newRequest(ctx context.Context, target string, payload []byte) (*http.Request, error) {
