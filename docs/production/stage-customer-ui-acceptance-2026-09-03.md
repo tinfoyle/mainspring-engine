@@ -1,17 +1,49 @@
 # Stage customer UI acceptance — 2026-09-03
 
 - Environment: `https://app.stage.infiniteocean.net`
-- Stage release: `0.3.0-rc.24`
-- Application revision: `da71be21816ff117a75db1c6db981cb40a82e51f`
-- Release-manifest revision: `1b8602205ad907ed078df76ceb1babe8f34c151d`
-- Stage release directory: `/opt/spyglass-stage/releases/1b8602205ad907ed078df76ceb1babe8f34c151d`
+- Initial acceptance release: `0.3.0-rc.24`
+- Final corrected release: `0.3.0-rc.26`
+- Final application revision: `118a41eebe0a2982baeb41312696bb288e06d2a2`
+- Final release-manifest revision: `35f00db44ca0080d06403ac486a7f3c5d0ee976c`
+- Final Stage release directory: `/opt/spyglass-stage/releases/35f00db44ca0080d06403ac486a7f3c5d0ee976c`
 - Client: Codex in-app Chromium browser, authenticated with the existing Google-linked owner identity
 - Account: existing paid `Infinite Ocean` Stage Account
-- Result: **passed for the tested customer application slice**
+- Result: **passed for the tested customer application slice after the RC.26 Baseline correction below**
 
 No password, code, session token, cookie, provider credential, private key or payment detail was read or recorded during this review.
 
-## Release artifacts
+## Post-acceptance Baseline correction — RC.26
+
+The RC.24 route sweep proved only that the Baseline page shell loaded. It did not prove the fresh-account or creation workflow. User review correctly found that Baseline was still broken, invalidating that part of the initial acceptance conclusion.
+
+The follow-up browser journey found two related defects:
+
+1. A fresh Account's expected 404 from `baseline-assessments/current` could be treated as a fatal error when an API problem crossed a JavaScript bundle boundary and failed an `instanceof` check. The API package now exposes a structural, cross-bundle-safe problem guard and the Baseline view uses it for the no-current-assessment state.
+2. The Local and Stage Caddy Account API matcher did not include `baseline-assessments`, so both current-assessment reads and creation commands fell through to the Account API. Both Caddy configurations now route the complete Baseline API family to the application router. The Stage contract explicitly asserts that this route remains present.
+
+RC.26 evidence:
+
+- API client regression: 7 tests passed.
+- Baseline view regression: 3 tests passed, including a foreign-bundle-shaped 404.
+- API and application type checks passed.
+- Application production build passed.
+- Stage configuration and Caddy contract verification passed.
+- All RC.26 images passed the HIGH/CRITICAL Trivy gate.
+- An authenticated fresh-account load displayed `Start my Baseline` rather than a fatal 404.
+- `Start my Baseline` created assessment `0fbd0cbc-18c8-4556-99cd-b3a529876d87` in `interview` state at version 1.
+- The browser redirected to the durable assessment URL and displayed question 1 of 7.
+- A separate clean load of the root Baseline route resolved the current assessment and resumed the same durable URL.
+- Both verification tabs had zero browser errors, and the post-deploy service-log scan contained no panic, fatal, permission or error-level entry.
+
+RC.26 artifacts:
+
+| Artifact | Digest |
+| --- | --- |
+| Application | `sha256:cab508d73c68f57d2476b36478ab7d768aa8767cd2da679e0f6bb80b6b62fe26` |
+| Public UI | `sha256:e11460c5d73ca49951c389cb670ad4e9b1be2ef145c708f3591dc2bc0bf3b2ad` |
+| Private UI | `sha256:2eb0457a62edde4b01ac62434e29b14e29f4f7b3c020694c97174ebf525ff37c` |
+
+## Initial RC.24 release artifacts
 
 The candidate was built and published to GHCR, scanned before deployment and pinned in the Stage manifest by digest.
 
