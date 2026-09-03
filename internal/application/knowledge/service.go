@@ -114,6 +114,8 @@ type Authorizer interface {
 
 type Clock interface{ Now() time.Time }
 
+const maximumEvidenceClockSkew = 5 * time.Minute
+
 type Service struct {
 	authorizer Authorizer
 	repository Repository
@@ -153,7 +155,18 @@ func (s *Service) RegisterEvidence(ctx context.Context, command RegisterEvidence
 	if actor.Kind == knowledgedomain.ActorUser && command.Kind != knowledgedomain.SourceOwnerStatement {
 		return knowledgedomain.Evidence{}, ErrInvalid
 	}
-	evidence, err := knowledgedomain.NewEvidence(knowledgedomain.Evidence{ID: command.EvidenceID, AccountID: command.AccountID, Kind: command.Kind, SourceReference: command.SourceReference, SourceRevision: command.SourceRevision, ContentSHA256: command.ContentSHA256, CapturedAt: command.CapturedAt, CreatedBy: actor, CreatedAt: s.clock.Now()})
+	createdAt := s.clock.Now()
+	capturedAt := command.CapturedAt
+	if capturedAt.After(createdAt) {
+		if capturedAt.Sub(createdAt) > maximumEvidenceClockSkew {
+			return knowledgedomain.Evidence{}, ErrInvalid
+		}
+		// Browser and provider clocks can be slightly ahead of the Cell. Preserve
+		// the invariant that evidence cannot postdate its own creation without
+		// rejecting a legitimate capture solely because of bounded clock skew.
+		capturedAt = createdAt
+	}
+	evidence, err := knowledgedomain.NewEvidence(knowledgedomain.Evidence{ID: command.EvidenceID, AccountID: command.AccountID, Kind: command.Kind, SourceReference: command.SourceReference, SourceRevision: command.SourceRevision, ContentSHA256: command.ContentSHA256, CapturedAt: capturedAt, CreatedBy: actor, CreatedAt: createdAt})
 	if err != nil {
 		return knowledgedomain.Evidence{}, ErrInvalid
 	}

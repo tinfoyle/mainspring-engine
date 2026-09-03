@@ -86,6 +86,24 @@ func TestRegisterEvidenceBindsActorPackageAndExactDigest(t *testing.T) {
 	}
 }
 
+func TestRegisterEvidenceAllowsBoundedCaptureClockSkew(t *testing.T) {
+	service, _, repository, clock := knowledgeFixture(t)
+	digest := sha256.Sum256([]byte("Northstar LLC"))
+	value, err := service.RegisterEvidence(context.Background(), RegisterEvidenceCommand{Actor: access.Actor{UserID: appKnowledgeUser}, AccountID: appKnowledgeAccount, EvidenceID: appKnowledgeEvidence, Kind: knowledgedomain.SourceOwnerStatement, SourceReference: "membership:" + string(appKnowledgeUser), SourceRevision: "1", ContentSHA256: digest, CapturedAt: clock.now.Add(30 * time.Second), CorrelationID: appKnowledgeOperation})
+	if err != nil || !value.CapturedAt.Equal(clock.now) || !repository.evidence.CreatedAt.Equal(clock.now) {
+		t.Fatalf("evidence=%+v err=%v", value, err)
+	}
+}
+
+func TestRegisterEvidenceRejectsExcessiveCaptureClockSkew(t *testing.T) {
+	service, _, _, clock := knowledgeFixture(t)
+	digest := sha256.Sum256([]byte("Northstar LLC"))
+	_, err := service.RegisterEvidence(context.Background(), RegisterEvidenceCommand{Actor: access.Actor{UserID: appKnowledgeUser}, AccountID: appKnowledgeAccount, EvidenceID: appKnowledgeEvidence, Kind: knowledgedomain.SourceOwnerStatement, SourceReference: "membership:" + string(appKnowledgeUser), SourceRevision: "1", ContentSHA256: digest, CapturedAt: clock.now.Add(maximumEvidenceClockSkew + time.Second), CorrelationID: appKnowledgeOperation})
+	if !errors.Is(err, ErrInvalid) {
+		t.Fatalf("excessive clock skew err=%v", err)
+	}
+}
+
 func TestWorkloadCanProposeButCannotDecide(t *testing.T) {
 	service, _, repository, _ := knowledgeFixture(t)
 	claim, err := service.ProposeClaim(context.Background(), ProposeClaimCommand{Actor: access.Actor{WorkloadID: "agent:analyst"}, AccountID: appKnowledgeAccount, ClaimID: appKnowledgeClaim, Scope: knowledgedomain.Scope{Kind: knowledgedomain.ScopeAccount}, Key: "organization.legal_name", CanonicalValue: json.RawMessage(`"Northstar LLC"`), Confidence: 800, Sensitivity: knowledgedomain.SensitivityInternal, Citations: []knowledgedomain.Citation{{EvidenceID: appKnowledgeEvidence, EvidenceKind: knowledgedomain.SourceOwnerStatement, Relation: knowledgedomain.EvidenceSupports, Locator: "registration"}}, CorrelationID: appKnowledgeOperation})
