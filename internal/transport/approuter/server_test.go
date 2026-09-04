@@ -122,6 +122,37 @@ func TestRouterRejectsUnpublishedWorkCommandsBeforeAuthentication(t *testing.T) 
 	}
 }
 
+func TestWorkRouteAllowlistMatchesCellSurface(t *testing.T) {
+	tests := []struct {
+		method, resource string
+		mutation         bool
+		allowed          bool
+	}{
+		{http.MethodGet, "work-items", false, true},
+		{http.MethodPost, "work-items", true, true},
+		{http.MethodGet, "work-items/summary", false, true},
+		{http.MethodGet, "work-items/" + routerRequest, false, true},
+		{http.MethodGet, "work-items/" + routerRequest + "/children", false, true},
+		{http.MethodPost, "work-items/" + routerRequest + "/transitions", true, true},
+		{http.MethodPatch, "work-items/" + routerRequest + "/assignment", true, true},
+		{http.MethodPost, "work-items/" + routerRequest + "/provenance-links", true, true},
+		{http.MethodPost, "work-items/" + routerRequest + "/conversation-links", true, true},
+		{http.MethodPost, "work-items/" + routerRequest + "/children", false, false},
+		{http.MethodGet, "work-items/" + routerRequest + "/conversation-links", false, false},
+	}
+	for _, test := range tests {
+		t.Run(test.method+" "+test.resource, func(t *testing.T) {
+			requirement, allowed := routeRequirement(test.method, test.resource)
+			if allowed != test.allowed {
+				t.Fatalf("allowed=%t want %t requirement=%+v", allowed, test.allowed, requirement)
+			}
+			if test.allowed && (requirement.Package != catalog.PackageWork || requirement.Mutation != test.mutation) {
+				t.Fatalf("requirement=%+v", requirement)
+			}
+		})
+	}
+}
+
 func TestAgentRouteAllowlistMatchesCellSurface(t *testing.T) {
 	tests := []struct {
 		method, resource string

@@ -338,6 +338,8 @@ func routeRequirement(method, resource string) (access.Requirement, bool) {
 			return access.Requirement{Package: catalog.PackageWork, Mutation: true}, method == http.MethodPost
 		case "assignment":
 			return access.Requirement{Package: catalog.PackageWork, Mutation: true}, method == http.MethodPatch
+		case "provenance-links", "conversation-links":
+			return access.Requirement{Package: catalog.PackageWork, Mutation: true}, method == http.MethodPost
 		}
 	}
 	if len(parts) == 1 && parts[0] == "agent-boardrooms" {

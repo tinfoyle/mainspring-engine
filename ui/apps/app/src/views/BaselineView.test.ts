@@ -11,7 +11,7 @@ import BaselineView from "./BaselineView.vue";
 
 const api = vi.hoisted(() => ({
   getBaseline: vi.fn(), getCurrentBaseline: vi.fn(), startBaseline: vi.fn(), assignWork: vi.fn(), captureOwnerKnowledgeFact: vi.fn(),
-  configureAgentManager: vi.fn(), createAgentBoardroom: vi.fn(), createWorkFromAgentMessage: vi.fn(), getAgentRun: vi.fn(),
+  configureAgentManager: vi.fn(), createAgentBoardroom: vi.fn(), createWorkFromAgentMessage: vi.fn(), getAgentRun: vi.fn(), getWorkItem: vi.fn(),
   linkWorkConversation: vi.fn(), listAgentBoardrooms: vi.fn(), listAgentConversations: vi.fn(), listAgentMessages: vi.fn(),
   listAgentPersonas: vi.fn(), listKnowledgeFacts: vi.fn(), listWork: vi.fn(), publishAgentPersona: vi.fn(), startAgentRun: vi.fn()
 }));
@@ -85,6 +85,30 @@ describe("conversational Business Baseline", () => {
     expect(api.startAgentRun).toHaveBeenCalledWith(account.account_id, room.id, expect.objectContaining({ prompt: answer, conversation_id: run.conversation_id, persona_ids: [persona.id] }));
   });
 
+  it("shows a reply immediately while the operations agent is still working", async () => {
+    api.startAgentRun.mockResolvedValue({ ...run, state: "running" });
+    const wrapper = await mountAt(`/app/baseline/${baseline.id}`); const answer = "Most calls come in by phone and text.";
+    await wrapper.get("#baseline-reply").setValue(answer); await wrapper.get("form.baseline-composer").trigger("submit"); await flushPromises();
+    expect(wrapper.text()).toContain(answer);
+    expect(wrapper.get("#baseline-reply").element).toHaveProperty("value", "");
+    expect(wrapper.text()).toContain("Thinking");
+    wrapper.unmount();
+  });
+
+  it("records an automation approval as a compact chat event without filling the reply box", async () => {
+    const offer = { key: "schedule.daily_dispatch", title: "Set up a daily dispatch review", description: "Review tomorrow's schedule and flag gaps.", priority: "high" as const };
+    api.listAgentMessages.mockResolvedValue([messages[0], { ...messages[1], result: { ...result, baseline: { ...result.baseline, automation_offers: [offer] } } }]);
+    api.startAgentRun.mockResolvedValue({ ...run, state: "running" });
+    const wrapper = await mountAt(`/app/baseline/${baseline.id}`);
+    await wrapper.get(".baseline-offers button").trigger("click"); await flushPromises();
+    expect(api.startAgentRun).toHaveBeenCalledWith(account.account_id, room.id, expect.objectContaining({ prompt: `Yes, add “${offer.title}” to the work we will set up.` }));
+    expect(wrapper.text()).toContain(`Approved setup work: ${offer.title}`);
+    expect(wrapper.text()).not.toContain(`Yes, add “${offer.title}”`);
+    expect(wrapper.find(".baseline-offers").exists()).toBe(false);
+    expect(wrapper.get("#baseline-reply").element).toHaveProperty("value", "");
+    wrapper.unmount();
+  });
+
   it("creates and conversation-links Work only after the agent records explicit approval", async () => {
     const approvedWork = { key: "schedule.daily_dispatch", title: "Set up a daily dispatch review", description: "Choose the schedule source and decide who handles exceptions.", priority: "high" as const };
     const approved = { ...result, contribution: "I added that setup job.", baseline: { ...result.baseline, approved_work: [approvedWork] } };
@@ -92,12 +116,23 @@ describe("conversational Business Baseline", () => {
     const created = { id: approvalMessage.id, number: 1, depth: 0, kind: "todo", title: approvedWork.title, description: approvedWork.description, state: "open", priority: "high", assignment: { responsibility: "shared" }, provenance: { source: "manual", created_by: { kind: "user", id: account.account_id } }, version: 1, created_at: run.created_at, updated_at: run.created_at } satisfies WorkItem;
     const linked = { ...created, provenance: { ...created.provenance, source: "conversation" as const, conversation_id: run.conversation_id }, version: 2 };
     const assigned = { ...linked, assignment: { responsibility: "persona" as const, persona_id: persona.id }, version: 3 };
-    api.listAgentMessages.mockResolvedValue([messages[0], approvalMessage]); api.createWorkFromAgentMessage.mockResolvedValue(created); api.linkWorkConversation.mockResolvedValue(linked); api.assignWork.mockResolvedValue(assigned);
+    api.listAgentMessages.mockResolvedValue([messages[0], approvalMessage]); api.createWorkFromAgentMessage.mockResolvedValue(created); api.getWorkItem.mockResolvedValue(created); api.linkWorkConversation.mockResolvedValue(linked); api.assignWork.mockResolvedValue(assigned);
     const wrapper = await mountAt(`/app/baseline/${baseline.id}`);
     expect(api.createWorkFromAgentMessage).toHaveBeenCalledWith(account.account_id, approvalMessage.id, expect.objectContaining({ title: "Set up a daily dispatch review" }));
     expect(api.linkWorkConversation).toHaveBeenCalled();
     expect(api.assignWork).toHaveBeenCalledWith(account.account_id, linked, expect.objectContaining({ assignment: { responsibility: "persona", persona_id: persona.id } }));
     expect(wrapper.text()).toContain("Set up a daily dispatch review");
+  });
+
+  it("does not relink or reassign approved Work that was already repaired", async () => {
+    const approvedWork = { key: "schedule.daily_dispatch", title: "Set up a daily dispatch review", description: "Choose the schedule source.", priority: "high" as const };
+    const approvalMessage = { ...messages[1], id: "e0000000-0000-4000-8000-00000000000e", result: { ...result, baseline: { ...result.baseline, approved_work: [approvedWork] } } };
+    const complete = { id: approvalMessage.id, number: 1, depth: 0, kind: "todo", title: approvedWork.title, description: approvedWork.description, state: "open", priority: "high", assignment: { responsibility: "persona", persona_id: persona.id }, provenance: { source: "conversation", created_by: { kind: "user", id: account.account_id }, conversation_id: run.conversation_id }, version: 3, created_at: run.created_at, updated_at: run.created_at } satisfies WorkItem;
+    api.listAgentMessages.mockResolvedValue([messages[0], approvalMessage]); api.createWorkFromAgentMessage.mockResolvedValue(complete); api.getWorkItem.mockResolvedValue(complete);
+    const wrapper = await mountAt(`/app/baseline/${baseline.id}`);
+    expect(api.getWorkItem).toHaveBeenCalledWith(account.account_id, complete.id);
+    expect(api.linkWorkConversation).not.toHaveBeenCalled(); expect(api.assignWork).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain(complete.title);
   });
 
   it("ends by handing the owner to Your Turn", async () => {
