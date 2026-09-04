@@ -85,6 +85,17 @@ describe("conversational Business Baseline", () => {
     expect(api.startAgentRun).toHaveBeenCalledWith(account.account_id, room.id, expect.objectContaining({ prompt: answer, conversation_id: run.conversation_id, persona_ids: [persona.id] }));
   });
 
+  it("sends with Enter and keeps Shift+Enter for a new line", async () => {
+    api.startAgentRun.mockResolvedValue({ ...run, id: "71000000-0000-4000-8000-000000000007", user_message_id: "91000000-0000-4000-8000-000000000009", state: "running" });
+    const wrapper = await mountAt(`/app/baseline/${baseline.id}`); const textarea = wrapper.get("#baseline-reply");
+    await textarea.setValue("First line"); await textarea.trigger("keydown", { key: "Enter", shiftKey: true }); await flushPromises();
+    expect(api.startAgentRun).not.toHaveBeenCalled(); expect(textarea.element).toHaveProperty("value", "First line");
+    await textarea.setValue("First line\nSecond line"); await textarea.trigger("keydown", { key: "Enter" }); await flushPromises();
+    expect(api.startAgentRun).toHaveBeenCalledWith(account.account_id, room.id, expect.objectContaining({ prompt: "First line\nSecond line" }));
+    expect(textarea.element).toHaveProperty("value", "");
+    wrapper.unmount();
+  });
+
   it("shows a reply immediately while the operations agent is still working", async () => {
     api.startAgentRun.mockResolvedValue({ ...run, id: "71000000-0000-4000-8000-000000000007", user_message_id: "91000000-0000-4000-8000-000000000009", state: "running" });
     const wrapper = await mountAt(`/app/baseline/${baseline.id}`); const answer = "Most calls come in by phone and text.";

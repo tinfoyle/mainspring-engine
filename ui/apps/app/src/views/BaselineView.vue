@@ -173,7 +173,16 @@ async function send(value: string, captureKnowledge = true): Promise<void> {
 
 async function acceptOffer(offer: AgentBaselineAutomationOffer): Promise<void> { await send(`Yes, add “${offer.title}” to the work we will set up.`, false); }
 
-async function submitReply(): Promise<void> { await send(reply.value, true); }
+async function submitReply(): Promise<void> {
+  if (sending.value || runPending.value || !reply.value.trim()) return;
+  await send(reply.value, true);
+}
+
+function handleReplyKeydown(event: KeyboardEvent): void {
+  if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+  event.preventDefault();
+  void submitReply();
+}
 
 async function runInterview(accountID: string, prompt: string, continuing: boolean): Promise<AgentRun | undefined> {
   if (!room.value || !persona.value || !baseline.value) return undefined;
@@ -257,7 +266,7 @@ onBeforeUnmount(() => { pollGeneration += 1; if (pollTimer !== undefined) window
         <header class="baseline-chat-header"><div class="baseline-agent-avatar" aria-hidden="true">O</div><div><strong>{{ persona?.name ?? "Operations Guide" }}</strong><span>{{ runPending ? "Thinking about what to ask next…" : "Learning your business" }}</span></div></header>
         <ol ref="chat" class="baseline-chat-log" aria-label="Business Baseline conversation" tabindex="0"><li v-for="item in visibleMessages" :key="item.id" :class="messageClass(item)"><div><p class="baseline-message-meta"><strong>{{ messageName(item) }}</strong><time :datetime="item.created_at">{{ messageTime(item.created_at) }}</time></p><p class="baseline-message-body">{{ messageBody(item) }}</p></div></li><li v-if="runPending" class="baseline-message baseline-message--persona"><div><p class="baseline-message-meta"><strong>{{ persona?.name ?? "Operations Guide" }}</strong></p><p class="baseline-thinking"><span></span><span></span><span></span><b class="sr-only">Thinking</b></p></div></li></ol>
         <section v-if="availableOffers.length && !ready" class="baseline-offers" aria-labelledby="baseline-offers-title"><div><p class="eyebrow">A useful next step</p><h2 id="baseline-offers-title">Your agent sees a place Spyglass can help.</h2></div><article v-for="offer in availableOffers" :key="offer.key"><div><strong>{{ offer.title }}</strong><p>{{ offer.description }}</p></div><IoButton kind="secondary" :disabled="sending || runPending" @click="acceptOffer(offer)">Yes, add this</IoButton></article><p class="form-note">Suggestions do not turn into Work until you say yes.</p></section>
-        <form v-if="!ready" class="baseline-composer" @submit.prevent="submitReply"><label for="baseline-reply">Your reply</label><textarea id="baseline-reply" v-model="reply" rows="3" maxlength="4000" placeholder="Type your answer here…" required @keydown.ctrl.enter="submitReply" /><div><small>Your answer is saved to this Account’s Knowledge. Do not include passwords or private customer data.</small><IoButton type="submit" :disabled="sending || runPending || !reply.trim()">{{ sending || runPending ? "Working…" : "Send" }}</IoButton></div></form>
+        <form v-if="!ready" class="baseline-composer" @submit.prevent="submitReply"><label for="baseline-reply">Your reply</label><textarea id="baseline-reply" v-model="reply" rows="3" maxlength="4000" placeholder="Type your answer here…" required @keydown="handleReplyKeydown" /><div><small>Enter sends · Shift+Enter adds a new line. Your answer is saved to this Account’s Knowledge. Do not include passwords or private customer data.</small><IoButton type="submit" :disabled="sending || runPending || !reply.trim()">{{ sending || runPending ? "Working…" : "Send" }}</IoButton></div></form>
         <section v-else class="baseline-finish"><p class="eyebrow">Baseline established</p><h2>Your agent has enough to start helping.</h2><p>{{ interview?.readiness_reason }}</p><IoButton @click="continueToYourTurn">Continue to Your Turn</IoButton></section><p v-if="error" class="queue-inline-status queue-inline-status--error" role="alert">{{ error }}</p>
       </section>
       <aside class="baseline-notebook" aria-label="What Spyglass has learned"><p class="eyebrow">Built as you talk</p><h2>Your business notebook</h2><dl><div><dt>Answers saved</dt><dd>{{ capturedTopicCount }}</dd></div><div><dt>Setup work created</dt><dd>{{ baselineWork.length }}</dd></div></dl><section v-if="interview?.captured_topics.length"><h3>What we understand</h3><ul><li v-for="topic in interview.captured_topics" :key="topic">{{ topic }}</li></ul></section><section v-if="interview?.missing_topics.length && !ready"><h3>Still worth learning</h3><ul><li v-for="topic in interview.missing_topics" :key="topic">{{ topic }}</li></ul></section><section v-if="baselineWork.length"><h3>Work added</h3><ul><li v-for="item in baselineWork" :key="item.id"><RouterLink :to="`/app/work/${item.id}`">{{ item.title }}</RouterLink></li></ul></section><p class="form-note">Only your replies become confirmed Knowledge. Suggestions become Work only after you approve them.</p></aside>
