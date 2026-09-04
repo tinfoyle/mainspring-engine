@@ -12,28 +12,28 @@
 
 No password, code, session token, cookie, provider credential, private key or payment detail was read or recorded during this review.
 
-## Adaptive Operations Guide deployment — RC.32 (owner review pending)
+## Adaptive Operations Guide deployment — RC.33 (owner review pending)
 
-RC.30 replaced the fixed Baseline questionnaire with an adaptive interview led by the Account's first `Operations Guide`; RC.31 repaired compatibility with historical nullable Agent-result collections. RC.32 moves a structured next question into the Operations Guide bubble when it was omitted from the provider's prose and avoids duplicating it when already present. The reply textarea is now reserved for human input: it starts empty and contains only neutral guidance. The Guide first identifies the kind of business and how it earns revenue, then follows only the relevant branches. Exact owner replies become governed Knowledge; suggested automations or setup tasks become conversation-linked Work only after explicit approval and are assigned to the Guide. Missing information can surface in Your Turn and an accepted answer resumes the related Work.
+RC.30 replaced the fixed Baseline questionnaire with an adaptive interview led by the Account's first `Operations Guide`; RC.31 repaired compatibility with historical nullable Agent-result collections, and RC.32 corrected prompt placement. RC.33 makes a submitted human reply appear immediately while the Agent is working. Automation acceptance remains explicit input to the Agent but renders as a compact approval event, disappears from the active offers, and cannot be fired again while the run is pending. The application router now admits the existing Work conversation/provenance link endpoints that the cell already exposed. Reopening Baseline idempotently repairs earlier approvals, links and assigns only incomplete Work, and does not duplicate completed setup tasks.
 
 Deployment evidence:
 
-- Source revision: `22df0ef272bb68fcd17b555a4914ec4e84671a61`.
-- Release-manifest revision and clean VPS checkout: `f4d05636b07034558922db88ea58bcbce64d525e`.
-- Release manifest: `deploy/releases/0.3.0-rc.32.env`.
+- Source revision: `b84be1dc5b1a79d2947c2bca2d57d64d4deae2a7`.
+- Release-manifest revision and clean VPS checkout: `100c5dc61de9ed6822b73898b679235ba7847232`.
+- Release manifest: `deploy/releases/0.3.0-rc.33.env`.
 - All three images carry provenance and SBOM attestations and passed HIGH/CRITICAL vulnerability plus secret scanning with zero findings.
 - The protected Stage configuration verified before and after deployment.
 - Existing PostgreSQL and object-store volumes were retained; migration ledgers remain 68/80/80.
 - 49 long-running containers are present; all 48 healthchecked workloads are healthy and the internal edge is running.
 - Public, login and MCP metadata endpoints return `200`; the running application and private UI match the recorded digests.
-- An authenticated reload of the exact assessment visibly rendered its pending question in the Agent bubble, an empty reply field with `Type your answer here…`, and no browser-console errors.
-- Authenticated owner acceptance of the remaining adaptive questions, exact Knowledge capture, approved Work creation, and Your Turn continuation remains open.
+- An authenticated reload of the exact assessment rendered both prior approvals as compact events, repaired both approved setup Work items, removed the former route error and produced no browser-console errors.
+- Unit coverage verifies immediate optimistic replies and compact automation approval while a real Agent run is pending. Authenticated owner acceptance of the remaining adaptive questions and Your Turn continuation remains open.
 
 | Artifact | Digest |
 | --- | --- |
-| Application | `sha256:c71984a2ea693d957b6a8700a2be8a1a577f8d5f56e77e82c7a05e382a50ac64` |
-| Public UI | `sha256:51eb68ed80c631b5036cc34f70971f464e2c1df00c46c6e7556c8bc98dfe1480` |
-| Private UI | `sha256:a56fdeb3c60f6b3c16e7cba3f15101944852069f5adbab6e885705de835234c4` |
+| Application | `sha256:162a772a3f4eb43c5399f787bd46844a3f588dfc694cd2d38c1ceb88937703fa` |
+| Public UI | `sha256:9f95f8060665a143c848f3d874d302da91316aaa5f98875d05c19723cc7d4aa8` |
+| Private UI | `sha256:77cee73148035c2d3584ae8f1b70ada0a1585c76c4105f3ca152a40a8afad979` |
 
 ## Conversational Business Baseline deployment — RC.29
 
