@@ -2,38 +2,38 @@
 
 - Environment: `https://app.stage.infiniteocean.net`
 - Initial acceptance release: `0.3.0-rc.24`
-- Latest corrected release: `0.3.0-rc.34`
-- Latest application revision: `d899e2994d688af02e061593f211cff1af794b66`
-- Latest release-manifest revision: `e586e93e09087c5f405f1eb348280c527effa5b3`
-- Latest Stage release directory: `/opt/spyglass-stage/releases/e586e93e09087c5f405f1eb348280c527effa5b3`
+- Latest corrected release: `0.3.0-rc.35`
+- Latest application revision: `2af23ef1ed18dcf5fff8bd8be84ec2fcee89c89c`
+- Latest release-manifest revision: `bc45b13693cf59f303e738154629f55427ce14b7`
+- Latest Stage release directory: `/opt/spyglass-stage/releases/bc45b13693cf59f303e738154629f55427ce14b7`
 - Client: Codex in-app Chromium browser, authenticated with the existing Google-linked owner identity
 - Account: existing paid `Infinite Ocean` Stage Account
 - Result: **passed for the tested customer application slice; complete adaptive-Baseline owner acceptance remains open**
 
 No password, code, session token, cookie, provider credential, private key or payment detail was read or recorded during this review.
 
-## Adaptive Operations Guide deployment — RC.34 (owner review pending)
+## Adaptive Operations Guide deployment — RC.35 (owner review pending)
 
-RC.30 replaced the fixed Baseline questionnaire with an adaptive interview led by the Account's first `Operations Guide`; RC.31 repaired compatibility with historical nullable Agent-result collections, RC.32 corrected prompt placement, and RC.33 added immediate replies plus compact approval events. RC.34 fixes the subsequent live failure: historical approved tasks are resolved by their stable Agent-message IDs instead of replaying creation after those tasks have changed, and the persisted reply replaces its optimistic copy before setup-Work synchronization. Concurrent recovery loads the already-created task and remains duplicate-safe.
+RC.30 replaced the fixed Baseline questionnaire with an adaptive interview led by the Account's first `Operations Guide`; RC.31 repaired compatibility with historical nullable Agent-result collections, RC.32 corrected prompt placement, RC.33 added immediate replies plus compact approval events, and RC.34 repaired reply and approved-Work reconciliation. RC.35 makes Enter submit the reply while Shift+Enter inserts a new line. Submission is suppressed during an active Agent run and during IME composition.
 
 Deployment evidence:
 
-- Source revision: `d899e2994d688af02e061593f211cff1af794b66`.
-- Release-manifest revision and clean VPS checkout: `e586e93e09087c5f405f1eb348280c527effa5b3`.
-- Release manifest: `deploy/releases/0.3.0-rc.34.env`.
+- Source revision: `2af23ef1ed18dcf5fff8bd8be84ec2fcee89c89c`.
+- Release-manifest revision and clean VPS checkout: `bc45b13693cf59f303e738154629f55427ce14b7`.
+- Release manifest: `deploy/releases/0.3.0-rc.35.env`.
 - All three images carry provenance and SBOM attestations and passed HIGH/CRITICAL vulnerability plus secret scanning with zero findings.
 - The protected Stage configuration verified before and after deployment.
 - Existing PostgreSQL and object-store volumes were retained; migration ledgers remain 68/80/80.
 - 49 long-running containers are present; all 48 healthchecked workloads are healthy and the internal edge is running.
 - Public, login and MCP metadata endpoints return `200`; all three running image identities match the recorded digests.
-- An authenticated reload of the exact assessment rendered one durable copy of the affected reply, both prior approvals as compact events, both approved setup Work items, no stale Work conflict and no browser-console errors.
-- Eleven focused Baseline tests cover immediate optimistic replies, compact automation approval, completed-Work replay avoidance, creation-race recovery and reply cleanup when Work repair fails. Authenticated owner acceptance of the remaining adaptive questions and Your Turn continuation remains open.
+- A clean authenticated load of the exact assessment rendered the RC.35 private bundle and its `Enter sends · Shift+Enter adds a new line` guidance with no browser-console errors; the owner's original review tab and in-progress draft were not changed.
+- Twelve focused Baseline tests cover Enter submission, Shift+Enter multi-line retention, immediate optimistic replies, compact automation approval, completed-Work replay avoidance, creation-race recovery and reply cleanup when Work repair fails. Authenticated owner acceptance of the remaining adaptive questions and Your Turn continuation remains open.
 
 | Artifact | Digest |
 | --- | --- |
-| Application | `sha256:83308a98dd516623c8ffddd72f08c8f7ecc94a965c890610141196aca263ac0b` |
-| Public UI | `sha256:98a7ac27d65372d9eb616e81911e57eb04b95c35a009555ac3de3f063d7b5749` |
-| Private UI | `sha256:071563a9d575cbe2301ebdb39ff65a3c199869e43767f895aab503457253a4f1` |
+| Application | `sha256:a38ba77e9821a0b6756dd722ff3c3f8b1fb8f11baced106699e1ab0e79fd8fce` |
+| Public UI | `sha256:9951905ce4efb811c50c8b6ba853bc70262f75390aab371e65e8ea0aa933c267` |
+| Private UI | `sha256:96f4d457f6222702827c9e51039532519dcd9032bf5339ef0bb1ca8115c5a157` |
 
 ## Conversational Business Baseline deployment — RC.29
 
