@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -99,6 +102,36 @@ func TestClientTrustsOnlyConfiguredPrivateBrokerCA(t *testing.T) {
 	}
 }
 
+func TestClientRetriesTransientBrokerStartupFailure(t *testing.T) {
+	invocationID := "11000000-0000-4000-8000-000000000001"
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tokenFile, []byte("valid-token"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	attempts := 0
+	httpClient := &http.Client{Timeout: time.Second, Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		attempts++
+		if attempts < 3 {
+			return nil, &net.DNSError{Err: "server misbehaving", Name: "runner-broker.test", IsTemporary: true}
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"schema_version":1,"kind":"agent.execute","input":{},"expires_at":"2030-01-01T00:00:00Z"}`)),
+		}, nil
+	})}
+	client, err := New(Config{BrokerURL: "http://runner-broker.test", InvocationID: invocationID, IdentityTokenFile: tokenFile, HTTPClient: httpClient})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Fetch(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 3 {
+		t.Fatalf("fetch attempts=%d", attempts)
+	}
+}
+
 func TestClientMapsContentFreeProblems(t *testing.T) {
 	tokenFile := filepath.Join(t.TempDir(), "token")
 	if err := os.WriteFile(tokenFile, []byte("valid-token"), 0o600); err != nil {
@@ -171,4 +204,10 @@ func TestClientRejectsInvalidTokenAndRedirect(t *testing.T) {
 	if _, err := client.Fetch(context.Background()); err == nil || !bytes.Contains([]byte(err.Error()), []byte("redirects are denied")) {
 		t.Fatalf("redirect err=%v", err)
 	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
 }

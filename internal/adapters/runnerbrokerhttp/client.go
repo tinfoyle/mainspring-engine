@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -25,6 +26,9 @@ const (
 	maximumTokenBytes    = 16 << 10
 	maximumTrustBytes    = 256 << 10
 	maximumResponseBytes = runnerbroker.MaximumEnvelopeBytes + 64<<10
+	initialFetchRetry    = 250 * time.Millisecond
+	maximumFetchRetry    = 4 * time.Second
+	fetchRetryWindow     = 30 * time.Second
 )
 
 type Config struct {
@@ -87,13 +91,32 @@ func loadRoots(filename string) (*x509.CertPool, error) {
 }
 
 func (c *Client) Fetch(ctx context.Context) (runnerbroker.Request, error) {
-	request, err := c.newRequest(ctx, http.MethodPost, "request", nil)
-	if err != nil {
-		return runnerbroker.Request{}, err
-	}
-	response, err := c.http.Do(request)
-	if err != nil {
-		return runnerbroker.Request{}, fmt.Errorf("fetch runner request: %w", err)
+	deadline := time.Now().Add(fetchRetryWindow)
+	delay := initialFetchRetry
+	var response *http.Response
+	for {
+		request, err := c.newRequest(ctx, http.MethodPost, "request", nil)
+		if err != nil {
+			return runnerbroker.Request{}, err
+		}
+		response, err = c.http.Do(request)
+		if err == nil {
+			break
+		}
+		if !retryableFetchError(err) || time.Now().Add(delay).After(deadline) {
+			return runnerbroker.Request{}, fmt.Errorf("fetch runner request: %w", err)
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return runnerbroker.Request{}, fmt.Errorf("fetch runner request: %w", ctx.Err())
+		case <-timer.C:
+		}
+		delay *= 2
+		if delay > maximumFetchRetry {
+			delay = maximumFetchRetry
+		}
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
@@ -104,6 +127,22 @@ func (c *Client) Fetch(ctx context.Context) (runnerbroker.Request, error) {
 		return runnerbroker.Request{}, fmt.Errorf("decode runner request: %w", err)
 	}
 	return value, nil
+}
+
+func retryableFetchError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var certificateError *tls.CertificateVerificationError
+	if errors.As(err, &certificateError) {
+		return false
+	}
+	var urlError *url.Error
+	if errors.As(err, &urlError) {
+		err = urlError.Err
+	}
+	var networkError net.Error
+	return errors.As(err, &networkError)
 }
 
 func (c *Client) Submit(ctx context.Context, result runnerbroker.Result) (bool, error) {
