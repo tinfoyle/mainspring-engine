@@ -57,6 +57,16 @@ describe("conversational Business Baseline", () => {
     const wrapper = await mountAt(`/app/baseline/${baseline.id}`);
     expect(api.getBaseline).toHaveBeenCalledWith(account.account_id, baseline.id); expect(wrapper.text()).toContain("How does a new service call reach you today?");
     expect(wrapper.text()).toContain("Commercial HVAC service company"); expect(wrapper.text()).not.toContain("Question 3 of 7");
+    expect(wrapper.get("#baseline-reply").attributes("placeholder")).toBe("Type your answer here…");
+  });
+
+  it("puts a structured next question in the agent chat rather than the human input", async () => {
+    const introduction = "I understand the kind of work you do. Let’s look at how customers reach you.";
+    api.listAgentMessages.mockResolvedValue([messages[0], { ...messages[1], body: introduction, result: { ...result, contribution: introduction } }]);
+    const wrapper = await mountAt(`/app/baseline/${baseline.id}`);
+    expect(wrapper.get(".baseline-message--persona .baseline-message-body").text()).toContain("How does a new service call reach you today?");
+    expect(wrapper.get("#baseline-reply").attributes("placeholder")).toBe("Type your answer here…");
+    expect(wrapper.get("#baseline-reply").element).toHaveProperty("value", "");
   });
 
   it("renders persisted Agent results whose empty collections were encoded as null", async () => {
