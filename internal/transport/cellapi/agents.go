@@ -660,6 +660,7 @@ type agentRunInvocationResponse struct {
 	Turn             uint32                 `json:"turn"`
 	PersonaVersionID ids.PersonaVersionID   `json:"persona_version_id"`
 	Status           string                 `json:"status"`
+	FailureCode      string                 `json:"failure_code,omitempty"`
 	StartedAt        *time.Time             `json:"started_at,omitempty"`
 	CompletedAt      *time.Time             `json:"completed_at,omitempty"`
 	Usage            *agentRunUsageResponse `json:"usage,omitempty"`
@@ -714,7 +715,7 @@ func agentRunView(run agentapp.Run) agentRunResponse {
 	invocations := make([]agentRunInvocationResponse, len(run.Invocations))
 	for index, invocation := range run.Invocations {
 		invocations[index] = agentRunInvocationResponse{ID: invocation.ID, Turn: invocation.Turn, PersonaVersionID: invocation.PersonaVersionID,
-			Status: invocation.Status, StartedAt: invocation.StartedAt, CompletedAt: invocation.CompletedAt}
+			Status: invocation.Status, FailureCode: invocation.FailureCode, StartedAt: invocation.StartedAt, CompletedAt: invocation.CompletedAt}
 		if invocation.Usage != nil {
 			invocations[index].Usage = &agentRunUsageResponse{InputTokens: invocation.Usage.InputTokens, OutputTokens: invocation.Usage.OutputTokens,
 				TotalTokens: invocation.Usage.TotalTokens, CostMicros: invocation.Usage.CostMicros}

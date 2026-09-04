@@ -320,7 +320,12 @@ func (r *AgentRepository) ListMessages(ctx context.Context, accountID ids.Accoun
 		rows, err := tx.Query(ctx, `SELECT id,conversation_id,sequence,role,body,created_by,run_id,invocation_id,persona_version_id,structured_result,created_at
 			FROM (
 				SELECT u.id,u.conversation_id,u.sequence,'user'::text AS role,u.body,u.created_by::text,
-				       NULL::text AS run_id,NULL::text AS invocation_id,NULL::text AS persona_version_id,NULL::jsonb AS structured_result,u.created_at
+				       (SELECT r.id::text FROM spyglass.agent_invocation_execution_plans e
+				        JOIN spyglass.agent_invocations i ON i.account_id=e.account_id AND i.id=e.invocation_id
+				        JOIN spyglass.agent_runs r ON r.account_id=i.account_id AND r.id=i.run_id
+				        WHERE e.account_id=u.account_id AND e.conversation_id=u.conversation_id AND e.context_sequence=u.sequence
+				        ORDER BY r.created_at,r.id LIMIT 1) AS run_id,
+				       NULL::text AS invocation_id,NULL::text AS persona_version_id,NULL::jsonb AS structured_result,u.created_at
 				FROM spyglass.agent_user_messages u WHERE u.account_id=$1 AND u.conversation_id=$2 AND u.sequence>$3
 				UNION ALL
 				SELECT m.id,m.conversation_id,m.sequence,m.role,m.body,NULL::text,m.run_id::text,m.invocation_id::text,
@@ -1024,10 +1029,10 @@ func scanAgentMessage(row interface{ Scan(...any) error }) (agentapp.Message, er
 	item.Sequence = uint64(sequence)
 	switch item.Role {
 	case agentapp.MessageRoleUser:
-		if createdBy == nil || ids.Validate(*createdBy) != nil || runID != nil || invocationID != nil || personaVersionID != nil || rawResult != nil {
+		if createdBy == nil || ids.Validate(*createdBy) != nil || runID == nil || ids.Validate(*runID) != nil || invocationID != nil || personaVersionID != nil || rawResult != nil {
 			return agentapp.Message{}, agentapp.ErrCorrupt
 		}
-		item.CreatedBy = ids.UserID(*createdBy)
+		item.CreatedBy, item.RunID = ids.UserID(*createdBy), ids.RunID(*runID)
 	case agentapp.MessageRolePersona:
 		if createdBy != nil || runID == nil || invocationID == nil || personaVersionID == nil || ids.Validate(*runID) != nil || ids.Validate(*invocationID) != nil || ids.Validate(*personaVersionID) != nil || len(rawResult) == 0 {
 			return agentapp.Message{}, agentapp.ErrCorrupt

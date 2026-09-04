@@ -13,7 +13,7 @@ const api = vi.hoisted(() => ({
   getBaseline: vi.fn(), getCurrentBaseline: vi.fn(), startBaseline: vi.fn(), assignWork: vi.fn(), captureOwnerKnowledgeFact: vi.fn(),
   configureAgentManager: vi.fn(), createAgentBoardroom: vi.fn(), createWorkFromAgentMessage: vi.fn(), getAgentRun: vi.fn(), getWorkItem: vi.fn(),
   linkWorkConversation: vi.fn(), listAgentBoardrooms: vi.fn(), listAgentConversations: vi.fn(), listAgentMessages: vi.fn(),
-  listAgentPersonas: vi.fn(), listKnowledgeFacts: vi.fn(), listWork: vi.fn(), publishAgentPersona: vi.fn(), startAgentRun: vi.fn()
+  listAgentPersonas: vi.fn(), listKnowledgeFacts: vi.fn(), listWork: vi.fn(), publishAgentPersona: vi.fn(), resolveAgentRun: vi.fn(), startAgentRun: vi.fn()
 }));
 vi.mock("@spyglass/api", async (importOriginal) => ({ ...await importOriginal<typeof import("@spyglass/api")>(), ...api }));
 
@@ -171,6 +171,36 @@ describe("conversational Business Baseline", () => {
     await wrapper.get("#baseline-reply").setValue(answer); await wrapper.get("form.baseline-composer").trigger("submit"); await flushPromises();
     expect(wrapper.findAll(".baseline-message--user").filter((item) => item.text().includes(answer))).toHaveLength(1);
     expect(wrapper.text()).toContain("the Work item changed; reload it before retrying");
+  });
+
+  it("automatically retries malformed Agent output without duplicating the owner's answer", async () => {
+    const failedRun = { ...run, id: "71000000-0000-4000-8000-000000000007", state: "failed" as const, user_message_id: "91000000-0000-4000-8000-000000000009", invocations: [{ id: "b1000000-0000-4000-8000-00000000000b", turn: 1, persona_version_id: persona.persona_version_id, status: "failed" as const, failure_code: "model_output_invalid", completed_at: "2026-08-24T20:04:00Z" }] };
+    const retryRun = { ...run, id: "72000000-0000-4000-8000-000000000007", user_message_id: failedRun.user_message_id };
+    const failedAnswer = { ...messages[0], id: failedRun.user_message_id, sequence: 3, body: "We want to launch as soon as it is ready.", run_id: failedRun.id, created_at: "2026-08-24T20:03:00Z" };
+    api.listAgentMessages.mockResolvedValue([messages[0], messages[1], failedAnswer]);
+    api.getAgentRun.mockImplementation((_: string, runID: string) => Promise.resolve(runID === failedRun.id ? failedRun : retryRun));
+    api.resolveAgentRun.mockResolvedValue({ id: "73000000-0000-4000-8000-000000000007", run_id: failedRun.id, retry_run_id: retryRun.id, action: "retry_failed", note: "Automatically retry malformed Business Baseline output.", actor_id: account.account_id, created_at: "2026-08-24T20:04:01Z" });
+    const wrapper = await mountAt(`/app/baseline/${baseline.id}`); await flushPromises();
+    expect(api.resolveAgentRun).toHaveBeenCalledWith(account.account_id, failedRun.id, { action: "retry_failed", note: "Automatically retry malformed Business Baseline output." });
+    expect(api.startAgentRun).not.toHaveBeenCalled();
+    expect(wrapper.findAll(".baseline-message--user").filter((item) => item.text().includes(failedAnswer.body))).toHaveLength(1);
+    wrapper.unmount();
+  });
+
+  it("shows a plain-language retry action after a terminal failure", async () => {
+    const failedRun = { ...run, id: "71000000-0000-4000-8000-000000000007", state: "failed" as const, user_message_id: "91000000-0000-4000-8000-000000000009", invocations: [{ id: "b1000000-0000-4000-8000-00000000000b", turn: 1, persona_version_id: persona.persona_version_id, status: "failed" as const, failure_code: "token_limit_exceeded", completed_at: "2026-08-24T20:04:00Z" }] };
+    const retryRun = { ...run, id: "72000000-0000-4000-8000-000000000007", state: "running" as const, user_message_id: failedRun.user_message_id };
+    const failedAnswer = { ...messages[0], id: failedRun.user_message_id, sequence: 3, body: "We want to launch as soon as it is ready.", run_id: failedRun.id, created_at: "2026-08-24T20:03:00Z" };
+    api.listAgentMessages.mockResolvedValue([messages[0], messages[1], failedAnswer]);
+    api.getAgentRun.mockImplementation((_: string, runID: string) => Promise.resolve(runID === failedRun.id ? failedRun : retryRun));
+    api.resolveAgentRun.mockResolvedValue({ id: "73000000-0000-4000-8000-000000000007", run_id: failedRun.id, retry_run_id: retryRun.id, action: "retry_failed", note: "Retry the Business Baseline reply without duplicating the owner's answer.", actor_id: account.account_id, created_at: "2026-08-24T20:04:01Z" });
+    const wrapper = await mountAt(`/app/baseline/${baseline.id}`);
+    expect(wrapper.text()).toContain("Your answer is safe"); expect(wrapper.text()).toContain("Nothing needs to be retyped");
+    expect(wrapper.text()).not.toContain("Baseline established");
+    expect(wrapper.find("#baseline-reply").exists()).toBe(false);
+    await wrapper.get(".baseline-run-recovery button").trigger("click"); await flushPromises();
+    expect(api.resolveAgentRun).toHaveBeenCalledWith(account.account_id, failedRun.id, { action: "retry_failed", note: "Retry the Business Baseline reply without duplicating the owner's answer." });
+    wrapper.unmount();
   });
 
   it("ends by handing the owner to Your Turn", async () => {

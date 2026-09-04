@@ -590,6 +590,7 @@ export interface AgentRunContextReference {
 
 export interface AgentRunInvocation {
   readonly "completed_at"?: string;
+  readonly "failure_code"?: string;
   readonly "id": string;
   readonly "persona_version_id": string;
   readonly "started_at"?: string;

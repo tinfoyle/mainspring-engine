@@ -106,7 +106,7 @@ func (service *agentTransportService) ListMessages(_ context.Context, _ access.A
 	result := agentdomain.ResultEnvelope{Contribution: "Focus on the overdue review.", Findings: []string{}, Recommendations: []string{}, Questions: []string{}, Citations: []agentdomain.Citation{}, ProposedActions: []agentdomain.ProposedAction{}, Delegations: []agentdomain.Delegation{}, Confidence: agentdomain.ConfidenceHigh}
 	next := uint64(2)
 	return agentapp.MessagePage{Items: []agentapp.Message{
-		{ID: "81000000-0000-4000-8000-000000000001", ConversationID: conversationID, Sequence: 1, Role: agentapp.MessageRoleUser, Body: "What should we prioritize?", CreatedBy: ids.UserID(agentUser), CreatedAt: service.now},
+		{ID: "81000000-0000-4000-8000-000000000001", ConversationID: conversationID, Sequence: 1, Role: agentapp.MessageRoleUser, Body: "What should we prioritize?", CreatedBy: ids.UserID(agentUser), RunID: ids.RunID(agentRun), CreatedAt: service.now},
 		{ID: "82000000-0000-4000-8000-000000000002", ConversationID: conversationID, Sequence: 2, Role: agentapp.MessageRolePersona, Body: result.Contribution, RunID: ids.RunID(agentRun), InvocationID: ids.AgentInvocationID(agentInvocation), PersonaVersionID: ids.PersonaVersionID(agentOperation), Result: &result, CreatedAt: service.now},
 	}, NextAfterSequence: &next}, nil
 }
@@ -261,6 +261,16 @@ func TestAgentQueryContractsExposeBoundedCollectionsAndRunView(t *testing.T) {
 	if run.Code != http.StatusOK || !strings.Contains(run.Body.String(), `"id":"`+agentRun+`"`) ||
 		!strings.Contains(run.Body.String(), `"plan_digest":"01`) || !strings.Contains(run.Body.String(), `"invocation_ids":["`+agentInvocation+`"]`) {
 		t.Fatalf("run=%d body=%s", run.Code, run.Body.String())
+	}
+}
+
+func TestAgentRunViewExposesInvocationFailureCode(t *testing.T) {
+	view := agentRunView(agentapp.Run{Invocations: []agentapp.RunInvocation{{
+		ID: ids.AgentInvocationID(agentInvocation), PersonaVersionID: ids.PersonaVersionID(agentOperation), Turn: 1,
+		Status: "failed", FailureCode: "model_output_invalid",
+	}}})
+	if len(view.Invocations) != 1 || view.Invocations[0].FailureCode != "model_output_invalid" {
+		t.Fatalf("invocations=%+v", view.Invocations)
 	}
 }
 

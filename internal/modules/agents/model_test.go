@@ -133,6 +133,31 @@ func TestResultSchemaIsAcceptedAsImmutablePersonaPolicy(t *testing.T) {
 	}
 }
 
+func TestResultSchemaSeparatesReadyAndContinuingBaselineContracts(t *testing.T) {
+	var schema struct {
+		Properties map[string]struct {
+			AnyOf []struct {
+				Properties map[string]map[string]any `json:"properties"`
+			} `json:"anyOf"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(ResultSchema(), &schema); err != nil {
+		t.Fatal(err)
+	}
+	variants := schema.Properties["baseline"].AnyOf
+	if len(variants) != 3 {
+		t.Fatalf("Baseline schema must separate continuing, ready, and null variants: %+v", variants)
+	}
+	continuingReady, _ := variants[0].Properties["ready"]["enum"].([]any)
+	finishedReady, _ := variants[1].Properties["ready"]["enum"].([]any)
+	if len(continuingReady) != 1 || continuingReady[0] != false || len(finishedReady) != 1 || finishedReady[0] != true {
+		t.Fatalf("Baseline schema must separate continuing, ready, and null variants: %+v", variants)
+	}
+	if variants[0].Properties["next_question"]["minLength"] != float64(2) || variants[1].Properties["captured_topics"]["minItems"] != float64(4) || variants[1].Properties["missing_topics"]["maxItems"] != float64(0) {
+		t.Fatalf("Baseline schema does not encode runtime readiness invariants: %+v", variants)
+	}
+}
+
 func TestResultEnvelopeValidatesConversationalBaselineGuidance(t *testing.T) {
 	result := ResultEnvelope{Contribution: "Tell me how a new job reaches you.", Findings: []string{}, Recommendations: []string{}, Questions: []string{}, Citations: []Citation{}, ProposedActions: []ProposedAction{}, Delegations: []Delegation{}, Confidence: ConfidenceMedium,
 		Baseline: &BaselineInterview{BusinessType: "Field service business", BusinessTypeConfidence: ConfidenceMedium, CapturedTopics: []string{"Residential plumbing"}, NextQuestionKey: "baseline.revenue_workflow", NextQuestion: "How does a new service call reach you?", QuestionReason: "This shows how demand becomes scheduled work.", AutomationOffers: []BaselineAutomationOffer{}, ApprovedWork: []BaselineApprovedWork{}, Ready: false, ReadinessReason: "Still learning how jobs move.", MissingTopics: []string{"Scheduling", "Billing"}}}

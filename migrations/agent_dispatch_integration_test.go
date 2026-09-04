@@ -208,7 +208,7 @@ func TestAgentServingCreatesImmutablePlanAndEncryptedDispatch(t *testing.T) {
 		t.Fatalf("conversation=%+v err=%v", conversation, err)
 	}
 	messagePage, err := repository.ListMessages(ctx, accountID, conversationID, agentapp.MessageListQuery{Limit: 1})
-	if err != nil || len(messagePage.Items) != 1 || messagePage.Items[0].ID != messageID || messagePage.Items[0].Role != agentapp.MessageRoleUser || messagePage.Items[0].Body != prompt || messagePage.Items[0].CreatedBy != userID || messagePage.Items[0].Result != nil || messagePage.NextAfterSequence != nil {
+	if err != nil || len(messagePage.Items) != 1 || messagePage.Items[0].ID != messageID || messagePage.Items[0].Role != agentapp.MessageRoleUser || messagePage.Items[0].Body != prompt || messagePage.Items[0].CreatedBy != userID || messagePage.Items[0].RunID != runID || messagePage.Items[0].Result != nil || messagePage.NextAfterSequence != nil {
 		t.Fatalf("message page=%+v err=%v", messagePage, err)
 	}
 	if _, err := repository.GetConversation(ctx, otherAccountID, conversationID); !errors.Is(err, agentapp.ErrNotFound) {

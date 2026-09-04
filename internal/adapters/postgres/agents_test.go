@@ -20,6 +20,7 @@ func TestScanAgentMessageValidatesRoleShapeAndResultBinding(t *testing.T) {
 	messageID := ids.MessageID("81000000-0000-4000-8000-000000000001")
 	conversationID := ids.ConversationID("71000000-0000-4000-8000-000000000001")
 	userID := "21000000-0000-4000-8000-000000000001"
+	runID := "61000000-0000-4000-8000-000000000001"
 	user, err := scanAgentMessage(agentScanFunc(func(destinations ...any) error {
 		*destinations[0].(*ids.MessageID) = messageID
 		*destinations[1].(*ids.ConversationID) = conversationID
@@ -27,16 +28,16 @@ func TestScanAgentMessageValidatesRoleShapeAndResultBinding(t *testing.T) {
 		*destinations[3].(*agentapp.MessageRole) = agentapp.MessageRoleUser
 		*destinations[4].(*string) = "What changed?"
 		*destinations[5].(**string) = &userID
+		*destinations[6].(**string) = &runID
 		*destinations[10].(*time.Time) = now
 		return nil
 	}))
-	if err != nil || user.CreatedBy != ids.UserID(userID) || user.Result != nil || user.Sequence != 1 {
+	if err != nil || user.CreatedBy != ids.UserID(userID) || user.RunID != ids.RunID(runID) || user.Result != nil || user.Sequence != 1 {
 		t.Fatalf("user=%+v err=%v", user, err)
 	}
 
 	result := agentdomain.ResultEnvelope{Contribution: "Focus on the overdue review.", Findings: []string{}, Recommendations: []string{}, Questions: []string{}, Citations: []agentdomain.Citation{}, ProposedActions: []agentdomain.ProposedAction{}, Delegations: []agentdomain.Delegation{}, Confidence: agentdomain.ConfidenceHigh}
 	raw, _ := json.Marshal(result)
-	runID := "61000000-0000-4000-8000-000000000001"
 	invocationID := "91000000-0000-4000-8000-000000000001"
 	versionID := "31000000-0000-4000-8000-000000000001"
 	personaRow := func(body string) agentScanFunc {
