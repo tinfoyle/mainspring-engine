@@ -1,6 +1,6 @@
 # Release artifacts and provenance
 
-Status: RC.9 is the active Hostinger Stage review candidate; it passed local AMD64 admission with attached BuildKit SBOM/provenance but is deliberately not production-promotable because it is single-platform and unsigned. RC.5/RC.4 remain the independently verified Phase 2.5 baseline/rollback pair; final-product certification remains a promotion gate.
+Status: RC.41 is the active Hostinger Stage review candidate; its matched AMD64 image triple passed local admission with attached BuildKit SBOM/provenance but is deliberately not production-promotable because it is single-platform and unsigned. RC.5/RC.4 remain the independently verified Phase 2.5 baseline/rollback pair; final-product certification remains a promotion gate.
 
 Spyglass uses one shared, multi-mode application image for Account API, routers, cell APIs, private brokers, workers, runner execution, migrations, and one-shot operator commands. Runtime arguments choose the workload class. Kubernetes ServiceAccounts, NetworkPolicies, mounted credentials, database roles, and workload certificates—not separate per-customer builds—bound each process's authority. Ordinary Accounts never create an image, Deployment, namespace, or long-running container.
 
@@ -204,4 +204,4 @@ Promotion reuses the same digest through staging, internal canary, customer cana
 
 ## Remaining release evidence
 
-RC.4/RC.5 independent evidence, the earlier signed Phase 3 checkpoints and RC.6/RC.7/RC.8 connected Stage evidence are recorded. Before final promotion, publish a complete-product immutable application/public/private triple, independently verify each signature/provenance/SBOM/scan set, archive the rendered environment overlay digest, migration set, Catalog version and `staging-cert`, and prove a compatible rollback transition. Cluster admission enforcement and the final-triple staged rollback remain launch gates.
+RC.4/RC.5 independent evidence, the earlier signed Phase 3 checkpoints and connected Stage evidence through RC.41 are recorded. Before final promotion, publish a complete-product immutable application/public/private triple, independently verify each signature/provenance/SBOM/scan set, archive the rendered environment overlay digest, migration set, Catalog version and `staging-cert`, and prove a compatible rollback transition. Cluster admission enforcement and the final-triple staged rollback remain launch gates.

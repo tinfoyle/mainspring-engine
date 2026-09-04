@@ -1,6 +1,6 @@
 # Work-to-Agent execution
 
-Status: durable P3.1 construction implemented; connected stage journey evidence remains.
+Status: durable P3.1 construction implemented; automatic dispatch, successful owner-question projection, capacity deferral and exhausted-failure recovery are connected on Stage RC.41. Broader product-journey certification remains.
 
 Persona assignment is a Work-owned execution boundary. It does not call the Agent service synchronously and it does not treat the lower-level Agent dispatch queue as proof that Work was linked.
 

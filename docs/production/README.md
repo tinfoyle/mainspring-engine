@@ -13,6 +13,7 @@ Current audit and execution reports:
 - [Phase 3 local backend completion report](phase-3-backend-completion-report.md)
 - [HTTP API and MCP interaction guide](api-mcp-interaction-guide.md)
 - [Local, stage and production deployment report](stage-production-deployment-report.md)
+- [UbuntuRojo and Stage release operator handoff](stage-release-operator-handoff.md)
 - [Phase 3 product-journey certification](journey-certification.md)
 - [Privacy and analytics processing registry](privacy-processing-registry.md)
 - [Privacy and cookie notice launch draft](privacy-cookie-notice-launch-draft.md)
