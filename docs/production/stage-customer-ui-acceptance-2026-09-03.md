@@ -12,6 +12,28 @@
 
 No password, code, session token, cookie, provider credential, private key or payment detail was read or recorded during this review.
 
+## Adaptive Operations Guide deployment — RC.30 (owner review pending)
+
+RC.30 replaces the fixed Baseline questionnaire with an adaptive interview led by the Account's first `Operations Guide`. The Guide first identifies the kind of business and how it earns revenue, then follows only the relevant branches. Exact owner replies become governed Knowledge; suggested automations or setup tasks become conversation-linked Work only after explicit approval and are assigned to the Guide. Missing information can surface in Your Turn and an accepted answer resumes the related Work.
+
+Deployment evidence:
+
+- Source revision: `ca385a9839d049319138e6134e5ab1468847759f`.
+- Release-manifest revision and clean VPS checkout: `0f979a5b057cf092a5202235d8e82f5ff42bcf5b`.
+- Release manifest: `deploy/releases/0.3.0-rc.30.env`.
+- All three images carry provenance and SBOM attestations and passed HIGH/CRITICAL vulnerability plus secret scanning with zero findings.
+- The protected Stage configuration verified before and after deployment.
+- Existing PostgreSQL and object-store volumes were retained; migration ledgers remain 68/80/80.
+- 49 long-running containers are present; all 48 healthchecked workloads are healthy and the internal edge is running.
+- Public, login and MCP metadata endpoints return `200`; the running application and private UI match the recorded digests.
+- Authenticated owner acceptance of the adaptive questions, exact Knowledge capture, approved Work creation, and Your Turn continuation remains open.
+
+| Artifact | Digest |
+| --- | --- |
+| Application | `sha256:2f0af5b2a6026c7883b3059b0bd8ff5174a8128a0bd4c3421a6ef06603e7b6a2` |
+| Public UI | `sha256:36c1c6954fc43182db4365d285ecd151f7fe6fc8f1f375db5758c84977499ecd` |
+| Private UI | `sha256:7d7baf96aea3ee680e55d9719a11a536e1585725b0400dbe8e3350285aca8cd9` |
+
 ## Conversational Business Baseline deployment — RC.29
 
 RC.29 replaces the internal-looking gap-review form with a customer conversation while retaining the same governed state machine. The live authenticated assessment now displays the named **Spyglass / Setup guide**, plain-language stage names and the question **Do you have one place to track customer problems, complaints, and feedback?** The owner chooses **Yes, we have a way**, **Not yet—add it to my plan**, or **This doesn’t apply to us**. Knowledge Evidence identifiers and disposition terminology are no longer customer inputs. A positive reply registers attributable owner-statement Evidence behind the interface and binds it to the explicit Baseline decision; retry reuses the first Evidence identity.
