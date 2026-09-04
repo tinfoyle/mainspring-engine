@@ -1,6 +1,7 @@
 import type {
   AssignWorkRequest,
   CreateWorkRequest,
+  LinkWorkConversationRequest,
   TransitionWorkRequest,
   WorkItem,
   WorkItems,
@@ -35,9 +36,11 @@ function operation(method: string, path: string, body: string, version?: number)
   return { fingerprint, key };
 }
 
-async function command<T>(method: "POST" | "PATCH", path: string, payload: unknown, version?: number): Promise<T> {
+async function command<T>(method: "POST" | "PATCH", path: string, payload: unknown, version?: number, fixedOperationID?: string): Promise<T> {
   const body = JSON.stringify(payload);
-  const pending = operation(method, path, body, version);
+  const pending = fixedOperationID
+    ? { fingerprint: `${method} ${path} ${version ?? "unversioned"} ${body}`, key: fixedOperationID }
+    : operation(method, path, body, version);
   const headers = new Headers({ "Idempotency-Key": pending.key });
   if (version !== undefined) headers.set("If-Match", `W/"${version}"`);
   const result = await requestJSON<T>(path, { method, headers, body });
@@ -68,6 +71,17 @@ export function listWorkChildren(accountID: string, itemID: string): Promise<Wor
 
 export function createWork(accountID: string, input: CreateWorkRequest): Promise<WorkItem> {
   return command("POST", base(accountID), input);
+}
+
+// A projected Agent message is already a UUID and is immutable. Reusing it as
+// the Work creation operation makes a browser reload safe: the same approved
+// Baseline suggestion cannot create a duplicate task.
+export function createWorkFromAgentMessage(accountID: string, messageID: string, input: CreateWorkRequest): Promise<WorkItem> {
+  return command("POST", base(accountID), input, undefined, messageID);
+}
+
+export function linkWorkConversation(accountID: string, item: WorkItem, input: LinkWorkConversationRequest): Promise<WorkItem> {
+  return command("POST", `${base(accountID)}/${encodeURIComponent(item.id)}/conversation-links`, input, item.version);
 }
 
 export function transitionWork(accountID: string, item: WorkItem, input: TransitionWorkRequest): Promise<WorkItem> {

@@ -23,19 +23,19 @@ export default defineConfig({
       command: "node tests/browser/public-catalog-fixture.mjs",
       url: "http://127.0.0.1:4175/health/ready",
       reuseExistingServer: false,
-      timeout: 30_000
+      timeout: 60_000
     },
     {
       command: "npm exec --workspace=@spyglass/app -- vite preview --host 127.0.0.1 --port 4173",
       url: "http://127.0.0.1:4173/health/ready",
       reuseExistingServer: false,
-      timeout: 30_000
+      timeout: 60_000
     },
     {
       command: "node apps/public/.output/server/index.mjs",
       url: "http://127.0.0.1:4174/",
       reuseExistingServer: false,
-      timeout: 30_000,
+      timeout: 60_000,
       env: {
         HOST: "127.0.0.1",
         NITRO_HOST: "127.0.0.1",

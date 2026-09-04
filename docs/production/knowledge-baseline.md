@@ -1,6 +1,6 @@
 # Knowledge and Baseline module
 
-- Status: Knowledge/document lifecycle and Baseline lifecycle complete through governed interview/scope catalogs, exact accepted-Fact/evidence resolution, Integration-scope-bound source grants, linked-Work evidence confirmation, workload-scheduled renewal/reassessment Work, HTTP/MCP and deterministic materialization; deterministic prototype export and destination import/reconciliation are constructed, with executed owner review remaining
+- Status: Knowledge/document lifecycle and the governed Baseline aggregate remain complete; the customer-facing onboarding path now uses the Account's durable Operations Guide conversation to adapt discovery, record exact owner answers as accepted Knowledge, create explicitly approved setup Work, and route the Agent's missing-information questions through Your Turn. A synthetic exact-artifact browser certificate covers that complete adaptive UI path; a connected provider-backed browser certificate remains before launch acceptance.
 - Phase: 3.2
 - Owns: immutable evidence identity, reviewable claims, accepted fact revisions, documents/citations and the Baseline assessment lifecycle
 - Does not own: Work lifecycle, Agent execution, provider credentials or external source synchronization
@@ -49,6 +49,18 @@ Baseline consumes accepted Knowledge facts and explicit evidence decisions; it d
 6. active baseline, renewal and reassessment.
 
 Plan generation may create proposed Work only from the accepted assessment version and its frozen facts/evidence decisions. Unsupported Agent output remains a proposal. Renewal or source change marks affected claims/facts for review; it does not silently rewrite them.
+
+### Customer onboarding path
+
+The governed Baseline aggregate remains the audit and maintenance boundary, but it is no longer exposed to a new customer as a fixed questionnaire or evidence-administration form. `/app/baseline` creates or resumes a durable `Business Setup` Boardroom with a built-in `Operations Guide` as its manager. This is the customer's first and main operations Agent. Its immutable instructions require one plain-language question at a time and select later questions from what the customer has already said rather than from one universal industry checklist.
+
+The interview is deliberately broad enough to begin with a field-service company, consultant, online shop, software company or a solo owner who only wants financial organization. The Agent first learns what the business does and how it is paid, then follows only relevant branches such as customers, estimating, schedules, staff, stock, fulfillment, invoicing, recurring obligations, existing systems and current friction. It must not request secrets or private customer records.
+
+Every substantive answer is registered verbatim as owner-statement Evidence, proposed as a scoped `baseline.*` Claim and accepted through the existing human-authority Knowledge service before the next Agent run begins. The model chooses the semantic key, but domain validation restricts it to the Baseline namespace. Agent summaries and inferences never become authoritative Facts by themselves.
+
+The Agent can return up to three concrete automation suggestions after the conversation reveals a real benefit. Suggestions are non-binding. Only an explicit customer approval in a later conversation message permits one corresponding setup Work item, whose creation uses the immutable Agent-message ID as its idempotency identity and links the Work back to the conversation. The Work is then assigned to the Operations Guide. If execution needs owner input, the existing Work-to-Agent projection pauses it and creates a Your Turn information request. An owner can answer that request directly in plain language; the answer passes through the same accepted-Knowledge boundary and resumes the Work. The interface never claims that approving setup Work has activated an automation.
+
+Readiness is also structured and validated rather than inferred from prose. A ready result requires at least medium-confidence identification of the business, at least four captured operating topics, no declared missing topics and no unanswered next question. The built-in instructions additionally require the revenue/work flow, primary pain point, current tools or records and a useful first body of Work. At that point the customer receives a clear handoff to Your Turn. Before launch, a connected exact-artifact browser journey must prove the entire adaptive interview, approval, Agent-assigned Work, owner-question, direct answer and resumed-Work path against the local provider fixture.
 
 ## Construction and acceptance order
 

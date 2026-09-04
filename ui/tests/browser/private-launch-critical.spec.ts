@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Page, type Route } from "@playwright/test";
+import { baselinePersonaDescription, baselinePersonaInstructions, baselineRoomPurpose } from "../../apps/app/src/baseline-interviewer";
 
 const accountID = "10000000-0000-4000-8000-000000000001";
 const userID = "20000000-0000-4000-8000-000000000002";
@@ -1408,7 +1409,7 @@ test("new Accounts preserve actionable empty states across customer workspaces",
   }
 });
 
-test("Work, Knowledge, and Baseline preserve governed operating context", async ({ page }) => {
+test("Work and Knowledge preserve governed operating context", async ({ page }) => {
   const routes = [
     {
       path: "/app/work",
@@ -1429,11 +1430,6 @@ test("Work, Knowledge, and Baseline preserve governed operating context", async 
       path: `/app/knowledge/claims/${knowledgeClaim.id}`,
       heading: knowledgeClaim.key,
       evidence: [knowledgeClaim.value, "Launch plan, page 4", "Agent output is never authoritative"]
-    },
-    {
-      path: `/app/baseline/${baselineID}`,
-      heading: "Business Baseline",
-      evidence: ["What is the legal or registered name", "I can answer this", "I’m not sure yet"]
     }
   ] as const;
 
@@ -1448,281 +1444,122 @@ test("Work, Knowledge, and Baseline preserve governed operating context", async 
   }
 });
 
-test("Business Baseline completes the customer journey through accountable Work and durable readiness", async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== "chromium-desktop", "The deep state-machine journey runs once; responsive Baseline coverage remains in the route matrix.");
-  allowedBrowserErrors.push(/Failed to load resource:.*404/);
-  const journeyBaselineID = "41000000-0000-4000-8000-000000000041";
-  const firstRequirementID = "42000000-0000-4000-8000-000000000042";
-  const secondRequirementID = "43000000-0000-4000-8000-000000000043";
-  const planID = "44000000-0000-4000-8000-000000000044";
-  const generatedWorkID = "45000000-0000-4000-8000-000000000045";
-  const evidenceID = "46000000-0000-4000-8000-000000000046";
-  const ownerEvidenceID = "47000000-0000-4000-8000-000000000047";
-  const ownerClaimID = "48000000-0000-4000-8000-000000000048";
-  const ownerFactID = "49000000-0000-4000-8000-000000000049";
-  const requirementEvidenceID = "4a000000-0000-4000-8000-00000000004a";
+test("conversational Baseline learns, proposes setup Work, and hands off to Your Turn", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "chromium-desktop", "The stateful journey runs once; component coverage verifies its responsive presentation.");
+  const roomID = "41000000-0000-4000-8000-000000000041";
+  const personaID = "42000000-0000-4000-8000-000000000042";
+  const personaVersionID = "43000000-0000-4000-8000-000000000043";
+  const conversationID = "44000000-0000-4000-8000-000000000044";
+  const workID = "45000000-0000-4000-8000-000000000045";
+  const approvedMessageID = "46000000-0000-4000-8000-000000000046";
   const commandTrail: string[] = [];
-  let started = false;
-  let workState: "open" | "in_progress" | "done" = "open";
-  let workVersion = 1;
-  let journeyBaseline = {
-    ...baseline,
-    id: journeyBaselineID,
-    state: "interview",
-    answers: [] as Array<{ question_key: string; kind: string; reason: string; fact?: { fact_id: string; revision: number }; answered_by_user_id: string; answered_at: string }>,
-    requirements: [] as Array<{ id: string; code: string; title: string; responsibility: { kind: string }; renew_after_days: number; catalog_version: string; scope_policy_version: string; disposition: string; reason: string; evidence: unknown[] }>,
-    plan: undefined as undefined | { id: string; assessment_version: number; content_sha256: string; proposed_work_count: number; approved_by_user_id?: string; approved_at?: string },
-    reassess_at: undefined as string | undefined
+  let runNumber = 1;
+  let factNumber = 0;
+  let approvedWork: Record<string, unknown> | undefined;
+  const room = {
+    id: roomID, account_id: accountID, manager_persona_id: personaID, name: "Business Setup", purpose: baselineRoomPurpose,
+    state: "active", version: 2, created_at: "2026-09-03T12:00:00Z", updated_at: "2026-09-03T12:00:00Z"
   };
-  const workView = () => ({
-    id: generatedWorkID,
-    number: 81,
-    depth: 0,
-    kind: "todo",
-    title: "Collect the formation record",
-    description: "The first Baseline requirement needs reviewed evidence.",
-    state: workState,
-    priority: "normal",
-    assignment: { responsibility: "shared" },
-    provenance: { source: "baseline", created_by: { kind: "user", id: userID }, baseline_requirement_id: firstRequirementID },
-    version: workVersion,
-    created_at: "2026-09-03T12:00:00Z",
-    updated_at: "2026-09-03T12:00:00Z",
-    ...(workState === "done" ? { completed_at: "2026-09-03T12:10:00Z" } : {})
+  const persona = {
+    id: personaID, boardroom_id: roomID, state: "active", latest_version: 1, persona_version_id: personaVersionID,
+    name: "Operations Guide", role: "Main operations agent", description: baselinePersonaDescription,
+    system_instructions: baselinePersonaInstructions, content_digest: "a".repeat(64),
+    policy: { complexity: "balanced", maximum_input_tokens: 24000, maximum_output_tokens: 4096, maximum_cost_micros: 250000, maximum_tool_steps: 0, citation_policy: "none", action_policy: "none", tools: [], output_schema: {} },
+    created_at: "2026-09-03T12:00:00Z", updated_at: "2026-09-03T12:00:00Z"
+  };
+  const interview = (overrides: Record<string, unknown> = {}) => ({
+    business_type: "Commercial HVAC service company", business_type_confidence: "high",
+    captured_topics: ["Commercial HVAC repair"], next_question_key: "baseline.lead_intake",
+    next_question: "How does a new service call reach you today?", question_reason: "This shows how demand becomes scheduled work.",
+    automation_offers: [], approved_work: [], ready: false, readiness_reason: "I am still learning how work moves.",
+    missing_topics: ["Scheduling", "Billing", "Customer follow-up"], ...overrides
   });
-  const mutateBaseline = (next: Partial<typeof journeyBaseline>) => {
-    journeyBaseline = { ...journeyBaseline, ...next, version: journeyBaseline.version + 1 };
-    return journeyBaseline;
-  };
+  const result = (contribution: string, baselineResult: Record<string, unknown>) => ({
+    contribution, findings: [], recommendations: [], questions: [], citations: [], proposed_actions: [], delegations: [], confidence: "medium", baseline: baselineResult
+  });
+  const messages: Array<Record<string, unknown>> = [
+    { id: "47000000-0000-4000-8000-000000000047", conversation_id: conversationID, sequence: 1, role: "user", body: "Please begin my Business Baseline interview.", created_by: userID, created_at: "2026-09-03T12:00:00Z" },
+    { id: "48000000-0000-4000-8000-000000000048", conversation_id: conversationID, sequence: 2, role: "persona", body: "I’ll learn how the shop runs and remember what matters. How does a new service call reach you today?", run_id: "49000000-0000-4000-8000-000000000049", invocation_id: "4a000000-0000-4000-8000-00000000004a", persona_version_id: personaVersionID, result: result("How does a new service call reach you today?", interview()), created_at: "2026-09-03T12:00:01Z" }
+  ];
+  const conversation = () => ({ id: conversationID, boardroom_id: roomID, subject: `Business Baseline · ${baselineID}`, state: "open", message_count: messages.length, created_by: userID, created_at: "2026-09-03T12:00:00Z", updated_at: "2026-09-03T12:00:01Z" });
+  const run = (id: string, prompt: string) => ({ id, boardroom_id: roomID, conversation_id: conversationID, state: "succeeded", mode: "selected", subject: conversation().subject, prompt, user_message_id: crypto.randomUUID(), turns: [], invocation_ids: [], invocations: [], resolutions: [], context: [], context_digest: "b".repeat(64), entitlement_version: 3, policy_version: 1, plan_digest: "c".repeat(64), created_at: "2026-09-03T12:00:02Z" });
+  const work = (version: number, linked: boolean, assigned: boolean) => ({
+    id: workID, number: 81, depth: 0, kind: "todo", title: "Set up a daily dispatch review",
+    description: "Choose the schedule source and decide who handles exceptions.\n\nThis is approved setup Work from the Business Baseline. Work on this task rather than continuing the onboarding interview.",
+    state: "open", priority: "high", assignment: assigned ? { responsibility: "persona", persona_id: personaID } : { responsibility: "shared" },
+    provenance: linked ? { source: "conversation", created_by: { kind: "user", id: userID }, conversation_id: conversationID } : { source: "manual", created_by: { kind: "user", id: userID } },
+    version, created_at: "2026-09-03T12:00:03Z", updated_at: "2026-09-03T12:00:03Z"
+  });
 
   await page.route(`**/api/v1/accounts/${accountID}/**`, async (route) => {
-    const request = route.request();
-    const path = new URL(request.url()).pathname;
-    const baselineRoot = `/api/v1/accounts/${accountID}/baseline-assessments`;
-    const assessmentRoot = `${baselineRoot}/${journeyBaselineID}`;
-    const workRoot = `/api/v1/accounts/${accountID}/work-items`;
-    if (path === `${baselineRoot}/current` && request.method() === "GET") {
-      if (!started) await fulfillProblem(route, 404, "baseline_assessment_not_found", "No Business Baseline has been started.");
-      else await fulfillJSON(route, journeyBaseline);
-      return;
-    }
-    if (path === baselineRoot && request.method() === "POST") {
-      started = true;
-      commandTrail.push("start");
-      await fulfillJSON(route, journeyBaseline, 201);
-      return;
-    }
-    if (path === assessmentRoot && request.method() === "GET") {
-      await fulfillJSON(route, journeyBaseline);
-      return;
-    }
-    if (path === `${assessmentRoot}/answers`) {
-      const input = request.postDataJSON() as { question_key: string; kind: string; reason?: string; fact?: { fact_id: string; revision: number } };
-      commandTrail.push(`answer:${input.question_key}`);
-      await fulfillJSON(route, mutateBaseline({ answers: [...journeyBaseline.answers, { ...input, reason: input.reason ?? "", answered_by_user_id: userID, answered_at: "2026-09-03T12:01:00Z" }] }));
-      return;
-    }
-    if (path === `${assessmentRoot}/inventory-starts`) {
-      commandTrail.push("inventory");
-      await fulfillJSON(route, mutateBaseline({ state: "inventory" }));
-      return;
-    }
-    if (path === `${assessmentRoot}/inventories`) {
-      commandTrail.push("inventory-complete");
-      const requirement = (id: string, code: string, title: string) => ({ id, code, title, responsibility: { kind: "account" }, renew_after_days: 365, catalog_version: journeyBaseline.catalog_version, scope_policy_version: journeyBaseline.scope_policy_version, disposition: "pending", reason: "", evidence: [] });
-      await fulfillJSON(route, mutateBaseline({ state: "gap_review", requirements: [requirement(firstRequirementID, "identity_registration", "Confirm the formation record"), requirement(secondRequirementID, "customer_feedback", "Customer issue and feedback record")] }));
-      return;
-    }
-    if (path === `${assessmentRoot}/dispositions`) {
-      const input = request.postDataJSON() as { requirement_id: string; disposition: string; reason: string };
-      commandTrail.push(`disposition:${input.disposition}`);
-      await fulfillJSON(route, mutateBaseline({ requirements: journeyBaseline.requirements.map((item) => item.id === input.requirement_id ? { ...item, disposition: input.disposition, reason: input.reason } : item) }));
-      return;
-    }
-    if (path === `${assessmentRoot}/evidence-decisions`) {
-      const input = request.postDataJSON() as { requirement_id: string; evidence_id: string; decision: string; reason: string };
-      expect(input).toMatchObject({ requirement_id: secondRequirementID, evidence_id: requirementEvidenceID, decision: "accepted", reason: "We log customer complaints in Jobber and review them every Friday." });
-      commandTrail.push("evidence:accepted");
-      await fulfillJSON(route, mutateBaseline({ requirements: journeyBaseline.requirements.map((item) => item.id === input.requirement_id ? { ...item, disposition: "satisfied", reason: input.reason, evidence: [{ evidence_id: input.evidence_id, decision: input.decision }] } : item) }));
-      return;
-    }
-    if (path === `${assessmentRoot}/plans`) {
-      commandTrail.push("plan");
-      await fulfillJSON(route, mutateBaseline({ state: "plan_approval", plan: { id: planID, assessment_version: journeyBaseline.version, content_sha256: "a".repeat(64), proposed_work_count: 1 } }));
-      return;
-    }
-    if (path === `${assessmentRoot}/plan-approvals`) {
-      commandTrail.push("approve");
-      await fulfillJSON(route, mutateBaseline({ state: "active", plan: { ...journeyBaseline.plan!, approved_by_user_id: userID, approved_at: "2026-09-03T12:05:00Z" } }));
-      return;
-    }
-    if (path === `${assessmentRoot}/work-materializations`) {
-      commandTrail.push("materialize");
-      await fulfillJSON(route, { items: [workView()] });
-      return;
-    }
-    if (path === `${assessmentRoot}/work-evidence-confirmations`) {
-      const input = request.postDataJSON() as { requirement_id: string; work_item_id: string; evidence_id: string };
-      expect(input).toMatchObject({ requirement_id: firstRequirementID, work_item_id: generatedWorkID, evidence_id: evidenceID });
-      commandTrail.push("confirm-evidence");
-      await fulfillJSON(route, mutateBaseline({ requirements: journeyBaseline.requirements.map((item) => item.id === firstRequirementID ? { ...item, disposition: "satisfied", evidence: [{ evidence_id: evidenceID, decision: "accepted" }] } : item) }));
-      return;
-    }
-    if (path === `${assessmentRoot}/readiness`) {
-      commandTrail.push("ready");
-      await fulfillJSON(route, mutateBaseline({ state: "ready", reassess_at: "2026-12-02T12:10:00Z" }));
-      return;
-    }
-    if (path === `${assessmentRoot}/source-grants`) {
-      await fulfillJSON(route, { items: [] });
-      return;
-    }
-    if (path === `${workRoot}/${generatedWorkID}/children`) {
-      await fulfillJSON(route, { items: [] });
-      return;
-    }
-    if (path === `${workRoot}/${generatedWorkID}/transitions`) {
-      const input = request.postDataJSON() as { to: "in_progress" | "done" };
-      workState = input.to;
-      workVersion += 1;
-      commandTrail.push(`work:${workState}`);
-      await fulfillJSON(route, workView());
-      return;
-    }
-    if (path === `${workRoot}/${generatedWorkID}`) {
-      await fulfillJSON(route, workView());
-      return;
-    }
-    if (path === `${workRoot}/summary`) {
-      await fulfillJSON(route, { active: workState === "done" ? 0 : 1, in_progress: workState === "in_progress" ? 1 : 0, waiting: 0, urgent: 0, done: workState === "done" ? 1 : 0 });
-      return;
-    }
-    if (path === workRoot && request.method() === "GET") {
-      await fulfillJSON(route, { items: commandTrail.includes("materialize") ? [workView()] : [] });
-      return;
-    }
-    if (path === `/api/v1/accounts/${accountID}/knowledge/evidence` && request.method() === "POST") {
-      const input = request.postDataJSON() as { source_kind: string; source_reference: string; content_sha256: string; captured_at: string };
-      expect(input.source_kind).toBe("owner_statement");
-      expect(input.content_sha256).toMatch(/^[0-9a-f]{64}$/);
-      expect(Date.parse(input.captured_at)).not.toBeNaN();
-      if (input.source_reference.includes("/requirements/customer_feedback/owner-confirmation")) {
-        commandTrail.push("knowledge:review-evidence");
-        await fulfillJSON(route, { id: requirementEvidenceID }, 201);
-        return;
+    const request = route.request(); const path = new URL(request.url()).pathname;
+    const accountBase = `/api/v1/accounts/${accountID}`;
+    const boardrooms = `${accountBase}/agent-boardrooms`;
+    const knowledge = `${accountBase}/knowledge`;
+    const workItems = `${accountBase}/work-items`;
+    if (path === boardrooms && request.method() === "GET") { await fulfillJSON(route, { items: [room] }); return; }
+    if (path === `${boardrooms}/${roomID}/personas` && request.method() === "GET") { await fulfillJSON(route, { items: [persona] }); return; }
+    if (path === `${boardrooms}/${roomID}/conversations` && request.method() === "GET") { await fulfillJSON(route, { items: [conversation()] }); return; }
+    if (path === `${accountBase}/agent-conversations/${conversationID}/messages` && request.method() === "GET") { await fulfillJSON(route, { items: messages }); return; }
+    if (path.startsWith(`${accountBase}/agent-runs/`) && request.method() === "GET") { await fulfillJSON(route, run(path.split("/").at(-1)!, "Previous interview turn")); return; }
+    if (path === `${boardrooms}/${roomID}/runs` && request.method() === "POST") {
+      const input = request.postDataJSON() as { prompt: string; conversation_id?: string; context: { knowledge_fact_ids: string[] } };
+      expect(input.conversation_id).toBe(conversationID); commandTrail.push(`run:${input.prompt}`); runNumber += 1;
+      const runID = `50000000-0000-4000-8000-${String(runNumber).padStart(12, "0")}`;
+      messages.push({ id: crypto.randomUUID(), conversation_id: conversationID, sequence: messages.length + 1, role: "user", body: input.prompt, created_by: userID, created_at: "2026-09-03T12:01:00Z" });
+      if (runNumber === 2) {
+        messages.push({ id: "51000000-0000-4000-8000-000000000051", conversation_id: conversationID, sequence: messages.length + 1, role: "persona", body: "That whiteboard is doing too much. I can add a small daily dispatch setup job if you want it.", run_id: runID, invocation_id: crypto.randomUUID(), persona_version_id: personaVersionID, result: result("That whiteboard is doing too much. I can add a small daily dispatch setup job if you want it.", interview({ captured_topics: ["Commercial HVAC repair", "Calls arrive by phone and are scheduled on a whiteboard"], next_question_key: "baseline.dispatch_owner", next_question: "Who decides which technician gets each call?", automation_offers: [{ key: "schedule.daily_dispatch", title: "Set up a daily dispatch review", description: "Choose the schedule source and decide who handles exceptions.", reason: "Calls currently depend on a whiteboard." }] })), created_at: "2026-09-03T12:01:01Z" });
+      } else if (runNumber === 3) {
+        messages.push({ id: approvedMessageID, conversation_id: conversationID, sequence: messages.length + 1, role: "persona", body: "I added that setup job. Who decides which technician gets each call?", run_id: runID, invocation_id: crypto.randomUUID(), persona_version_id: personaVersionID, result: result("I added that setup job. Who decides which technician gets each call?", interview({ captured_topics: ["Commercial HVAC repair", "Calls arrive by phone and are scheduled on a whiteboard"], next_question_key: "baseline.dispatch_owner", next_question: "Who decides which technician gets each call?", approved_work: [{ key: "schedule.daily_dispatch", title: "Set up a daily dispatch review", description: "Choose the schedule source and decide who handles exceptions.", priority: "high" }] })), created_at: "2026-09-03T12:02:01Z" });
+      } else {
+        messages.push({ id: "52000000-0000-4000-8000-000000000052", conversation_id: conversationID, sequence: messages.length + 1, role: "persona", body: "I have enough to get started. I’ll send anything that needs your judgment to Your Turn.", run_id: runID, invocation_id: crypto.randomUUID(), persona_version_id: personaVersionID, result: result("I have enough to get started. I’ll send anything that needs your judgment to Your Turn.", interview({ captured_topics: ["Commercial HVAC repair", "Lead intake", "Dispatch ownership", "Scheduling tools"], next_question_key: "", next_question: "", question_reason: "", automation_offers: [], approved_work: [], ready: true, readiness_reason: "I understand how calls enter the business, get assigned, and become scheduled work.", missing_topics: [] })), created_at: "2026-09-03T12:03:01Z" });
       }
-      expect(input.source_reference).toContain(`baseline/${journeyBaselineID}/organization.legal_name`);
-      commandTrail.push("knowledge:evidence");
-      await fulfillJSON(route, { id: ownerEvidenceID }, 201);
-      return;
+      await fulfillJSON(route, run(runID, input.prompt), 201); return;
     }
-    if (path === `/api/v1/accounts/${accountID}/knowledge/claims` && request.method() === "POST") {
-      const input = request.postDataJSON() as { key: string; value: string; citations: Array<{ evidence_id: string }> };
-      expect(input).toMatchObject({ key: "organization.legal_name", value: "Synthetic Wrench Works" });
-      expect(input.citations[0]?.evidence_id).toBe(ownerEvidenceID);
-      commandTrail.push("knowledge:claim");
-      await fulfillJSON(route, { id: ownerClaimID, version: 1 }, 201);
-      return;
+    if (path === `${knowledge}/facts` && request.method() === "GET") { await fulfillJSON(route, { items: [] }); return; }
+    if (path === `${knowledge}/evidence` && request.method() === "POST") {
+      const input = request.postDataJSON() as { source_kind: string; source_reference: string };
+      expect(input.source_kind).toBe("owner_statement"); expect(input.source_reference).toContain(`baseline/${baselineID}/conversation/${conversationID}/baseline.`);
+      factNumber += 1; commandTrail.push("knowledge:evidence"); await fulfillJSON(route, { id: `53000000-0000-4000-8000-${String(factNumber).padStart(12, "0")}` }, 201); return;
     }
-    if (path === `/api/v1/accounts/${accountID}/knowledge/claims/${ownerClaimID}/decisions` && request.method() === "POST") {
-      const input = request.postDataJSON() as { accept: boolean };
-      expect(input.accept).toBe(true);
-      commandTrail.push("knowledge:accept");
-      await fulfillJSON(route, { claim: { id: ownerClaimID, version: 2 }, fact: { id: ownerFactID, revision: 1 } });
-      return;
+    if (path === `${knowledge}/claims` && request.method() === "POST") {
+      const input = request.postDataJSON() as { key: string; value: string }; commandTrail.push(`knowledge:${input.key}`);
+      await fulfillJSON(route, { id: `54000000-0000-4000-8000-${String(factNumber).padStart(12, "0")}`, account_id: accountID, scope: { kind: "account" }, key: input.key, value: input.value, value_sha256: "d".repeat(64), hash_version: 1, confidence: 1000, sensitivity: "internal", citations: [], state: "proposed", proposed_by: { kind: "user", id: userID }, version: 1, created_at: "2026-09-03T12:01:00Z", updated_at: "2026-09-03T12:01:00Z" }, 201); return;
     }
-    if (path === `/api/v1/accounts/${accountID}/knowledge/facts`) {
-      await fulfillJSON(route, { items: [] });
-      return;
+    if (path.startsWith(`${knowledge}/claims/`) && path.endsWith("/decisions") && request.method() === "POST") {
+      const key = factNumber === 1 ? "baseline.lead_intake" : "baseline.dispatch_owner"; commandTrail.push("knowledge:accepted");
+      await fulfillJSON(route, { claim: { id: path.split("/").at(-2), version: 2 }, fact: { id: `55000000-0000-4000-8000-${String(factNumber).padStart(12, "0")}`, account_id: accountID, current_claim_id: path.split("/").at(-2), scope: { kind: "account" }, key, sensitivity: "internal", state: "active", revision: 1, accepted_by_user_id: userID, accepted_at: "2026-09-03T12:01:00Z", created_at: "2026-09-03T12:01:00Z", updated_at: "2026-09-03T12:01:00Z" } }); return;
     }
-    if (path === `/api/v1/accounts/${accountID}/integrations/connections`) {
-      await fulfillJSON(route, { items: [] });
-      return;
+    if (path === workItems && request.method() === "GET") { await fulfillJSON(route, { items: approvedWork ? [approvedWork] : [] }); return; }
+    if (path === workItems && request.method() === "POST") {
+      expect(request.headers()["idempotency-key"]).toBe(approvedMessageID); commandTrail.push("work:created");
+      approvedWork ??= work(1, false, false); await fulfillJSON(route, approvedWork, 201); return;
+    }
+    if (path === `${workItems}/${workID}/conversation-links` && request.method() === "POST") { commandTrail.push("work:linked"); approvedWork = work(2, true, false); await fulfillJSON(route, approvedWork); return; }
+    if (path === `${workItems}/${workID}/assignment` && request.method() === "PATCH") {
+      const input = request.postDataJSON() as { assignment: { responsibility: string; persona_id: string } };
+      expect(input.assignment).toEqual({ responsibility: "persona", persona_id: personaID }); commandTrail.push("work:assigned"); approvedWork = work(3, true, true); await fulfillJSON(route, approvedWork); return;
     }
     await route.fallback();
   });
 
-  await page.goto("/app/baseline");
-  await page.getByRole("button", { name: "Let’s get started" }).click();
-  await expect(page).toHaveURL(new RegExp(`/app/baseline/${journeyBaselineID}$`));
-  const requiredPrompts = [
-    "What is the legal or registered name of your business?",
-    "What kind of work does your business do?",
-    "Where do you mainly do business?",
-    "What do customers pay you to do?",
-    "How many people regularly work in the business?",
-    "What is the biggest thing you want help getting under control?"
-  ];
-  for (let index = 0; index < requiredPrompts.length; index += 1) {
-    await expect(page.getByRole("heading", { level: 2, name: requiredPrompts[index] })).toBeVisible();
-    if (index === 0) {
-      await page.getByLabel("Your answer").fill("Synthetic Wrench Works");
-    } else {
-      await page.getByRole("radio", { name: "I’m not sure yet" }).check();
-      await page.getByLabel("What should I help you confirm?").fill(`Owner confirmation remains explicit for Baseline question ${index + 1}.`);
-    }
-    await page.getByRole("button", { name: "Continue" }).click();
-    if (index === 0) await page.getByRole("button", { name: "Skip this question" }).click();
-  }
-  await page.getByRole("button", { name: "Build my checklist" }).click();
-  await expect(page.getByText("What matters", { exact: true }).last()).toBeVisible();
-  await page.getByRole("button", { name: "Show me the checklist" }).click();
-  await page.getByRole("radio", { name: "Not yet—add it to my plan" }).check();
-  await page.getByLabel(/Anything I should know before adding this to your plan/).fill("The formation record still needs to be collected.");
-  await page.getByRole("button", { name: "Save and keep going" }).click();
-  await page.getByRole("radio", { name: "Yes, we have a way" }).check();
-  await page.getByLabel("What do you use, and where is it kept?").fill("We log customer complaints in Jobber and review them every Friday.");
-  await page.getByRole("button", { name: "Save and keep going" }).click();
-  await page.getByRole("button", { name: "Show me my plan" }).click();
-  await expect(page.getByText("Confirm the formation record", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Looks good—approve this plan" }).click();
-  await page.getByRole("button", { name: "Create 1 Work items" }).click();
-  await page.getByRole("link", { name: /Collect the formation record/ }).click();
-  await page.getByRole("button", { name: "Start", exact: true }).click();
-  await page.getByLabel("Operational reason").fill("Begin collecting the formation record.");
-  await page.getByRole("button", { name: "Confirm change" }).click();
-  await expect(page.getByText("In progress", { exact: true }).last()).toBeVisible();
-  await page.getByRole("button", { name: "Complete", exact: true }).click();
-  await page.getByLabel("Operational reason").fill("The reviewed formation record is ready.");
-  await page.getByRole("button", { name: "Confirm change" }).click();
-  await expect(page.getByText("Done", { exact: true }).last()).toBeVisible();
-  await page.goto(`/app/baseline/${journeyBaselineID}`);
-  await page.getByLabel("Completed Baseline Work").selectOption(generatedWorkID);
-  await page.getByLabel("Knowledge evidence ID").fill(evidenceID);
-  await page.getByLabel("Review reason").fill("The completed Work and exact owner evidence were reviewed together.");
-  await page.getByRole("button", { name: "Confirm evidence" }).click();
-  await page.getByRole("button", { name: "Mark Baseline ready" }).click();
-  await expect(page.getByText("Ready", { exact: true }).last()).toBeVisible();
-  await expect(page.getByRole("heading", { level: 2, name: "Your Baseline is active" })).toBeVisible();
-  await page.reload();
-  await expect(page.getByText("Ready", { exact: true }).last()).toBeVisible();
-  await expect(page.getByText("Next reassessment", { exact: false })).toBeVisible();
+  await page.goto(`/app/baseline/${baselineID}`);
+  await expect(page.getByText("How does a new service call reach you today?", { exact: false }).last()).toBeVisible();
+  await page.getByLabel("Your reply").fill("Calls come from Google and go onto a whiteboard.");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "Your agent sees a place Spyglass can help." })).toBeVisible();
+  await page.getByRole("button", { name: "Yes, add this" }).click();
+  await expect(page.getByRole("link", { name: "Set up a daily dispatch review" })).toBeVisible();
+  await page.getByLabel("Your reply").fill("I assign calls in the morning; my lead technician handles emergencies.");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "Your agent has enough to start helping." })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue to Your Turn" })).toBeVisible();
   expect(commandTrail).toEqual([
-    "start",
-    "knowledge:evidence",
-    "knowledge:claim",
-    "knowledge:accept",
-    "answer:organization.legal_name",
-    "answer:organization.industry",
-    "answer:organization.primary_location",
-    "answer:organization.services",
-    "answer:organization.team_size",
-    "answer:baseline.immediate_concern",
-    "inventory",
-    "inventory-complete",
-    "disposition:gap",
-    "knowledge:review-evidence",
-    "evidence:accepted",
-    "plan",
-    "approve",
-    "materialize",
-    "work:in_progress",
-    "work:done",
-    "confirm-evidence",
-    "ready"
+    "knowledge:evidence", "knowledge:baseline.lead_intake", "knowledge:accepted", "run:Calls come from Google and go onto a whiteboard.",
+    "run:Yes, add “Set up a daily dispatch review” to the work we will set up.", "work:created", "work:linked", "work:assigned",
+    "knowledge:evidence", "knowledge:baseline.dispatch_owner", "knowledge:accepted", "run:I assign calls in the morning; my lead technician handles emergencies.", "work:created"
   ]);
-  await expectNoHorizontalOverflow(page);
-  await expectAccessible(page);
+  await expectNoHorizontalOverflow(page); await expectAccessible(page);
 });
 
 test("package workspaces preserve governed list and durable detail context", async ({ page }) => {
@@ -2270,48 +2107,6 @@ test("package workspaces preserve customer intent through capacity and downstrea
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("link", { name: "Back to Knowledge" }).click();
     await expect(page).toHaveURL(/\/app\/knowledge$/);
-  });
-
-  await test.step("Baseline answer failure retains the explicit unknown", async () => {
-    const answers: unknown[] = [];
-    await page.route(`**/api/v1/accounts/${accountID}/baseline-assessments/${baselineID}/answers`, async (route) => {
-      answers.push(route.request().postDataJSON());
-      await fulfillProblem(route, 503, "baseline_temporarily_unavailable", "Baseline could not save this answer. Your answer remains in this page for retry.");
-    });
-
-    await page.goto(`/app/baseline/${baselineID}`);
-    await page.getByRole("radio", { name: "I’m not sure yet" }).check();
-    await page.getByLabel("What should I help you confirm?").fill("The registered name is still being confirmed.");
-    await page.getByRole("button", { name: "Continue" }).click();
-    await expect(page.getByRole("alert")).toContainText("Your answer remains in this page for retry");
-    await expect(page.getByRole("radio", { name: "I’m not sure yet" })).toBeChecked();
-    await expect(page.getByLabel("What should I help you confirm?")).toHaveValue("The registered name is still being confirmed.");
-    await expect(page.getByRole("button", { name: "Continue" })).toBeEnabled();
-    expect(answers).toEqual([{ question_key: "organization.legal_name", kind: "unknown", reason: "The registered name is still being confirmed." }]);
-    await expectNoHorizontalOverflow(page);
-    await expectAccessible(page);
-
-    const menu = page.getByRole("button", { name: "Open navigation" });
-    const compact = await menu.isVisible();
-    const dismissed = new Promise<string>((resolve) => {
-      page.once("dialog", async (dialog) => {
-        resolve(dialog.message());
-        await dialog.dismiss();
-      });
-    });
-    if (compact) await menu.click();
-    await page.getByRole("link", { name: "Your Turn", exact: true }).click();
-    await expect(dismissed).resolves.toBe("Leave Business Baseline? Your unsubmitted answer or review will be lost.");
-    await expect(page).toHaveURL(new RegExp(`/app/baseline/${baselineID}$`));
-    if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
-    await expect(page.getByLabel("What should I help you confirm?")).toHaveValue("The registered name is still being confirmed.");
-    await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your Baseline answer or review remains" })).toBeVisible();
-
-    page.once("dialog", (dialog) => dialog.accept());
-    if (compact) await menu.click();
-    await page.getByRole("link", { name: "Your Turn", exact: true }).click();
-    await expect(page).toHaveURL(/\/app\/your-turn$/);
-    await expect(page.getByRole("heading", { level: 2, name: "marketing.release.publish" })).toBeVisible();
   });
 
   await test.step("Finance failure keeps the exact posting confirmation", async () => {

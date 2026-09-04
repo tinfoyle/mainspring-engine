@@ -132,6 +132,40 @@ func TestResultSchemaIsAcceptedAsImmutablePersonaPolicy(t *testing.T) {
 	}
 }
 
+func TestResultEnvelopeValidatesConversationalBaselineGuidance(t *testing.T) {
+	result := ResultEnvelope{Contribution: "Tell me how a new job reaches you.", Findings: []string{}, Recommendations: []string{}, Questions: []string{}, Citations: []Citation{}, ProposedActions: []ProposedAction{}, Delegations: []Delegation{}, Confidence: ConfidenceMedium,
+		Baseline: &BaselineInterview{BusinessType: "Field service business", BusinessTypeConfidence: ConfidenceMedium, CapturedTopics: []string{"Residential plumbing"}, NextQuestionKey: "baseline.revenue_workflow", NextQuestion: "How does a new service call reach you?", QuestionReason: "This shows how demand becomes scheduled work.", AutomationOffers: []BaselineAutomationOffer{}, ApprovedWork: []BaselineApprovedWork{}, Ready: false, ReadinessReason: "Still learning how jobs move.", MissingTopics: []string{"Scheduling", "Billing"}}}
+	validated, err := ValidateResult(result)
+	if err != nil || validated.Baseline == nil || validated.Baseline.NextQuestionKey != "baseline.revenue_workflow" {
+		t.Fatalf("validated=%+v err=%v", validated, err)
+	}
+	result.Baseline.ApprovedWork = []BaselineApprovedWork{
+		{Key: "schedule.dispatch", Title: "Set up dispatch review", Description: "Choose the calendar and exception owner.", Priority: "high"},
+		{Key: "billing.follow_up", Title: "Set up invoice follow-up", Description: "Choose when overdue reminders begin.", Priority: "normal"},
+	}
+	if _, err := ValidateResult(result); !errors.Is(err, ErrInvalidResult) {
+		t.Fatalf("expected one-work-per-turn bound, got %v", err)
+	}
+}
+
+func TestResultEnvelopeRejectsPrematureBaselineReadinessAndForeignQuestionKeys(t *testing.T) {
+	base := ResultEnvelope{Contribution: "Your setup is ready.", Findings: []string{}, Recommendations: []string{}, Questions: []string{}, Citations: []Citation{}, ProposedActions: []ProposedAction{}, Delegations: []Delegation{}, Confidence: ConfidenceHigh,
+		Baseline: &BaselineInterview{BusinessType: "Field service business", BusinessTypeConfidence: ConfidenceHigh, CapturedTopics: []string{"Customers", "Work flow", "Scheduling", "Existing records"}, NextQuestionKey: "", NextQuestion: "", QuestionReason: "", AutomationOffers: []BaselineAutomationOffer{}, ApprovedWork: []BaselineApprovedWork{}, Ready: true, ReadinessReason: "Enough operating context is in place.", MissingTopics: []string{}}}
+	if _, err := ValidateResult(base); err != nil {
+		t.Fatalf("expected mature baseline readiness, got %v", err)
+	}
+	premature := base
+	premature.Baseline = &BaselineInterview{BusinessType: "Field service business", BusinessTypeConfidence: ConfidenceHigh, CapturedTopics: []string{"Customers"}, AutomationOffers: []BaselineAutomationOffer{}, ApprovedWork: []BaselineApprovedWork{}, Ready: true, ReadinessReason: "Ready too early.", MissingTopics: []string{}}
+	if _, err := ValidateResult(premature); !errors.Is(err, ErrInvalidResult) {
+		t.Fatalf("expected premature readiness rejection, got %v", err)
+	}
+	foreign := base
+	foreign.Baseline = &BaselineInterview{BusinessType: "Field service business", BusinessTypeConfidence: ConfidenceMedium, CapturedTopics: []string{"Customers"}, NextQuestionKey: "knowledge.customer", NextQuestion: "Who hires you?", QuestionReason: "This identifies the customer.", AutomationOffers: []BaselineAutomationOffer{}, ApprovedWork: []BaselineApprovedWork{}, Ready: false, ReadinessReason: "Still learning.", MissingTopics: []string{"Work flow"}}
+	if _, err := ValidateResult(foreign); !errors.Is(err, ErrInvalidResult) {
+		t.Fatalf("expected non-baseline question-key rejection, got %v", err)
+	}
+}
+
 func personaDraft() PersonaVersionDraft {
 	return PersonaVersionDraft{ID: versionID, PersonaID: personaID, AccountID: accountID, Version: 1, Name: " Operations Lead ", Role: "Operations", Description: "Keeps work moving.", SystemInstructions: "You coordinate operational work and report evidence clearly.", Policy: PersonaPolicy{Complexity: PersonaComplexityBalanced, Provider: "openai", Model: "gpt-5.6", ReasoningEffort: "medium", MaximumInputTokens: 100000, MaximumOutputTokens: 4000, MaximumCostMicros: 500000, MaximumToolSteps: 3, CitationPolicy: "best_effort", ActionPolicy: "propose", Tools: []ToolGrant{{Name: "read_work", Capability: "work.summary.read", Description: "Read the current Work summary.", InputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"properties":{}}`)}}, OutputSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["contribution"],"properties":{"contribution":{"type":"string"}}}`)}, CreatedBy: userID, CreatedAt: time.Unix(100, 0)}
 }

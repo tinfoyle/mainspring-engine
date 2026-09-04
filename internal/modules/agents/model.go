@@ -353,15 +353,51 @@ const (
 	ConfidenceHigh   Confidence = "high"
 )
 
+// BaselineAutomationOffer is a non-binding suggestion made during the
+// conversational Business Baseline. It becomes Work only after the owner
+// explicitly accepts it in a later message.
+type BaselineAutomationOffer struct {
+	Key         string `json:"key"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+}
+
+// BaselineApprovedWork is the single setup item the interviewer may emit after
+// recognizing explicit owner approval in the conversation. Keeping this to one
+// item per turn gives projection a stable message-scoped idempotency key.
+type BaselineApprovedWork struct {
+	Key         string `json:"key"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Priority    string `json:"priority"`
+}
+
+// BaselineInterview is optional structured guidance used only by the built-in
+// onboarding Persona. Ordinary Agent results omit it.
+type BaselineInterview struct {
+	BusinessType           string                    `json:"business_type"`
+	BusinessTypeConfidence Confidence                `json:"business_type_confidence"`
+	CapturedTopics         []string                  `json:"captured_topics"`
+	NextQuestionKey        string                    `json:"next_question_key"`
+	NextQuestion           string                    `json:"next_question"`
+	QuestionReason         string                    `json:"question_reason"`
+	AutomationOffers       []BaselineAutomationOffer `json:"automation_offers"`
+	ApprovedWork           []BaselineApprovedWork    `json:"approved_work"`
+	Ready                  bool                      `json:"ready"`
+	ReadinessReason        string                    `json:"readiness_reason"`
+	MissingTopics          []string                  `json:"missing_topics"`
+}
+
 type ResultEnvelope struct {
-	Contribution    string           `json:"contribution"`
-	Findings        []string         `json:"findings"`
-	Recommendations []string         `json:"recommendations"`
-	Questions       []string         `json:"questions"`
-	Citations       []Citation       `json:"citations"`
-	ProposedActions []ProposedAction `json:"proposed_actions"`
-	Delegations     []Delegation     `json:"delegations"`
-	Confidence      Confidence       `json:"confidence"`
+	Contribution    string             `json:"contribution"`
+	Findings        []string           `json:"findings"`
+	Recommendations []string           `json:"recommendations"`
+	Questions       []string           `json:"questions"`
+	Citations       []Citation         `json:"citations"`
+	ProposedActions []ProposedAction   `json:"proposed_actions"`
+	Delegations     []Delegation       `json:"delegations"`
+	Confidence      Confidence         `json:"confidence"`
+	Baseline        *BaselineInterview `json:"baseline,omitempty"`
 }
 
 func ValidateResult(result ResultEnvelope) (ResultEnvelope, error) {
@@ -372,6 +408,14 @@ func ValidateResult(result ResultEnvelope) (ResultEnvelope, error) {
 	result.Citations = append(make([]Citation, 0, len(result.Citations)), result.Citations...)
 	result.ProposedActions = append(make([]ProposedAction, 0, len(result.ProposedActions)), result.ProposedActions...)
 	result.Delegations = append(make([]Delegation, 0, len(result.Delegations)), result.Delegations...)
+	if result.Baseline != nil {
+		value := *result.Baseline
+		value.CapturedTopics = append([]string(nil), value.CapturedTopics...)
+		value.AutomationOffers = append([]BaselineAutomationOffer(nil), value.AutomationOffers...)
+		value.ApprovedWork = append([]BaselineApprovedWork(nil), value.ApprovedWork...)
+		value.MissingTopics = append([]string(nil), value.MissingTopics...)
+		result.Baseline = &value
+	}
 	for index := range result.ProposedActions {
 		result.ProposedActions[index].Evidence = append([]string(nil), result.ProposedActions[index].Evidence...)
 	}
@@ -409,11 +453,64 @@ func ValidateResult(result ResultEnvelope) (ResultEnvelope, error) {
 			return ResultEnvelope{}, ErrInvalidResult
 		}
 	}
+	if result.Baseline != nil && !validBaselineInterview(result.Baseline) {
+		return ResultEnvelope{}, ErrInvalidResult
+	}
 	raw, err := json.Marshal(result)
 	if err != nil || len(raw) > MaximumResultBytes {
 		return ResultEnvelope{}, ErrInvalidResult
 	}
 	return result, nil
+}
+
+func validBaselineInterview(value *BaselineInterview) bool {
+	value.BusinessType = strings.TrimSpace(value.BusinessType)
+	value.NextQuestionKey = strings.TrimSpace(value.NextQuestionKey)
+	value.NextQuestion = strings.TrimSpace(value.NextQuestion)
+	value.QuestionReason = strings.TrimSpace(value.QuestionReason)
+	value.ReadinessReason = strings.TrimSpace(value.ReadinessReason)
+	if len(value.BusinessType) < 2 || len(value.BusinessType) > 160 ||
+		!slices.Contains([]Confidence{ConfidenceLow, ConfidenceMedium, ConfidenceHigh}, value.BusinessTypeConfidence) ||
+		len(value.CapturedTopics) > 32 || len(value.AutomationOffers) > 3 || len(value.ApprovedWork) > 1 || len(value.MissingTopics) > 16 ||
+		len(value.NextQuestion) > 1000 || len(value.QuestionReason) > 1000 || len(value.ReadinessReason) < 2 || len(value.ReadinessReason) > 2000 ||
+		!validStringList(value.CapturedTopics, 160) || !validStringList(value.MissingTopics, 160) {
+		return false
+	}
+	if value.Ready {
+		if value.BusinessTypeConfidence == ConfidenceLow || len(value.CapturedTopics) < 4 || len(value.MissingTopics) != 0 ||
+			value.NextQuestionKey != "" || value.NextQuestion != "" {
+			return false
+		}
+	} else if !strings.HasPrefix(value.NextQuestionKey, "baseline.") || !validCode.MatchString(value.NextQuestionKey) || len(value.NextQuestion) < 2 {
+		return false
+	}
+	if (value.NextQuestion == "") != (value.QuestionReason == "") {
+		return false
+	}
+	seen := make(map[string]struct{}, len(value.AutomationOffers)+len(value.ApprovedWork))
+	for index := range value.AutomationOffers {
+		item := &value.AutomationOffers[index]
+		item.Key, item.Title, item.Description = strings.TrimSpace(item.Key), strings.TrimSpace(item.Title), strings.TrimSpace(item.Description)
+		if !validCode.MatchString(item.Key) || len(item.Title) < 2 || len(item.Title) > 240 || len(item.Description) < 3 || len(item.Description) > 4000 {
+			return false
+		}
+		if _, duplicate := seen[item.Key]; duplicate {
+			return false
+		}
+		seen[item.Key] = struct{}{}
+	}
+	for index := range value.ApprovedWork {
+		item := &value.ApprovedWork[index]
+		item.Key, item.Title, item.Description, item.Priority = strings.TrimSpace(item.Key), strings.TrimSpace(item.Title), strings.TrimSpace(item.Description), strings.TrimSpace(item.Priority)
+		if !validCode.MatchString(item.Key) || len(item.Title) < 2 || len(item.Title) > 240 || len(item.Description) < 3 || len(item.Description) > 20000 || !slices.Contains([]string{"low", "normal", "high", "urgent"}, item.Priority) {
+			return false
+		}
+		if _, duplicate := seen[item.Key]; duplicate {
+			return false
+		}
+		seen[item.Key] = struct{}{}
+	}
+	return true
 }
 
 func validStringList(values []string, maximum int) bool {

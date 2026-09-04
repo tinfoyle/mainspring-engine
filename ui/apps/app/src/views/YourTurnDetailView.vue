@@ -2,6 +2,7 @@
 import {
   APIProblem,
   answerInformation,
+  captureOwnerKnowledgeFact,
   confirmActionResolution,
   decideApproval,
   decideWorkReview,
@@ -36,6 +37,7 @@ const announcement = ref("");
 const decision = ref("");
 const reason = ref("");
 const factID = ref("");
+const informationAnswer = ref("");
 const confirmed = ref(false);
 const navigationNotice = ref("");
 let requestSequence = 0;
@@ -60,11 +62,12 @@ const actionLabel = computed(() => {
 });
 const mayConfirmRecovery = computed(() => detail.value?.kind === "action" && detail.value.resolution
   && detail.value.resolution.state === "pending" && detail.value.resolution.requested_by_user_id !== session.userID);
-const hasDecisionDraft = computed(() => Boolean(decision.value || reason.value.trim() || factID.value || confirmed.value));
+const mayCaptureInformation = computed(() => detail.value?.kind === "information" && detail.value.requirement.scope === "account");
+const hasDecisionDraft = computed(() => Boolean(decision.value || reason.value.trim() || factID.value || informationAnswer.value.trim() || confirmed.value));
 const canSubmit = computed(() => {
   const item = detail.value;
   if (!item || !writable.value || saving.value) return false;
-  if (item.kind === "information") return Boolean(factID.value);
+  if (item.kind === "information") return Boolean(factID.value || (mayCaptureInformation.value && informationAnswer.value.trim()));
   if (item.kind === "action" && item.state === "manual_resolution") return Boolean(mayConfirmRecovery.value && confirmed.value);
   return Boolean(decision.value && reason.value.trim().length >= 3 && (item.kind === "review" || confirmed.value));
 });
@@ -83,17 +86,22 @@ function formatDate(value?: string): string {
   return Number.isNaN(date.valueOf()) ? "Unavailable" : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
+function informationRequester(item: InformationRequest): string {
+  return item.requested_by.id.startsWith("agent:") ? "Your Spyglass agent" : "Your team";
+}
+
 function draftKey(): string {
   return `spyglass.attention.decision.v1.${session.selectedID}.${kind.value}.${itemID.value}`;
 }
 
 function restoreDraft(): void {
   try {
-    const value = JSON.parse(sessionStorage.getItem(draftKey()) ?? "null") as { decision?: string; reason?: string; factID?: string } | null;
+    const value = JSON.parse(sessionStorage.getItem(draftKey()) ?? "null") as { decision?: string; reason?: string; factID?: string; informationAnswer?: string } | null;
     if (!value) return;
     decision.value = value.decision ?? "";
     reason.value = value.reason ?? "";
     factID.value = value.factID ?? "";
+    informationAnswer.value = value.informationAnswer ?? "";
   } catch {
     // Tab storage is an enhancement, never a decision authority.
   }
@@ -101,7 +109,7 @@ function restoreDraft(): void {
 
 function saveDraft(): void {
   try {
-    sessionStorage.setItem(draftKey(), JSON.stringify({ decision: decision.value, reason: reason.value, factID: factID.value }));
+    sessionStorage.setItem(draftKey(), JSON.stringify({ decision: decision.value, reason: reason.value, factID: factID.value, informationAnswer: informationAnswer.value }));
   } catch {
     // Tab storage may be unavailable.
   }
@@ -154,8 +162,11 @@ async function complete(): Promise<void> {
   saveDraft();
   try {
     if (item.kind === "information") {
-      const fact = facts.value.find((value) => value.id === factID.value);
-      if (!fact) throw new Error("Select a current matching fact.");
+      let fact = facts.value.find((value) => value.id === factID.value);
+      if (!fact && mayCaptureInformation.value && informationAnswer.value.trim()) {
+        fact = await captureOwnerKnowledgeFact(accountID, item.requirement.key, informationAnswer.value, `attention/${item.id}/${item.requirement.key}`);
+      }
+      if (!fact) throw new Error("Answer the question or choose an answer already saved.");
       await answerInformation(accountID, item as InformationRequest, { fact_id: fact.id, fact_version: fact.revision, requirement: item.requirement });
     } else if (item.kind === "review") {
       await decideWorkReview(accountID, item as WorkReview, { decision: decision.value as "approve" | "request_changes", reason: reason.value.trim() });
@@ -196,7 +207,7 @@ async function complete(): Promise<void> {
 }
 
 watch(() => [session.selectedID, route.params.kind, route.params.id], () => void load(), { immediate: true });
-watch([decision, reason, factID], saveDraft);
+watch([decision, reason, factID, informationAnswer], saveDraft);
 </script>
 
 <template>
@@ -214,27 +225,35 @@ watch([decision, reason, factID], saveDraft);
         <section class="detail-card">
           <h2>Decision context</h2>
           <dl v-if="detail.kind === 'information'">
-            <div><dt>Required fact</dt><dd>{{ detail.requirement.key }}</dd></div><div><dt>Scope</dt><dd>{{ label(detail.requirement.scope) }}</dd></div><div><dt>Parent Work</dt><dd class="digest">{{ detail.parent_work_item_id }}</dd></div><div><dt>Requested</dt><dd>{{ formatDate(detail.created_at) }}</dd></div>
+            <div><dt>Asked by</dt><dd>{{ informationRequester(detail) }}</dd></div><div><dt>Related work</dt><dd><RouterLink :to="`/app/work/${detail.parent_work_item_id}`">Open the Work item</RouterLink></dd></div><div><dt>Requested</dt><dd>{{ formatDate(detail.created_at) }}</dd></div>
           </dl>
           <dl v-else-if="detail.kind === 'review'">
             <div><dt>Work item</dt><dd class="digest">{{ detail.work_item_id }}</dd></div><div><dt>Work version</dt><dd>{{ detail.work_version }}</dd></div><div><dt>Proposal digest</dt><dd class="digest">{{ detail.proposal_sha256 }}</dd></div><div><dt>Requested</dt><dd>{{ formatDate(detail.created_at) }}</dd></div>
           </dl>
+          <details v-if="detail.kind === 'information'"><summary>Technical details</summary><dl><div><dt>Knowledge key</dt><dd>{{ detail.requirement.key }}</dd></div><div><dt>Scope</dt><dd>{{ label(detail.requirement.scope) }}</dd></div></dl></details>
           <dl v-else-if="detail.kind === 'approval'">
             <div><dt>Operation</dt><dd class="digest">{{ detail.operation_id }}</dd></div><div><dt>Policy version</dt><dd>{{ detail.policy_version }}</dd></div><div><dt>Evidence digest</dt><dd class="digest">{{ detail.evidence_sha256 }}</dd></div><div><dt>Expires</dt><dd>{{ formatDate(detail.expires_at) }}</dd></div>
           </dl>
-          <dl v-else>
+          <dl v-else-if="detail.kind === 'action'">
             <div><dt>Operation</dt><dd class="digest">{{ detail.operation_id }}</dd></div><div><dt>Attempt</dt><dd>{{ detail.attempt_count }}</dd></div><div><dt>Stable error</dt><dd>{{ detail.last_error_code ?? 'None' }}</dd></div><div><dt>Updated</dt><dd>{{ formatDate(detail.updated_at) }}</dd></div>
           </dl>
           <section v-if="detail.kind === 'approval'" class="payload"><h2>Exact proposed payload</h2><pre>{{ JSON.stringify(detail.payload, null, 2) }}</pre></section>
         </section>
 
         <form class="decision-card" @submit.prevent="complete">
-          <div><p class="eyebrow">Your judgment</p><h2>{{ actionLabel }}</h2></div>
+          <div><p class="eyebrow">{{ detail.kind === 'information' ? 'Your answer' : 'Your judgment' }}</p><h2>{{ actionLabel }}</h2></div>
 
           <template v-if="detail.kind === 'information'">
-            <label for="matching-fact">Current matching fact</label>
-            <select id="matching-fact" v-model="factID" required><option value="">Select a fact</option><option v-for="fact in facts" :key="fact.id" :value="fact.id">{{ fact.key }} · revision {{ fact.revision }} · {{ fact.sensitivity }}</option></select>
-            <p v-if="facts.length === 0" class="form-note">No active exact-match fact is available. Add or approve it in Knowledge, then return here.</p>
+            <template v-if="mayCaptureInformation">
+              <label for="information-answer">Your answer</label>
+              <textarea id="information-answer" v-model="informationAnswer" maxlength="4000" rows="5" placeholder="Answer in your own words" />
+              <p class="form-note">Spyglass will save this answer to your business Knowledge and return it to the agent doing the Work.</p>
+            </template>
+            <template v-if="facts.length">
+              <label for="matching-fact">Or use an answer already saved</label>
+              <select id="matching-fact" v-model="factID"><option value="">Choose a saved answer</option><option v-for="fact in facts" :key="fact.id" :value="fact.id">{{ fact.key }} · revision {{ fact.revision }}</option></select>
+            </template>
+            <p v-else-if="!mayCaptureInformation" class="form-note">No current matching answer is available. Add or approve it in Knowledge, then return here.</p>
           </template>
 
           <template v-else-if="detail.kind === 'review'">

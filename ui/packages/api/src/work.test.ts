@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkItem } from "./generated/api-types";
-import { listWork, transitionWork } from "./work";
+import { createWorkFromAgentMessage, listWork, transitionWork } from "./work";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -25,5 +25,16 @@ describe("Work client", () => {
     expect(first.get("Idempotency-Key")).toBeTruthy();
     expect(second.get("Idempotency-Key")).toBe(first.get("Idempotency-Key"));
     expect(first.get("If-Match")).toBe('W/"8"');
+  });
+
+  it("uses the immutable Agent message as the approved setup Work identity", async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: "30000000-0000-4000-8000-000000000003" }), { status: 201, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetcher);
+    const messageID = "20000000-0000-4000-8000-000000000002";
+    await createWorkFromAgentMessage("10000000-0000-4000-8000-000000000001", messageID, {
+      kind: "todo", title: "Set up dispatch", priority: "high", assignment: { responsibility: "shared" }
+    });
+    const headers = new Headers(fetcher.mock.calls[0]?.[1]?.headers);
+    expect(headers.get("Idempotency-Key")).toBe(messageID);
   });
 });

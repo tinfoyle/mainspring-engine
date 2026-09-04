@@ -392,6 +392,33 @@ export interface AffiliateSupportRequestCollection {
 
 export type AffiliateSupportState = "submitted" | "in_review" | "resolved" | "declined" | "canceled";
 
+export interface AgentBaselineApprovedWork {
+  readonly "description": string;
+  readonly "key": string;
+  readonly "priority": WorkPriority;
+  readonly "title": string;
+}
+
+export interface AgentBaselineAutomationOffer {
+  readonly "description": string;
+  readonly "key": string;
+  readonly "title": string;
+}
+
+export interface AgentBaselineInterview {
+  readonly "approved_work": ReadonlyArray<AgentBaselineApprovedWork>;
+  readonly "automation_offers": ReadonlyArray<AgentBaselineAutomationOffer>;
+  readonly "business_type": string;
+  readonly "business_type_confidence": "low" | "medium" | "high";
+  readonly "captured_topics": ReadonlyArray<string>;
+  readonly "missing_topics": ReadonlyArray<string>;
+  readonly "next_question": string;
+  readonly "next_question_key": string;
+  readonly "question_reason": string;
+  readonly "readiness_reason": string;
+  readonly "ready": boolean;
+}
+
 export interface AgentBoardroom {
   readonly "created_at": string;
   readonly "id": string;
@@ -515,6 +542,7 @@ export interface AgentProposedAction {
 }
 
 export interface AgentResult {
+  readonly "baseline"?: AgentBaselineInterview;
   readonly "citations": ReadonlyArray<AgentCitation>;
   readonly "confidence": "low" | "medium" | "high";
   readonly "contribution": string;
@@ -3120,6 +3148,9 @@ export interface ApiSchemas {
   readonly AffiliateSupportRequest: AffiliateSupportRequest;
   readonly AffiliateSupportRequestCollection: AffiliateSupportRequestCollection;
   readonly AffiliateSupportState: AffiliateSupportState;
+  readonly AgentBaselineApprovedWork: AgentBaselineApprovedWork;
+  readonly AgentBaselineAutomationOffer: AgentBaselineAutomationOffer;
+  readonly AgentBaselineInterview: AgentBaselineInterview;
   readonly AgentBoardroom: AgentBoardroom;
   readonly AgentBoardroomState: AgentBoardroomState;
   readonly AgentBoardrooms: AgentBoardrooms;

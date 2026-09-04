@@ -10,6 +10,7 @@ import { expectNoAxeViolations } from "../test/accessibility";
 
 const {
   answerInformation,
+  captureOwnerKnowledgeFact,
   confirmActionResolution,
   decideApproval,
   decideWorkReview,
@@ -18,6 +19,7 @@ const {
   requestActionResolution
 } = vi.hoisted(() => ({
   answerInformation: vi.fn(),
+  captureOwnerKnowledgeFact: vi.fn(),
   confirmActionResolution: vi.fn(),
   decideApproval: vi.fn(),
   decideWorkReview: vi.fn(),
@@ -30,6 +32,7 @@ vi.mock("@spyglass/api", async (importOriginal) => {
   return {
     ...original,
     answerInformation,
+    captureOwnerKnowledgeFact,
     confirmActionResolution,
     decideApproval,
     decideWorkReview,
@@ -126,6 +129,7 @@ beforeEach(async () => {
   getAttentionDetail.mockReset().mockResolvedValue(approval);
   decideApproval.mockReset().mockResolvedValue({ ...approval, state: "approved", version: 5 } as Approval);
   answerInformation.mockReset().mockResolvedValue({ answered: [], resumable_parent_ids: [] });
+  captureOwnerKnowledgeFact.mockReset().mockResolvedValue({ id: "a0000000-0000-4000-8000-00000000000a", key: "billing.refund_window", revision: 6, scope: { kind: "account" }, state: "active", sensitivity: "internal" });
   decideWorkReview.mockReset().mockResolvedValue({ ...review, state: "changes_requested", version: 4 });
   requestActionResolution.mockReset().mockResolvedValue({ ...recovery, state: "manual_resolution" });
   confirmActionResolution.mockReset().mockResolvedValue({ ...recovery, state: "succeeded" });
@@ -204,6 +208,26 @@ describe("Your Turn approval detail", () => {
       fact_version: 6,
       requirement: information.requirement
     });
+    wrapper.unmount();
+  });
+
+  it("lets the owner answer an Agent question in plain language", async () => {
+    getAttentionDetail.mockResolvedValue(information);
+    listMatchingFacts.mockResolvedValue([]);
+    await router.push(`/app/your-turn/information/${information.id}`);
+    const session = useSessionStore();
+    session.accounts = [account];
+    session.selectedID = account.account_id;
+    session.userID = "20000000-0000-4000-8000-000000000002";
+    const wrapper = mount(YourTurnDetailView, { global: { plugins: [router] } });
+    await flushPromises();
+
+    await wrapper.get("#information-answer").setValue("Refunds need my approval within 30 days.");
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+
+    expect(captureOwnerKnowledgeFact).toHaveBeenCalledWith(account.account_id, information.requirement.key, "Refunds need my approval within 30 days.", `attention/${information.id}/${information.requirement.key}`);
+    expect(answerInformation).toHaveBeenCalledWith(account.account_id, expect.objectContaining({ version: 2 }), expect.objectContaining({ fact_id: "a0000000-0000-4000-8000-00000000000a", fact_version: 6 }));
     wrapper.unmount();
   });
 
