@@ -420,4 +420,144 @@ func TestWorkAgentExecutionAtomicallyStartsLinksAndReconciles(t *testing.T) {
 		accountID, workItemID, continuationSnapshot.RunID).Scan(&workState, &completedAt, &runState); err != nil || workState != "done" || completedAt == nil || runState != "succeeded" {
 		t.Fatalf("completion states work=%s completed_at=%v run=%s err=%v", workState, completedAt, runState, err)
 	}
+
+	// Run capacity is ordinary backpressure: it must remain promptly retryable
+	// without consuming the execution's bounded failure attempts.
+	capacityWorkID := ids.WorkItemID("66000000-0000-4000-8000-000000000006")
+	capacityDraft, err := workdomain.NewDraft(workdomain.Draft{ID: capacityWorkID, AccountID: accountID, Kind: workdomain.KindTodo,
+		Title: "Wait for agent capacity", Priority: workdomain.PriorityNormal,
+		Assignment: workdomain.Assignment{Responsibility: workdomain.ResponsibilityShared},
+		Provenance: workdomain.Provenance{Source: workdomain.SourceManual, CreatedBy: actor}, CapacityReservationID: string(capacityWorkID)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	capacityItem, err := work.Create(ctx, capacityDraft, workapp.Mutation{Kind: workapp.MutationCreated, Actor: actor,
+		CorrelationID: "95000000-0000-4000-8000-000000000009", At: now.Add(17 * time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	capacityPersona, err := capacityItem.Assign(workdomain.AssignmentCommand{
+		Assignment: workdomain.Assignment{Responsibility: workdomain.ResponsibilityPersona, PersonaID: string(personaID)},
+		Role:       accounts.RoleOwner, Actor: actor, ExpectedVersion: capacityItem.Version, At: now.Add(18 * time.Second),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	capacityPersona, err = work.Update(ctx, capacityPersona, capacityItem.Version, workapp.Mutation{Kind: workapp.MutationAssigned, Actor: actor,
+		CorrelationID: "96000000-0000-4000-8000-000000000009", At: now.Add(18 * time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	capacityClaim, found, err := executions.Claim(ctx, "97000000-0000-4000-8000-000000000009", now.Add(19*time.Second), 30*time.Second)
+	if err != nil || !found || capacityClaim.WorkItemID != capacityWorkID || capacityClaim.Attempt != 1 {
+		t.Fatalf("capacity claim=%+v found=%t err=%v", capacityClaim, found, err)
+	}
+	capacityState, err := executions.Fail(ctx, capacityClaim, true, now.Add(35*time.Second), "run_capacity", now.Add(20*time.Second), 12)
+	if err != nil || capacityState != "retry" {
+		t.Fatalf("capacity failure state=%s err=%v", capacityState, err)
+	}
+	var capacityAttempts int
+	var capacityNext time.Time
+	if err := owner.QueryRow(ctx, `SELECT attempt_count,next_attempt_at FROM spyglass.work_agent_execution_queue
+		WHERE account_id=$1 AND execution_id=$2 AND state='retry'`, accountID, capacityClaim.ExecutionID).Scan(&capacityAttempts, &capacityNext); err != nil || capacityAttempts != 0 || !capacityNext.Equal(now.Add(25*time.Second)) {
+		t.Fatalf("capacity deferral attempts=%d next=%v err=%v", capacityAttempts, capacityNext, err)
+	}
+	capacityShared, err := capacityPersona.Assign(workdomain.AssignmentCommand{Assignment: workdomain.Assignment{Responsibility: workdomain.ResponsibilityShared},
+		Role: accounts.RoleOwner, Actor: actor, ExpectedVersion: capacityPersona.Version, At: now.Add(21 * time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := work.Update(ctx, capacityShared, capacityPersona.Version, workapp.Mutation{Kind: workapp.MutationAssigned, Actor: actor,
+		CorrelationID: "98000000-0000-4000-8000-000000000009", At: now.Add(21 * time.Second)}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A genuine runner/model failure closes the failed Run and immediately
+	// creates one new immutable execution for the still Persona-owned Work.
+	failureWorkID := ids.WorkItemID("67000000-0000-4000-8000-000000000006")
+	failureDraft, err := workdomain.NewDraft(workdomain.Draft{ID: failureWorkID, AccountID: accountID, Kind: workdomain.KindTodo,
+		Title: "Recover failed agent work", Description: "Retry this Work after a transient model failure.", Priority: workdomain.PriorityHigh,
+		Assignment: workdomain.Assignment{Responsibility: workdomain.ResponsibilityShared},
+		Provenance: workdomain.Provenance{Source: workdomain.SourceManual, CreatedBy: actor}, CapacityReservationID: string(failureWorkID)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failureItem, err := work.Create(ctx, failureDraft, workapp.Mutation{Kind: workapp.MutationCreated, Actor: actor,
+		CorrelationID: "99000000-0000-4000-8000-000000000009", At: now.Add(22 * time.Second)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failurePersona, err := failureItem.Assign(workdomain.AssignmentCommand{
+		Assignment: workdomain.Assignment{Responsibility: workdomain.ResponsibilityPersona, PersonaID: string(personaID)},
+		Role:       accounts.RoleOwner, Actor: actor, ExpectedVersion: failureItem.Version, At: now.Add(23 * time.Second),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := work.Update(ctx, failurePersona, failureItem.Version, workapp.Mutation{Kind: workapp.MutationAssigned, Actor: actor,
+		CorrelationID: "9a000000-0000-4000-8000-000000000009", At: now.Add(23 * time.Second)}); err != nil {
+		t.Fatal(err)
+	}
+	failureClaim, found, err := executions.Claim(ctx, "9b000000-0000-4000-8000-000000000009", now.Add(24*time.Second), 30*time.Second)
+	if err != nil || !found || failureClaim.WorkItemID != failureWorkID {
+		t.Fatalf("failure claim=%+v found=%t err=%v", failureClaim, found, err)
+	}
+	failureSnapshot, err := executions.Load(ctx, failureClaim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started, err := executions.StartLink(ctx, workagent.StartLinkCommand{Claim: failureClaim, Snapshot: failureSnapshot,
+		Authorization: workagent.Authorization{EntitlementVersion: 7, MaximumConcurrentRun: 2}, At: now.Add(25 * time.Second)}); err != nil || !started.LinkedRun {
+		t.Fatalf("failure start/link=%+v err=%v", started, err)
+	}
+	var failureInvocationID string
+	if err := owner.QueryRow(ctx, `SELECT id FROM spyglass.agent_invocations WHERE account_id=$1 AND run_id=$2`, accountID, failureSnapshot.RunID).Scan(&failureInvocationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Exec(ctx, `UPDATE spyglass.agent_invocations SET expected_provider='openai',requested_model='gpt-5',permitted_models=ARRAY['gpt-5','gpt-4.1']::text[]
+		WHERE account_id=$1 AND id=$2`, accountID, failureInvocationID); err != nil {
+		t.Fatal(err)
+	}
+	failureDigest := make([]byte, 32)
+	for index := range failureDigest {
+		failureDigest[index] = 0x81
+	}
+	failureAt := now.Add(26 * time.Second)
+	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.runner_invocation_queue
+		(invocation_id,account_id,profile,processing_state,job_name,queued_at,completed_at)
+		VALUES ($1,$2,'agent-small','execution_failed','failed-work-runner',$3,$4);
+		INSERT INTO spyglass.runner_invocation_exchanges
+		(account_id,invocation_id,request_ciphertext,request_nonce,request_key_version,request_digest,request_expires_at,
+		 bound_pod_uid,bound_at,last_fetched_at,fetch_count,result_outcome,result_ciphertext,result_nonce,result_key_version,result_digest,result_submitted_at,created_at)
+		VALUES ($2,$1,decode(repeat('81',17),'hex'),decode(repeat('82',12),'hex'),1,decode(repeat('83',32),'hex'),$4::timestamptz+interval '1 hour',
+		 '9c000000-0000-4000-8000-000000000009',$3,$3,1,'execution_failed',decode(repeat('84',17),'hex'),decode(repeat('85',12),'hex'),1,$5,$4,$3)`,
+		pgx.QueryExecModeSimpleProtocol, failureInvocationID, accountID, now.Add(25*time.Second), failureAt, failureDigest); err != nil {
+		t.Fatal(err)
+	}
+	failureProjectionLease := "9d000000-0000-4000-8000-000000000009"
+	if err := owner.QueryRow(ctx, `SELECT invocation_id,work_item_id FROM public.spyglass_claim_agent_result_projection_v4($1,$2,300)`, failureProjectionLease, failureAt).Scan(&claimedInvocation, &claimedWork); err != nil || claimedInvocation != failureInvocationID || claimedWork != string(failureWorkID) {
+		t.Fatalf("failure projection claim invocation=%s work=%s err=%v", claimedInvocation, claimedWork, err)
+	}
+	if err := owner.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_failure($1,$2,$3,$4,'model_step_failed',$5,$5)`,
+		accountID, failureInvocationID, failureProjectionLease, failureDigest, failureAt).Scan(&projected); err != nil || !projected {
+		t.Fatalf("failure projection projected=%v err=%v", projected, err)
+	}
+	var failureRunState string
+	var retryQueueState string
+	var retryExecutionCount int
+	var failureCurrentRun *string
+	if err := owner.QueryRow(ctx, `SELECT
+		(SELECT state FROM spyglass.work_items WHERE account_id=$1 AND id=$2),
+		(SELECT run_id::text FROM spyglass.work_items WHERE account_id=$1 AND id=$2),
+		(SELECT state FROM spyglass.agent_runs WHERE account_id=$1 AND id=$3),
+		(SELECT state FROM spyglass.work_agent_execution_queue WHERE account_id=$1 AND work_item_id=$2 AND state='pending'),
+		(SELECT count(*) FROM spyglass.work_agent_executions WHERE account_id=$1 AND work_item_id=$2)`,
+		accountID, failureWorkID, failureSnapshot.RunID).Scan(&workState, &failureCurrentRun, &failureRunState, &retryQueueState, &retryExecutionCount); err != nil ||
+		workState != "open" || failureCurrentRun != nil || failureRunState != "failed" || retryQueueState != "pending" || retryExecutionCount != 2 {
+		t.Fatalf("failure recovery work=%s current_run=%v run=%s queue=%s executions=%d err=%v", workState, failureCurrentRun, failureRunState, retryQueueState, retryExecutionCount, err)
+	}
+	if err := owner.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_failure($1,$2,$3,$4,'model_step_failed',$5,$5)`,
+		accountID, failureInvocationID, failureProjectionLease, failureDigest, failureAt).Scan(&projected); err != nil || projected {
+		t.Fatalf("failure replay projected=%v err=%v", projected, err)
+	}
 }
