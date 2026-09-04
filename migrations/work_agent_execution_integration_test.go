@@ -560,4 +560,28 @@ func TestWorkAgentExecutionAtomicallyStartsLinksAndReconciles(t *testing.T) {
 		accountID, failureInvocationID, failureProjectionLease, failureDigest, failureAt).Scan(&projected); err != nil || projected {
 		t.Fatalf("failure replay projected=%v err=%v", projected, err)
 	}
+
+	// The bounded terminal fallback opens an ordinary Your Turn information
+	// request. Its answer can resume the same Work through the established
+	// continuation path instead of leaving an unexplained waiting item.
+	var failureWorkVersion int
+	if err := owner.QueryRow(ctx, `SELECT version FROM spyglass.work_items WHERE account_id=$1 AND id=$2`, accountID, failureWorkID).Scan(&failureWorkVersion); err != nil {
+		t.Fatal(err)
+	}
+	fallbackAt := now.Add(27 * time.Second)
+	if _, err := owner.Exec(ctx, `UPDATE spyglass.work_items SET state='waiting',version=version+1,updated_at=$3
+		WHERE account_id=$1 AND id=$2;
+		INSERT INTO spyglass.work_item_events
+		(account_id,id,work_item_id,event_type,from_version,to_version,actor_kind,actor_id,reason,correlation_id,redacted_payload,occurred_at)
+		VALUES ($1,'9e000000-0000-4000-8000-000000000009',$2,'transitioned',$4,$4+1,'workload','work-agent-failure-recovery',
+		'Agent execution requires operator attention',$5,'{"state":"waiting","responsibility":"persona","attempts":3}'::jsonb,$3)`,
+		pgx.QueryExecModeSimpleProtocol, accountID, failureWorkID, fallbackAt, failureWorkVersion, failureInvocationID); err != nil {
+		t.Fatal(err)
+	}
+	var fallbackRequestState, fallbackQuestion string
+	if err := owner.QueryRow(ctx, `SELECT state,question FROM spyglass.attention_information_requests
+		WHERE account_id=$1 AND parent_work_item_id=$2`, accountID, failureWorkID).Scan(&fallbackRequestState, &fallbackQuestion); err != nil ||
+		fallbackRequestState != "open" || !strings.Contains(fallbackQuestion, "What outcome should it produce first") {
+		t.Fatalf("failure attention state=%s question=%q err=%v", fallbackRequestState, fallbackQuestion, err)
+	}
 }
