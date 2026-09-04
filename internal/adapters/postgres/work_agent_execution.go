@@ -112,7 +112,8 @@ func (r *WorkAgentExecutionRepository) StartLink(ctx context.Context, command wo
 	if err != nil {
 		return workagent.StartLinkResult{}, workagent.ErrInvalidSnapshot
 	}
-	modelIDs := make([]string, (snapshot.Persona.Policy.MaximumToolSteps+1)*len(snapshot.Persona.Policy.ModelTargets()))
+	modelTargets := []string{"pending-a", "pending-b", "pending-c"}
+	modelIDs := make([]string, (snapshot.Persona.Policy.MaximumToolSteps+1)*(agentdomain.MaximumFallbackModels+1))
 	toolIDs := make([]string, snapshot.Persona.Policy.MaximumToolSteps)
 	for index := range modelIDs {
 		modelIDs[index], err = ids.Derive(invocationRaw, fmt.Sprintf("model/%d", index+1))
@@ -131,7 +132,7 @@ func (r *WorkAgentExecutionRepository) StartLink(ctx context.Context, command wo
 		FROM public.spyglass_start_link_work_agent_execution($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
 		snapshot.ExecutionID, snapshot.AccountID, command.Claim.LeaseID, command.Authorization.EntitlementVersion,
 		command.Authorization.MaximumConcurrentRun, plan.Digest[:], eventID, messageID, invocationRaw,
-		profileFor(snapshot.Persona.Policy), snapshot.Persona.Policy.ModelTargets(), modelIDs, toolIDs, command.At.Add(24*time.Hour), command.At.UTC()).Scan(
+		profileFor(snapshot.Persona.Policy), modelTargets, modelIDs, toolIDs, command.At.Add(24*time.Hour), command.At.UTC()).Scan(
 		&result.CreatedRun, &result.LinkedRun, &result.Reconciled)
 	if err != nil {
 		return workagent.StartLinkResult{}, mapWorkAgentExecutionError("start/link Work Agent execution", err)

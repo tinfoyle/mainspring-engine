@@ -186,7 +186,7 @@ func TestWorkAgentExecutionAtomicallyStartsLinksAndReconciles(t *testing.T) {
 		(SELECT permitted_models FROM spyglass.agent_invocations WHERE account_id=$1)`, accountID).Scan(&runs, &dispatches, &linkedExecutions, &modelTargets, &modelOperations, &permittedModels); err != nil {
 		t.Fatal(err)
 	}
-	if runs != 1 || dispatches != 1 || linkedExecutions != 1 || modelTargets != 2 || modelOperations != 4 || !slices.Equal(permittedModels, []string{"gpt-5", "gpt-4.1"}) {
+	if runs != 1 || dispatches != 1 || linkedExecutions != 1 || modelTargets != 3 || modelOperations != 6 || !slices.Equal(permittedModels, []string{"pending-a", "pending-b", "pending-c"}) {
 		t.Fatalf("runs=%d dispatches=%d linked executions=%d models=%v", runs, dispatches, linkedExecutions, permittedModels)
 	}
 	if _, err := workerPool.Exec(ctx, `UPDATE spyglass.work_items SET title='forbidden'`); err == nil {
@@ -259,6 +259,13 @@ func TestWorkAgentExecutionAtomicallyStartsLinksAndReconciles(t *testing.T) {
 	// answer as bounded Account data.
 	var invocationID string
 	if err := owner.QueryRow(ctx, `SELECT id FROM spyglass.agent_invocations WHERE account_id=$1 AND run_id=$2`, accountID, snapshot.RunID).Scan(&invocationID); err != nil {
+		t.Fatal(err)
+	}
+	// Agent-dispatch token admission replaces provider-neutral placeholders
+	// before a runner can produce a result. This fixture begins at projection,
+	// so model that private admission mutation directly.
+	if _, err := owner.Exec(ctx, `UPDATE spyglass.agent_invocations SET expected_provider='openai',requested_model='gpt-5',permitted_models=ARRAY['gpt-5','gpt-4.1']::text[]
+		WHERE account_id=$1 AND id=$2`, accountID, invocationID); err != nil {
 		t.Fatal(err)
 	}
 	runnerDigest := make([]byte, 32)
@@ -371,6 +378,10 @@ func TestWorkAgentExecutionAtomicallyStartsLinksAndReconciles(t *testing.T) {
 	}
 	var continuationInvocationID string
 	if err := owner.QueryRow(ctx, `SELECT id FROM spyglass.agent_invocations WHERE account_id=$1 AND run_id=$2`, accountID, continuationSnapshot.RunID).Scan(&continuationInvocationID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Exec(ctx, `UPDATE spyglass.agent_invocations SET expected_provider='openai',requested_model='gpt-5',permitted_models=ARRAY['gpt-5','gpt-4.1']::text[]
+		WHERE account_id=$1 AND id=$2`, accountID, continuationInvocationID); err != nil {
 		t.Fatal(err)
 	}
 	completionRunnerDigest := make([]byte, 32)
