@@ -86,7 +86,7 @@ describe("conversational Business Baseline", () => {
   });
 
   it("shows a reply immediately while the operations agent is still working", async () => {
-    api.startAgentRun.mockResolvedValue({ ...run, state: "running" });
+    api.startAgentRun.mockResolvedValue({ ...run, id: "71000000-0000-4000-8000-000000000007", user_message_id: "91000000-0000-4000-8000-000000000009", state: "running" });
     const wrapper = await mountAt(`/app/baseline/${baseline.id}`); const answer = "Most calls come in by phone and text.";
     await wrapper.get("#baseline-reply").setValue(answer); await wrapper.get("form.baseline-composer").trigger("submit"); await flushPromises();
     expect(wrapper.text()).toContain(answer);
@@ -98,7 +98,7 @@ describe("conversational Business Baseline", () => {
   it("records an automation approval as a compact chat event without filling the reply box", async () => {
     const offer = { key: "schedule.daily_dispatch", title: "Set up a daily dispatch review", description: "Review tomorrow's schedule and flag gaps.", priority: "high" as const };
     api.listAgentMessages.mockResolvedValue([messages[0], { ...messages[1], result: { ...result, baseline: { ...result.baseline, automation_offers: [offer] } } }]);
-    api.startAgentRun.mockResolvedValue({ ...run, state: "running" });
+    api.startAgentRun.mockResolvedValue({ ...run, id: "71000000-0000-4000-8000-000000000007", user_message_id: "91000000-0000-4000-8000-000000000009", state: "running" });
     const wrapper = await mountAt(`/app/baseline/${baseline.id}`);
     await wrapper.get(".baseline-offers button").trigger("click"); await flushPromises();
     expect(api.startAgentRun).toHaveBeenCalledWith(account.account_id, room.id, expect.objectContaining({ prompt: `Yes, add “${offer.title}” to the work we will set up.` }));
@@ -116,7 +116,7 @@ describe("conversational Business Baseline", () => {
     const created = { id: approvalMessage.id, number: 1, depth: 0, kind: "todo", title: approvedWork.title, description: approvedWork.description, state: "open", priority: "high", assignment: { responsibility: "shared" }, provenance: { source: "manual", created_by: { kind: "user", id: account.account_id } }, version: 1, created_at: run.created_at, updated_at: run.created_at } satisfies WorkItem;
     const linked = { ...created, provenance: { ...created.provenance, source: "conversation" as const, conversation_id: run.conversation_id }, version: 2 };
     const assigned = { ...linked, assignment: { responsibility: "persona" as const, persona_id: persona.id }, version: 3 };
-    api.listAgentMessages.mockResolvedValue([messages[0], approvalMessage]); api.createWorkFromAgentMessage.mockResolvedValue(created); api.getWorkItem.mockResolvedValue(created); api.linkWorkConversation.mockResolvedValue(linked); api.assignWork.mockResolvedValue(assigned);
+    api.listAgentMessages.mockResolvedValue([messages[0], approvalMessage]); api.getWorkItem.mockRejectedValueOnce({ name: "APIProblem", status: 404 }); api.createWorkFromAgentMessage.mockResolvedValue(created); api.linkWorkConversation.mockResolvedValue(linked); api.assignWork.mockResolvedValue(assigned);
     const wrapper = await mountAt(`/app/baseline/${baseline.id}`);
     expect(api.createWorkFromAgentMessage).toHaveBeenCalledWith(account.account_id, approvalMessage.id, expect.objectContaining({ title: "Set up a daily dispatch review" }));
     expect(api.linkWorkConversation).toHaveBeenCalled();
@@ -128,11 +128,38 @@ describe("conversational Business Baseline", () => {
     const approvedWork = { key: "schedule.daily_dispatch", title: "Set up a daily dispatch review", description: "Choose the schedule source.", priority: "high" as const };
     const approvalMessage = { ...messages[1], id: "e0000000-0000-4000-8000-00000000000e", result: { ...result, baseline: { ...result.baseline, approved_work: [approvedWork] } } };
     const complete = { id: approvalMessage.id, number: 1, depth: 0, kind: "todo", title: approvedWork.title, description: approvedWork.description, state: "open", priority: "high", assignment: { responsibility: "persona", persona_id: persona.id }, provenance: { source: "conversation", created_by: { kind: "user", id: account.account_id }, conversation_id: run.conversation_id }, version: 3, created_at: run.created_at, updated_at: run.created_at } satisfies WorkItem;
-    api.listAgentMessages.mockResolvedValue([messages[0], approvalMessage]); api.createWorkFromAgentMessage.mockResolvedValue(complete); api.getWorkItem.mockResolvedValue(complete);
+    api.listAgentMessages.mockResolvedValue([messages[0], approvalMessage]); api.listWork.mockResolvedValue({ items: [complete] });
     const wrapper = await mountAt(`/app/baseline/${baseline.id}`);
-    expect(api.getWorkItem).toHaveBeenCalledWith(account.account_id, complete.id);
+    expect(api.getWorkItem).not.toHaveBeenCalled(); expect(api.createWorkFromAgentMessage).not.toHaveBeenCalled();
     expect(api.linkWorkConversation).not.toHaveBeenCalled(); expect(api.assignWork).not.toHaveBeenCalled();
     expect(wrapper.text()).toContain(complete.title);
+  });
+
+  it("loads the existing Work when creation races with an earlier repair", async () => {
+    const approvedWork = { key: "schedule.daily_dispatch", title: "Set up a daily dispatch review", description: "Choose the schedule source.", priority: "high" as const };
+    const approvalMessage = { ...messages[1], id: "e0000000-0000-4000-8000-00000000000e", result: { ...result, baseline: { ...result.baseline, approved_work: [approvedWork] } } };
+    const complete = { id: approvalMessage.id, number: 1, depth: 0, kind: "todo", title: approvedWork.title, description: approvedWork.description, state: "open", priority: "high", assignment: { responsibility: "persona", persona_id: persona.id }, provenance: { source: "conversation", created_by: { kind: "user", id: account.account_id }, conversation_id: run.conversation_id }, version: 3, created_at: run.created_at, updated_at: run.created_at } satisfies WorkItem;
+    api.listAgentMessages.mockResolvedValue([messages[0], approvalMessage]);
+    api.getWorkItem.mockRejectedValueOnce({ name: "APIProblem", status: 404 }).mockResolvedValueOnce(complete);
+    api.createWorkFromAgentMessage.mockRejectedValue({ name: "APIProblem", status: 412 });
+    const wrapper = await mountAt(`/app/baseline/${baseline.id}`);
+    expect(api.createWorkFromAgentMessage).toHaveBeenCalledOnce(); expect(api.getWorkItem).toHaveBeenCalledTimes(2);
+    expect(api.linkWorkConversation).not.toHaveBeenCalled(); expect(api.assignWork).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain(complete.title);
+  });
+
+  it("reconciles a durable reply before an unrelated setup Work repair fails", async () => {
+    const approvedWork = { key: "schedule.daily_dispatch", title: "Set up a daily dispatch review", description: "Choose the schedule source.", priority: "high" as const };
+    const approvalMessage = { ...messages[1], id: "e0000000-0000-4000-8000-00000000000e", result: { ...result, baseline: { ...result.baseline, approved_work: [approvedWork] } } };
+    const answer = "Calls are scheduled from a shared inbox.";
+    const followupRun = { ...run, id: "71000000-0000-4000-8000-000000000007", user_message_id: "91000000-0000-4000-8000-000000000009" };
+    const durableAnswer = { ...messages[0], id: followupRun.user_message_id, sequence: 3, body: answer, created_at: "2026-08-24T20:03:00Z" };
+    api.listAgentMessages.mockResolvedValueOnce(messages).mockResolvedValueOnce([messages[0], approvalMessage, durableAnswer]);
+    api.startAgentRun.mockResolvedValue(followupRun); api.getWorkItem.mockRejectedValue(new Error("the Work item changed; reload it before retrying"));
+    const wrapper = await mountAt(`/app/baseline/${baseline.id}`);
+    await wrapper.get("#baseline-reply").setValue(answer); await wrapper.get("form.baseline-composer").trigger("submit"); await flushPromises();
+    expect(wrapper.findAll(".baseline-message--user").filter((item) => item.text().includes(answer))).toHaveLength(1);
+    expect(wrapper.text()).toContain("the Work item changed; reload it before retrying");
   });
 
   it("ends by handing the owner to Your Turn", async () => {
