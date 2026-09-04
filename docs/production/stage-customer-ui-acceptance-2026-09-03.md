@@ -12,27 +12,28 @@
 
 No password, code, session token, cookie, provider credential, private key or payment detail was read or recorded during this review.
 
-## Adaptive Operations Guide deployment — RC.30 (owner review pending)
+## Adaptive Operations Guide deployment — RC.31 (owner review pending)
 
-RC.30 replaces the fixed Baseline questionnaire with an adaptive interview led by the Account's first `Operations Guide`. The Guide first identifies the kind of business and how it earns revenue, then follows only the relevant branches. Exact owner replies become governed Knowledge; suggested automations or setup tasks become conversation-linked Work only after explicit approval and are assigned to the Guide. Missing information can surface in Your Turn and an accepted answer resumes the related Work.
+RC.30 replaced the fixed Baseline questionnaire with an adaptive interview led by the Account's first `Operations Guide`. RC.31 retains that behavior and repairs the blank main panel found during authenticated review of an existing assessment. The cause was historical Agent-result JSON with empty collections encoded as `null`; the private UI attempted to read `.length` before normalizing it. Go now preserves empty arrays for future results, and Vue normalizes all historical nullable result collections at its API boundary. The Guide first identifies the kind of business and how it earns revenue, then follows only the relevant branches. Exact owner replies become governed Knowledge; suggested automations or setup tasks become conversation-linked Work only after explicit approval and are assigned to the Guide. Missing information can surface in Your Turn and an accepted answer resumes the related Work.
 
 Deployment evidence:
 
-- Source revision: `ca385a9839d049319138e6134e5ab1468847759f`.
-- Release-manifest revision and clean VPS checkout: `0f979a5b057cf092a5202235d8e82f5ff42bcf5b`.
-- Release manifest: `deploy/releases/0.3.0-rc.30.env`.
+- Source revision: `02758392f8ac169ae0364542143e44ad64ef4fd2`.
+- Release-manifest revision and clean VPS checkout: `746bce1f6c90044eeca99bb438d16283dc965ae0`.
+- Release manifest: `deploy/releases/0.3.0-rc.31.env`.
 - All three images carry provenance and SBOM attestations and passed HIGH/CRITICAL vulnerability plus secret scanning with zero findings.
 - The protected Stage configuration verified before and after deployment.
 - Existing PostgreSQL and object-store volumes were retained; migration ledgers remain 68/80/80.
 - 49 long-running containers are present; all 48 healthchecked workloads are healthy and the internal edge is running.
 - Public, login and MCP metadata endpoints return `200`; the running application and private UI match the recorded digests.
-- Authenticated owner acceptance of the adaptive questions, exact Knowledge capture, approved Work creation, and Your Turn continuation remains open.
+- An authenticated reload of the exact previously affected assessment visibly rendered the interview, reply control and business notebook from `index-Cs18781E.js`; no new browser error followed the reload.
+- Authenticated owner acceptance of the remaining adaptive questions, exact Knowledge capture, approved Work creation, and Your Turn continuation remains open.
 
 | Artifact | Digest |
 | --- | --- |
-| Application | `sha256:2f0af5b2a6026c7883b3059b0bd8ff5174a8128a0bd4c3421a6ef06603e7b6a2` |
-| Public UI | `sha256:36c1c6954fc43182db4365d285ecd151f7fe6fc8f1f375db5758c84977499ecd` |
-| Private UI | `sha256:7d7baf96aea3ee680e55d9719a11a536e1585725b0400dbe8e3350285aca8cd9` |
+| Application | `sha256:dfe07505c11ff584e8b239007186aa729d56e830636a020585c92270ce28a7b8` |
+| Public UI | `sha256:39ead0b97124488e64de46afb9cb945add0580b4b6305c3bee99e6c091ff6da3` |
+| Private UI | `sha256:2cf281f33a917568aff7173579093a995741ccb8b7168e8a872344dcde0567c0` |
 
 ## Conversational Business Baseline deployment — RC.29
 
