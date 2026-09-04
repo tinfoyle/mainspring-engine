@@ -48,6 +48,7 @@ COPY packages/design-system/package.json packages/design-system/package.json
 RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts
 COPY --from=app-build /workspace/apps/app/dist apps/app/dist
 COPY --from=public-build /workspace/apps/public/.output apps/public/.output
+COPY apps/app/src/baseline-interviewer.ts apps/app/src/baseline-interviewer.ts
 COPY playwright.config.ts playwright.config.ts
 COPY tests/browser tests/browser
 

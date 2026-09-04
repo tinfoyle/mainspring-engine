@@ -267,12 +267,15 @@ func (p *Processor) ProcessOne(ctx context.Context) (Result, error) {
 }
 
 func informationRequests(claim Claim, questions []string) ([]InformationRequest, string, error) {
-	if len(questions) == 0 {
+	if claim.WorkItemID == "" {
 		return []InformationRequest{}, "", nil
 	}
-	workEventID, err := ids.Derive(claim.InvocationID, "questions/work-event")
+	workEventID, err := ids.Derive(claim.InvocationID, "work-outcome/event")
 	if err != nil {
 		return nil, "", err
+	}
+	if len(questions) == 0 {
+		return []InformationRequest{}, workEventID, nil
 	}
 	requests := make([]InformationRequest, len(questions))
 	for index, question := range questions {

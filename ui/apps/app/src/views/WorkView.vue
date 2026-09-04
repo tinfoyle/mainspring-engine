@@ -5,9 +5,14 @@ import {
   createWork,
   getWorkItem,
   getWorkSummary,
+  listAgentBoardrooms,
+  listAgentMessages,
+  listAgentPersonas,
   listWork,
   listWorkChildren,
   transitionWork,
+  type AgentMessage,
+  type AgentPersona,
   type WorkAssignmentInput,
   type WorkItem,
   type WorkKind,
@@ -28,6 +33,9 @@ const items = ref<ReadonlyArray<WorkItem>>([]);
 const summary = ref<WorkSummary>();
 const detail = ref<WorkItem>();
 const children = ref<ReadonlyArray<WorkItem>>([]);
+const agentMessages = ref<ReadonlyArray<AgentMessage>>([]);
+const agentActivityError = ref("");
+const managerPersona = ref<AgentPersona>();
 const loading = ref(false);
 const detailLoading = ref(false);
 const saving = ref(false);
@@ -44,10 +52,10 @@ const transitionOpen = ref(false);
 const assignmentOpen = ref(false);
 const transitionTarget = ref<WorkState>("in_progress");
 const transitionReason = ref("");
-const assignmentResponsibility = ref<"user" | "shared" | "external">("shared");
+const assignmentResponsibility = ref<"persona" | "user" | "shared" | "external">("persona");
 const assignmentExternal = ref("");
 const assignmentReason = ref("");
-const draft = reactive({ title: "", description: "", kind: "ticket" as WorkKind, priority: "normal" as WorkPriority, responsibility: "shared" as "user" | "shared" | "external", external: "" });
+const draft = reactive({ title: "", description: "", kind: "ticket" as WorkKind, priority: "normal" as WorkPriority, responsibility: "persona" as "persona" | "user" | "external", external: "" });
 let listSequence = 0;
 let detailSequence = 0;
 
@@ -60,15 +68,13 @@ const hasCreateDraft = computed(() => createOpen.value && Boolean(
   || draft.description.trim()
   || draft.kind !== "ticket"
   || draft.priority !== "normal"
-  || draft.responsibility !== "shared"
+  || draft.responsibility !== "persona"
   || draft.external.trim()
 ));
 const hasTransitionDraft = computed(() => transitionOpen.value && Boolean(transitionReason.value.trim()));
 const hasAssignmentDraft = computed(() => {
   if (!assignmentOpen.value || !detail.value) return false;
-  const currentResponsibility = detail.value.assignment.responsibility === "external"
-    ? "external"
-    : detail.value.assignment.responsibility === "user" ? "user" : "shared";
+  const currentResponsibility = detail.value.assignment.responsibility;
   return Boolean(
     assignmentReason.value.trim()
     || assignmentResponsibility.value !== currentResponsibility
@@ -98,6 +104,7 @@ const transitions = computed<ReadonlyArray<{ state: WorkState; label: string }>>
     canceled: []
   } satisfies Record<WorkState, ReadonlyArray<{ state: WorkState; label: string }>>)[detail.value.state];
 });
+const latestAgentReply = computed(() => [...agentMessages.value].reverse().find((message) => message.role === "persona"));
 
 function label(value: string): string {
   return ({ todo: "To-do", in_progress: "In progress" } as Record<string, string>)[value] ?? value.replaceAll("_", " ").replace(/^./, (first) => first.toUpperCase());
@@ -106,8 +113,23 @@ function label(value: string): string {
 function assignment(value: WorkItem): string {
   if (value.assignment.responsibility === "user") return value.assignment.user_id === session.userID || !value.assignment.user_id ? "Assigned to you" : "Assigned person";
   if (value.assignment.responsibility === "external") return value.assignment.external_ref ?? "External owner";
-  if (value.assignment.responsibility === "persona") return "Agent Persona";
+  const manager = managerPersona.value;
+  if (value.assignment.responsibility === "persona") return manager && value.assignment.persona_id === manager.id ? manager.name : "Spyglass agent";
   return "Shared responsibility";
+}
+
+async function loadManagerPersona(): Promise<void> {
+  const accountID = session.selectedID;
+  managerPersona.value = undefined;
+  if (!accountID) return;
+  try {
+    const rooms = (await listAgentBoardrooms(accountID)).filter((room) => room.state === "active" && room.manager_persona_id);
+    for (const room of rooms) {
+      const personas = await listAgentPersonas(accountID, room.id);
+      const manager = personas.find((persona) => persona.id === room.manager_persona_id && persona.state === "active");
+      if (manager) { managerPersona.value = manager; return; }
+    }
+  } catch { /* Work remains usable for explicit human assignment before an Agent is configured. */ }
 }
 
 function date(value?: string): string {
@@ -159,15 +181,25 @@ async function refresh(append = false): Promise<void> {
 
 async function loadDetail(): Promise<void> {
   const accountID = session.selectedID;
-  if (!accountID || !itemID.value || !available.value) { detail.value = undefined; children.value = []; return; }
+  if (!accountID || !itemID.value || !available.value) { detail.value = undefined; children.value = []; agentMessages.value = []; return; }
   const sequence = ++detailSequence;
   detailLoading.value = true;
   detailError.value = "";
+  agentActivityError.value = "";
+  agentMessages.value = [];
   try {
     const [item, childPage] = await Promise.all([getWorkItem(accountID, itemID.value), listWorkChildren(accountID, itemID.value)]);
     if (sequence !== detailSequence) return;
     detail.value = item;
     children.value = childPage.items;
+    if (item.provenance.conversation_id) {
+      try {
+        const projected = await listAgentMessages(accountID, item.provenance.conversation_id);
+        if (sequence === detailSequence) agentMessages.value = projected;
+      } catch {
+        if (sequence === detailSequence) agentActivityError.value = "Agent progress could not be loaded right now.";
+      }
+    }
   } catch (cause) {
     if (sequence !== detailSequence) return;
     detailError.value = cause instanceof APIProblem ? cause.message : "Work detail is unavailable right now.";
@@ -180,17 +212,20 @@ async function submitCreate(): Promise<void> {
   saving.value = true; error.value = ""; navigationNotice.value = "";
   const workAssignment: WorkAssignmentInput = draft.responsibility === "external"
     ? { responsibility: "external", external_ref: draft.external.trim() }
-    : { responsibility: draft.responsibility };
+    : draft.responsibility === "persona"
+      ? { responsibility: "persona", persona_id: managerPersona.value?.id ?? "" }
+      : { responsibility: "user" };
   try {
+    if (draft.responsibility === "persona" && !managerPersona.value) throw new Error("Finish Business Setup before asking your operations agent to handle Work.");
     const created = await createWork(accountID, { kind: draft.kind, title: draft.title.trim(), description: draft.description.trim(), priority: draft.priority, assignment: workAssignment });
     try { sessionStorage.removeItem(draftKey(accountID)); } catch { /* Optional storage. */ }
-    Object.assign(draft, { title: "", description: "", kind: "ticket", priority: "normal", responsibility: "shared", external: "" });
+    Object.assign(draft, { title: "", description: "", kind: "ticket", priority: "normal", responsibility: "persona", external: "" });
     createOpen.value = false;
     announcement.value = `Created work item ${created.number}: ${created.title}.`;
     await refresh();
     allowNextNavigation();
     await router.push(`/app/work/${encodeURIComponent(created.id)}`);
-  } catch (cause) { error.value = cause instanceof APIProblem ? cause.message : "Work could not be created."; }
+  } catch (cause) { error.value = cause instanceof APIProblem || cause instanceof Error ? cause.message : "Work could not be created."; }
   finally { saving.value = false; }
 }
 
@@ -216,7 +251,7 @@ async function submitTransition(): Promise<void> {
 
 function beginAssignment(): void {
   if (!detail.value) return;
-  assignmentResponsibility.value = detail.value.assignment.responsibility === "external" ? "external" : detail.value.assignment.responsibility === "user" ? "user" : "shared";
+  assignmentResponsibility.value = detail.value.assignment.responsibility;
   assignmentExternal.value = detail.value.assignment.external_ref ?? "";
   assignmentReason.value = "";
   assignmentOpen.value = true;
@@ -228,21 +263,24 @@ async function submitAssignment(): Promise<void> {
   saving.value = true; detailError.value = "";
   const workAssignment: WorkAssignmentInput = assignmentResponsibility.value === "external"
     ? { responsibility: "external", external_ref: assignmentExternal.value.trim() }
-    : { responsibility: assignmentResponsibility.value };
+    : assignmentResponsibility.value === "persona"
+      ? { responsibility: "persona", persona_id: managerPersona.value?.id ?? "" }
+      : { responsibility: assignmentResponsibility.value };
   try {
+    if (assignmentResponsibility.value === "persona" && !managerPersona.value) throw new Error("Finish Business Setup before assigning Work to your operations agent.");
     detail.value = await assignWork(accountID, detail.value, { assignment: workAssignment, reason: assignmentReason.value.trim() });
     assignmentOpen.value = false;
     announcement.value = `Responsibility updated for work item ${detail.value.number}.`;
     await refresh();
   } catch (cause) {
     if (cause instanceof APIProblem && cause.status === 412) { assignmentOpen.value = false; await loadDetail(); detailError.value = "This work item changed. Review the current assignment before trying again."; }
-    else detailError.value = cause instanceof APIProblem ? cause.message : "Responsibility could not be updated.";
+    else detailError.value = cause instanceof APIProblem || cause instanceof Error ? cause.message : "Responsibility could not be updated.";
   } finally { saving.value = false; }
 }
 
 onMounted(restoreDraft);
 watch(draft, saveDraft, { deep: true });
-watch(() => [session.selectedID, available.value], () => { restoreDraft(); void refresh(); }, { immediate: true });
+watch(() => [session.selectedID, available.value], () => { restoreDraft(); void refresh(); void loadManagerPersona(); }, { immediate: true });
 watch(() => [session.selectedID, itemID.value, available.value], () => void loadDetail(), { immediate: true });
 </script>
 
@@ -261,6 +299,20 @@ watch(() => [session.selectedID, itemID.value, available.value], () => void load
           <article class="detail-card work-detail-card">
             <h2>Outcome and context</h2><p class="work-description">{{ detail.description || "No description has been added." }}</p>
             <dl><div><dt>Priority</dt><dd>{{ label(detail.priority) }}</dd></div><div><dt>Responsibility</dt><dd>{{ assignment(detail) }}</dd></div><div><dt>Origin</dt><dd>{{ label(detail.provenance.source) }}</dd></div><div><dt>Due</dt><dd>{{ date(detail.due_at) }}</dd></div><div><dt>Version</dt><dd>{{ detail.version }}</dd></div></dl>
+            <section v-if="detail.assignment.responsibility === 'persona'" class="work-children" aria-labelledby="agent-progress-title">
+              <h2 id="agent-progress-title">Agent progress</h2>
+              <p v-if="agentActivityError" class="form-error">{{ agentActivityError }}</p>
+              <template v-else-if="latestAgentReply">
+                <p>{{ latestAgentReply.result?.contribution || latestAgentReply.body }}</p>
+                <ul v-if="latestAgentReply.result?.findings.length"><li v-for="finding in latestAgentReply.result.findings" :key="finding">{{ finding }}</li></ul>
+                <ul v-if="latestAgentReply.result?.recommendations.length"><li v-for="recommendation in latestAgentReply.result.recommendations" :key="recommendation">{{ recommendation }}</li></ul>
+              </template>
+              <p v-else-if="detail.state === 'waiting'">The agent needs an answer from you before it can continue.</p>
+              <p v-else-if="detail.state === 'done'">The agent completed this work.</p>
+              <p v-else-if="detail.provenance.run_id">The agent is working on this now.</p>
+              <p v-else>This work is queued for the agent.</p>
+              <RouterLink v-if="detail.state === 'waiting'" to="/app/your-turn" class="work-child-link"><strong>Answer in Your Turn</strong><span>Continue →</span></RouterLink>
+            </section>
             <section class="work-children"><h2>Direct work · {{ children.length }}</h2><p v-if="children.length === 0">No direct child items.</p><RouterLink v-for="child in children" :key="child.id" :to="`/app/work/${child.id}`" class="work-child-link"><strong>#{{ child.number }} · {{ child.title }}</strong><span>{{ label(child.state) }}</span></RouterLink></section>
           </article>
           <aside class="decision-card">
@@ -285,9 +337,9 @@ watch(() => [session.selectedID, itemID.value, available.value], () => void load
           <h2>Create a clear next step</h2>
           <label>Title<input v-model="draft.title" maxlength="240" required placeholder="What needs to happen?"></label>
           <label>Description<textarea v-model="draft.description" maxlength="20000" rows="4" placeholder="Outcome, context and definition of done"></textarea></label>
-          <div class="work-form-grid"><label>Type<select v-model="draft.kind"><option value="ticket">Ticket</option><option value="todo">To-do</option></select></label><label>Priority<select v-model="draft.priority"><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option><option value="low">Low</option></select></label><label>Responsibility<select v-model="draft.responsibility"><option value="shared">Shared</option><option value="user">Assign to me</option><option value="external">External owner</option></select></label></div>
+          <div class="work-form-grid"><label>Type<select v-model="draft.kind"><option value="ticket">Ticket</option><option value="todo">To-do</option></select></label><label>Priority<select v-model="draft.priority"><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option><option value="low">Low</option></select></label><label>Who handles it?<select v-model="draft.responsibility"><option value="persona">My operations agent</option><option value="user">I will handle it</option><option value="external">Someone outside Spyglass</option></select></label></div>
           <label v-if="draft.responsibility === 'external'">External owner reference<input v-model="draft.external" minlength="2" maxlength="200" required></label>
-          <p class="form-note">This unsubmitted draft stays only in this browser tab.</p><p v-if="error" class="form-error" role="alert">{{ error }}</p><IoButton type="submit" :disabled="saving">{{ saving ? "Creating…" : "Create work" }}</IoButton>
+          <p class="form-note">Agent work starts automatically. If the agent needs a fact or decision, it will appear in Your Turn. This unsubmitted draft stays only in this browser tab.</p><p v-if="error" class="form-error" role="alert">{{ error }}</p><IoButton type="submit" :disabled="saving">{{ saving ? "Creating…" : "Create work" }}</IoButton>
         </form>
         <section v-if="session.selected?.owner_enrollment_required" class="queue-state queue-state--warning"><h2>Secure this owner Account first</h2><p>Finish two-factor authentication before creating or changing Work.</p><a href="/app/security?return_to=%2Fapp%2Fwork">Continue security setup</a></section>
         <div v-if="summary" class="work-summary" role="group" aria-label="Work summary"><article><small>Active</small><strong>{{ summary.active }}</strong></article><article><small>In progress</small><strong>{{ summary.in_progress }}</strong></article><article><small>Waiting</small><strong>{{ summary.waiting }}</strong></article><article><small>Urgent</small><strong>{{ summary.urgent }}</strong></article></div>
@@ -300,6 +352,6 @@ watch(() => [session.selectedID, itemID.value, available.value], () => void load
     </template>
 
     <div v-if="transitionOpen" class="modal-backdrop"><form class="modal-card decision-card" role="dialog" aria-modal="true" aria-labelledby="transition-title" @submit.prevent="submitTransition"><h2 id="transition-title">{{ label(transitionTarget) }} this work?</h2><label>Operational reason<textarea v-model="transitionReason" minlength="3" maxlength="1000" rows="4" required></textarea></label><div class="modal-actions"><IoButton type="button" kind="secondary" @click="transitionOpen = false">Cancel</IoButton><IoButton type="submit" :disabled="saving">{{ saving ? "Saving…" : "Confirm change" }}</IoButton></div></form></div>
-    <div v-if="assignmentOpen" class="modal-backdrop"><form class="modal-card decision-card" role="dialog" aria-modal="true" aria-labelledby="assignment-title" @submit.prevent="submitAssignment"><h2 id="assignment-title">Set responsibility</h2><label>Responsibility<select v-model="assignmentResponsibility"><option value="shared">Shared</option><option value="user">Assign to me</option><option value="external">External owner</option></select></label><label v-if="assignmentResponsibility === 'external'">External reference<input v-model="assignmentExternal" minlength="2" maxlength="200" required></label><label>Reason<textarea v-model="assignmentReason" minlength="3" maxlength="1000" rows="3" required></textarea></label><div class="modal-actions"><IoButton type="button" kind="secondary" @click="assignmentOpen = false">Cancel</IoButton><IoButton type="submit" :disabled="saving">{{ saving ? "Saving…" : "Update responsibility" }}</IoButton></div></form></div>
+    <div v-if="assignmentOpen" class="modal-backdrop"><form class="modal-card decision-card" role="dialog" aria-modal="true" aria-labelledby="assignment-title" @submit.prevent="submitAssignment"><h2 id="assignment-title">Set responsibility</h2><label>Responsibility<select v-model="assignmentResponsibility"><option value="persona">My operations agent</option><option value="user">Assign to me</option><option value="shared">Shared</option><option value="external">External owner</option></select></label><label v-if="assignmentResponsibility === 'external'">External reference<input v-model="assignmentExternal" minlength="2" maxlength="200" required></label><label>Reason<textarea v-model="assignmentReason" minlength="3" maxlength="1000" rows="3" required></textarea></label><div class="modal-actions"><IoButton type="button" kind="secondary" @click="assignmentOpen = false">Cancel</IoButton><IoButton type="submit" :disabled="saving">{{ saving ? "Saving…" : "Update responsibility" }}</IoButton></div></form></div>
   </section>
 </template>

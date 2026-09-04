@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
-  APIProblem, assignWork, captureOwnerKnowledgeFact, configureAgentManager, createAgentBoardroom, createWorkFromAgentMessage,
-  getAgentRun, getBaseline, getCurrentBaseline, getWorkItem, isAPIProblem, linkWorkConversation, listAgentBoardrooms,
+  APIProblem, captureOwnerKnowledgeFact, configureAgentManager, createAgentBoardroom, createWorkFromAgentMessage,
+  getAgentRun, getBaseline, getCurrentBaseline, getWorkItem, isAPIProblem, listAgentBoardrooms,
   listAgentConversations, listAgentMessages, listAgentPersonas, listKnowledgeFacts, listWork, publishAgentPersona,
   resolveAgentRun, startAgentRun, startBaseline, type AgentBaselineAutomationOffer, type AgentBaselineInterview, type AgentBoardroom,
   type AgentMessage, type AgentPersona, type AgentRun, type BaselineAssessment, type KnowledgeFactSummary, type WorkItem
@@ -52,7 +52,8 @@ const interview = computed<AgentBaselineInterview | undefined>(() => {
 });
 const ready = computed(() => Boolean(interview.value?.ready));
 const capturedTopicCount = computed(() => new Set(facts.value.filter((item) => item.key.startsWith("baseline.")).map((item) => item.key)).size);
-const baselineWork = computed(() => work.value.filter((item) => item.provenance.conversation_id === conversationID.value));
+const approvedWorkMessageIDs = computed(() => new Set(messages.value.filter((message) => message.role === "persona" && listOrEmpty(message.result?.baseline?.approved_work).length > 0).map((message) => message.id)));
+const baselineWork = computed(() => work.value.filter((item) => approvedWorkMessageIDs.value.has(item.id)));
 const runNeedsAttention = computed(() => Boolean(activeRun.value && ["failed", "partially_failed"].includes(activeRun.value.state)));
 const runPending = computed(() => recovering.value || Boolean(activeRun.value && !["succeeded", "partially_failed", "failed", "canceled"].includes(activeRun.value.state)));
 const invalidModelOutput = computed(() => Boolean(activeRun.value?.invocations.some((item) => item.status === "failed" && item.failure_code === "model_output_invalid")));
@@ -278,18 +279,14 @@ async function materializeApprovedWork(accountID: string): Promise<void> {
       catch (cause) {
         if (!isAPIProblem(cause) || cause.status !== 404) throw cause;
         try {
-          current = await createWorkFromAgentMessage(accountID, message.id, { kind: "todo", title: proposal.title, description: `${proposal.description}\n\nThis is approved setup Work from the Business Baseline. Work on this task rather than continuing the onboarding interview.`, priority: proposal.priority, assignment: { responsibility: "shared" }, reason: `Approved during Business Baseline: ${proposal.key}` });
+          current = await createWorkFromAgentMessage(accountID, message.id, { kind: "todo", title: proposal.title, description: `${proposal.description}\n\nThis is approved setup Work from the Business Baseline. Work on this task rather than continuing the onboarding interview.`, priority: proposal.priority, assignment: { responsibility: "persona", persona_id: persona.value.id }, reason: `Approved during Business Baseline: ${proposal.key}` });
         } catch (createCause) {
           if (!isAPIProblem(createCause) || ![409, 412].includes(createCause.status)) throw createCause;
           current = await getWorkItem(accountID, message.id);
         }
       }
     }
-    const linked = current.provenance.conversation_id || !message.conversation_id ? current : await linkWorkConversation(accountID, current, { conversation_id: message.conversation_id, reason: "Approved during the Business Baseline interview" });
-    const assigned = linked.assignment.responsibility === "persona" && linked.assignment.persona_id === persona.value.id
-      ? linked
-      : await assignWork(accountID, linked, { assignment: { responsibility: "persona", persona_id: persona.value.id }, reason: "The owner approved this setup task for their Operations Guide" });
-    work.value = [...work.value.filter((existing) => existing.id !== assigned.id), assigned];
+    work.value = [...work.value.filter((existing) => existing.id !== current.id), current];
   }
 }
 

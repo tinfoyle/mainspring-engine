@@ -344,7 +344,69 @@ func TestWorkAgentExecutionAtomicallyStartsLinksAndReconciles(t *testing.T) {
 		FROM spyglass.work_agent_execution_queue queue
 		JOIN spyglass.work_agent_executions execution ON execution.account_id=queue.account_id AND execution.execution_id=queue.execution_id
 		JOIN spyglass.agent_runs run ON run.account_id=execution.account_id AND run.id=$2
-		WHERE queue.account_id=$1 AND queue.work_item_id=$3 AND queue.state='pending'`, accountID, snapshot.RunID, workItemID).Scan(&continuationState, &originalRunState, &continuationDescription); err != nil || continuationState != "pending" || originalRunState != "succeeded" || !strings.Contains(continuationDescription, "Operations Hub") {
+		WHERE queue.account_id=$1 AND queue.work_item_id=$3 AND queue.state='pending'`, accountID, snapshot.RunID, workItemID).Scan(&continuationState, &originalRunState, &continuationDescription); err != nil || continuationState != "pending" || originalRunState != "succeeded" || continuationDescription != assigned.Description {
 		t.Fatalf("continuation state=%s original=%s description=%q err=%v", continuationState, originalRunState, continuationDescription, err)
+	}
+
+	// The resumed Agent can now finish the Work without another owner question.
+	// Completion must close both the Run and the Work item atomically.
+	continuationClaim, found, err := executions.Claim(ctx, "8d000000-0000-4000-8000-000000000009", now.Add(14*time.Second), 30*time.Second)
+	if err != nil || !found || continuationClaim.WorkItemID != workItemID {
+		t.Fatalf("continuation claim=%+v found=%t err=%v", continuationClaim, found, err)
+	}
+	continuationSnapshot, err := executions.Load(ctx, continuationClaim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	continuationStarted, err := executions.StartLink(ctx, workagent.StartLinkCommand{
+		Claim: continuationClaim, Snapshot: continuationSnapshot,
+		Authorization: workagent.Authorization{EntitlementVersion: 7, MaximumConcurrentRun: 2}, At: now.Add(15 * time.Second),
+	})
+	if err != nil || !continuationStarted.CreatedRun || !continuationStarted.LinkedRun {
+		t.Fatalf("continuation start/link=%+v err=%v", continuationStarted, err)
+	}
+	var continuationContext []byte
+	if err := owner.QueryRow(ctx, `SELECT context_payload FROM spyglass.agent_runs WHERE account_id=$1 AND id=$2`, accountID, continuationSnapshot.RunID).Scan(&continuationContext); err != nil || !strings.Contains(string(continuationContext), "Operations Hub") {
+		t.Fatalf("continuation context=%q err=%v", continuationContext, err)
+	}
+	var continuationInvocationID string
+	if err := owner.QueryRow(ctx, `SELECT id FROM spyglass.agent_invocations WHERE account_id=$1 AND run_id=$2`, accountID, continuationSnapshot.RunID).Scan(&continuationInvocationID); err != nil {
+		t.Fatal(err)
+	}
+	completionRunnerDigest := make([]byte, 32)
+	completionResultDigest := make([]byte, 32)
+	for index := range completionRunnerDigest {
+		completionRunnerDigest[index], completionResultDigest[index] = 0x61, 0x71
+	}
+	completionAt := now.Add(16 * time.Second)
+	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.runner_invocation_queue
+		(invocation_id,account_id,profile,processing_state,job_name,queued_at,completed_at)
+		VALUES ($1,$2,'agent-small','completed','work-completion-runner',$3,$4);
+		INSERT INTO spyglass.runner_invocation_exchanges
+		(account_id,invocation_id,request_ciphertext,request_nonce,request_key_version,request_digest,request_expires_at,
+		 bound_pod_uid,bound_at,last_fetched_at,fetch_count,result_outcome,result_ciphertext,result_nonce,result_key_version,result_digest,result_submitted_at,created_at)
+		VALUES ($2,$1,decode(repeat('61',17),'hex'),decode(repeat('62',12),'hex'),1,decode(repeat('63',32),'hex'),$4::timestamptz+interval '1 hour',
+		 '91000000-0000-4000-8000-000000000009',$3,$3,1,'completed',decode(repeat('64',17),'hex'),decode(repeat('65',12),'hex'),1,$5,$4,$3)`,
+		pgx.QueryExecModeSimpleProtocol, continuationInvocationID, accountID, now.Add(15*time.Second), completionAt, completionRunnerDigest); err != nil {
+		t.Fatal(err)
+	}
+	completionLease := "92000000-0000-4000-8000-000000000009"
+	if err := owner.QueryRow(ctx, `SELECT invocation_id,work_item_id FROM public.spyglass_claim_agent_result_projection_v4($1,$2,300)`, completionLease, completionAt).Scan(&claimedInvocation, &claimedWork); err != nil || claimedInvocation != continuationInvocationID || claimedWork != string(workItemID) {
+		t.Fatalf("completion claim invocation=%s work=%s err=%v", claimedInvocation, claimedWork, err)
+	}
+	completionPayload := json.RawMessage(`{"contribution":"The operating source of truth is confirmed and the dependency analysis is complete.","findings":["Operations Hub is the source of truth."],"recommendations":["Use Operations Hub for the next dependency review."],"questions":[],"citations":[],"proposed_actions":[],"delegations":[],"confidence":"high"}`)
+	if err := owner.QueryRow(ctx, `SELECT public.spyglass_project_agent_invocation_success_v3(
+		$1,$2,$3,$4,'openai','gpt-5','gpt-5-2026','work-completion-response',$5,$6,$7::jsonb,$8,10,5,15,20,$9,$9,'[]'::jsonb,'[]'::jsonb,$10)`,
+		accountID, continuationInvocationID, completionLease, "93000000-0000-4000-8000-000000000009", completionRunnerDigest, completionResultDigest, completionPayload,
+		"The operating source of truth is confirmed and the dependency analysis is complete.", completionAt, "94000000-0000-4000-8000-000000000009").Scan(&projected); err != nil || !projected {
+		t.Fatalf("completion projection projected=%v err=%v", projected, err)
+	}
+	var completedAt *time.Time
+	if err := owner.QueryRow(ctx, `SELECT
+		(SELECT state FROM spyglass.work_items WHERE account_id=$1 AND id=$2),
+		(SELECT completed_at FROM spyglass.work_items WHERE account_id=$1 AND id=$2),
+		(SELECT state FROM spyglass.agent_runs WHERE account_id=$1 AND id=$3)`,
+		accountID, workItemID, continuationSnapshot.RunID).Scan(&workState, &completedAt, &runState); err != nil || workState != "done" || completedAt == nil || runState != "succeeded" {
+		t.Fatalf("completion states work=%s completed_at=%v run=%s err=%v", workState, completedAt, runState, err)
 	}
 }

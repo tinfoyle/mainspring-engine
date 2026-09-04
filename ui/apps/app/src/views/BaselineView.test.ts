@@ -10,9 +10,9 @@ import { baselinePersonaDescription, baselinePersonaInstructions, baselineRoomPu
 import BaselineView from "./BaselineView.vue";
 
 const api = vi.hoisted(() => ({
-  getBaseline: vi.fn(), getCurrentBaseline: vi.fn(), startBaseline: vi.fn(), assignWork: vi.fn(), captureOwnerKnowledgeFact: vi.fn(),
+  getBaseline: vi.fn(), getCurrentBaseline: vi.fn(), startBaseline: vi.fn(), captureOwnerKnowledgeFact: vi.fn(),
   configureAgentManager: vi.fn(), createAgentBoardroom: vi.fn(), createWorkFromAgentMessage: vi.fn(), getAgentRun: vi.fn(), getWorkItem: vi.fn(),
-  linkWorkConversation: vi.fn(), listAgentBoardrooms: vi.fn(), listAgentConversations: vi.fn(), listAgentMessages: vi.fn(),
+  listAgentBoardrooms: vi.fn(), listAgentConversations: vi.fn(), listAgentMessages: vi.fn(),
   listAgentPersonas: vi.fn(), listKnowledgeFacts: vi.fn(), listWork: vi.fn(), publishAgentPersona: vi.fn(), resolveAgentRun: vi.fn(), startAgentRun: vi.fn()
 }));
 vi.mock("@spyglass/api", async (importOriginal) => ({ ...await importOriginal<typeof import("@spyglass/api")>(), ...api }));
@@ -120,18 +120,16 @@ describe("conversational Business Baseline", () => {
     wrapper.unmount();
   });
 
-  it("creates and conversation-links Work only after the agent records explicit approval", async () => {
+  it("creates approved Work directly for the operations agent without consuming the interview conversation", async () => {
     const approvedWork = { key: "schedule.daily_dispatch", title: "Set up a daily dispatch review", description: "Choose the schedule source and decide who handles exceptions.", priority: "high" as const };
     const approved = { ...result, contribution: "I added that setup job.", baseline: { ...result.baseline, approved_work: [approvedWork] } };
     const approvalMessage = { ...messages[1], id: "e0000000-0000-4000-8000-00000000000e", result: approved };
-    const created = { id: approvalMessage.id, number: 1, depth: 0, kind: "todo", title: approvedWork.title, description: approvedWork.description, state: "open", priority: "high", assignment: { responsibility: "shared" }, provenance: { source: "manual", created_by: { kind: "user", id: account.account_id } }, version: 1, created_at: run.created_at, updated_at: run.created_at } satisfies WorkItem;
-    const linked = { ...created, provenance: { ...created.provenance, source: "conversation" as const, conversation_id: run.conversation_id }, version: 2 };
-    const assigned = { ...linked, assignment: { responsibility: "persona" as const, persona_id: persona.id }, version: 3 };
-    api.listAgentMessages.mockResolvedValue([messages[0], approvalMessage]); api.getWorkItem.mockRejectedValueOnce({ name: "APIProblem", status: 404 }); api.createWorkFromAgentMessage.mockResolvedValue(created); api.linkWorkConversation.mockResolvedValue(linked); api.assignWork.mockResolvedValue(assigned);
+    const created = { id: approvalMessage.id, number: 1, depth: 0, kind: "todo", title: approvedWork.title, description: approvedWork.description, state: "open", priority: "high", assignment: { responsibility: "persona", persona_id: persona.id }, provenance: { source: "manual", created_by: { kind: "user", id: account.account_id } }, version: 1, created_at: run.created_at, updated_at: run.created_at } satisfies WorkItem;
+    api.listAgentMessages.mockResolvedValue([messages[0], approvalMessage]); api.getWorkItem.mockRejectedValueOnce({ name: "APIProblem", status: 404 }); api.createWorkFromAgentMessage.mockResolvedValue(created);
     const wrapper = await mountAt(`/app/baseline/${baseline.id}`);
-    expect(api.createWorkFromAgentMessage).toHaveBeenCalledWith(account.account_id, approvalMessage.id, expect.objectContaining({ title: "Set up a daily dispatch review" }));
-    expect(api.linkWorkConversation).toHaveBeenCalled();
-    expect(api.assignWork).toHaveBeenCalledWith(account.account_id, linked, expect.objectContaining({ assignment: { responsibility: "persona", persona_id: persona.id } }));
+    expect(api.createWorkFromAgentMessage).toHaveBeenCalledWith(account.account_id, approvalMessage.id, expect.objectContaining({
+      title: "Set up a daily dispatch review", assignment: { responsibility: "persona", persona_id: persona.id }
+    }));
     expect(wrapper.text()).toContain("Set up a daily dispatch review");
   });
 
@@ -142,7 +140,6 @@ describe("conversational Business Baseline", () => {
     api.listAgentMessages.mockResolvedValue([messages[0], approvalMessage]); api.listWork.mockResolvedValue({ items: [complete] });
     const wrapper = await mountAt(`/app/baseline/${baseline.id}`);
     expect(api.getWorkItem).not.toHaveBeenCalled(); expect(api.createWorkFromAgentMessage).not.toHaveBeenCalled();
-    expect(api.linkWorkConversation).not.toHaveBeenCalled(); expect(api.assignWork).not.toHaveBeenCalled();
     expect(wrapper.text()).toContain(complete.title);
   });
 
@@ -155,7 +152,6 @@ describe("conversational Business Baseline", () => {
     api.createWorkFromAgentMessage.mockRejectedValue({ name: "APIProblem", status: 412 });
     const wrapper = await mountAt(`/app/baseline/${baseline.id}`);
     expect(api.createWorkFromAgentMessage).toHaveBeenCalledOnce(); expect(api.getWorkItem).toHaveBeenCalledTimes(2);
-    expect(api.linkWorkConversation).not.toHaveBeenCalled(); expect(api.assignWork).not.toHaveBeenCalled();
     expect(wrapper.text()).toContain(complete.title);
   });
 

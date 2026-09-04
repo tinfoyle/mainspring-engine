@@ -1392,7 +1392,7 @@ test("new Accounts preserve actionable empty states across customer workspaces",
   });
 
   const routes = [
-    { path: "/app/baseline", heading: "Business Baseline", evidence: "Let’s get started" },
+    { path: "/app/baseline", heading: "Tell Spyglass how your business works.", evidence: "Start the conversation" },
     { path: "/app/finance", heading: "A governed ledger for operating truth", evidence: "No ledgers yet" },
     { path: "/app/marketing", heading: "Prepare the message. Govern the release.", evidence: "No campaigns yet" },
     { path: "/app/integrations", heading: "Connect deliberately. Observe every effect.", evidence: "No connections match this view." }
@@ -1446,11 +1446,11 @@ test("Work and Knowledge preserve governed operating context", async ({ page }) 
 
 test("conversational Baseline learns, proposes setup Work, and hands off to Your Turn", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "chromium-desktop", "The stateful journey runs once; component coverage verifies its responsive presentation.");
+  allowedBrowserErrors.push(/Failed to load resource:.*404/);
   const roomID = "41000000-0000-4000-8000-000000000041";
   const personaID = "42000000-0000-4000-8000-000000000042";
   const personaVersionID = "43000000-0000-4000-8000-000000000043";
   const conversationID = "44000000-0000-4000-8000-000000000044";
-  const workID = "45000000-0000-4000-8000-000000000045";
   const approvedMessageID = "46000000-0000-4000-8000-000000000046";
   const commandTrail: string[] = [];
   let runNumber = 1;
@@ -1484,7 +1484,7 @@ test("conversational Baseline learns, proposes setup Work, and hands off to Your
   const conversation = () => ({ id: conversationID, boardroom_id: roomID, subject: `Business Baseline · ${baselineID}`, state: "open", message_count: messages.length, created_by: userID, created_at: "2026-09-03T12:00:00Z", updated_at: "2026-09-03T12:00:01Z" });
   const run = (id: string, prompt: string) => ({ id, boardroom_id: roomID, conversation_id: conversationID, state: "succeeded", mode: "selected", subject: conversation().subject, prompt, user_message_id: crypto.randomUUID(), turns: [], invocation_ids: [], invocations: [], resolutions: [], context: [], context_digest: "b".repeat(64), entitlement_version: 3, policy_version: 1, plan_digest: "c".repeat(64), created_at: "2026-09-03T12:00:02Z" });
   const work = (version: number, linked: boolean, assigned: boolean) => ({
-    id: workID, number: 81, depth: 0, kind: "todo", title: "Set up a daily dispatch review",
+    id: approvedMessageID, number: 81, depth: 0, kind: "todo", title: "Set up a daily dispatch review",
     description: "Choose the schedule source and decide who handles exceptions.\n\nThis is approved setup Work from the Business Baseline. Work on this task rather than continuing the onboarding interview.",
     state: "open", priority: "high", assignment: assigned ? { responsibility: "persona", persona_id: personaID } : { responsibility: "shared" },
     provenance: linked ? { source: "conversation", created_by: { kind: "user", id: userID }, conversation_id: conversationID } : { source: "manual", created_by: { kind: "user", id: userID } },
@@ -1533,12 +1533,14 @@ test("conversational Baseline learns, proposes setup Work, and hands off to Your
     if (path === workItems && request.method() === "GET") { await fulfillJSON(route, { items: approvedWork ? [approvedWork] : [] }); return; }
     if (path === workItems && request.method() === "POST") {
       expect(request.headers()["idempotency-key"]).toBe(approvedMessageID); commandTrail.push("work:created");
-      approvedWork ??= work(1, false, false); await fulfillJSON(route, approvedWork, 201); return;
-    }
-    if (path === `${workItems}/${workID}/conversation-links` && request.method() === "POST") { commandTrail.push("work:linked"); approvedWork = work(2, true, false); await fulfillJSON(route, approvedWork); return; }
-    if (path === `${workItems}/${workID}/assignment` && request.method() === "PATCH") {
       const input = request.postDataJSON() as { assignment: { responsibility: string; persona_id: string } };
-      expect(input.assignment).toEqual({ responsibility: "persona", persona_id: personaID }); commandTrail.push("work:assigned"); approvedWork = work(3, true, true); await fulfillJSON(route, approvedWork); return;
+      expect(input.assignment).toEqual({ responsibility: "persona", persona_id: personaID });
+      approvedWork ??= work(1, false, true); await fulfillJSON(route, approvedWork, 201); return;
+    }
+    if (path === `${workItems}/${approvedMessageID}` && request.method() === "GET") {
+      if (approvedWork) await fulfillJSON(route, approvedWork);
+      else await fulfillProblem(route, 404, "work_item_not_found", "Work item not found.");
+      return;
     }
     await route.fallback();
   });
@@ -1556,8 +1558,8 @@ test("conversational Baseline learns, proposes setup Work, and hands off to Your
   await expect(page.getByRole("button", { name: "Continue to Your Turn" })).toBeVisible();
   expect(commandTrail).toEqual([
     "knowledge:evidence", "knowledge:baseline.lead_intake", "knowledge:accepted", "run:Calls come from Google and go onto a whiteboard.",
-    "run:Yes, add “Set up a daily dispatch review” to the work we will set up.", "work:created", "work:linked", "work:assigned",
-    "knowledge:evidence", "knowledge:baseline.dispatch_owner", "knowledge:accepted", "run:I assign calls in the morning; my lead technician handles emergencies.", "work:created"
+    "run:Yes, add “Set up a daily dispatch review” to the work we will set up.", "work:created",
+    "knowledge:evidence", "knowledge:baseline.dispatch_owner", "knowledge:accepted", "run:I assign calls in the morning; my lead technician handles emergencies."
   ]);
   await expectNoHorizontalOverflow(page); await expectAccessible(page);
 });

@@ -215,7 +215,7 @@ func TestProcessorProjectsWorkQuestionsAsDeterministicInformationRequests(t *tes
 	request := queue.success.InformationRequests[0]
 	wantRequestID, _ := ids.Derive(stored.InvocationID, "question/1/request")
 	wantEventID, _ := ids.Derive(stored.InvocationID, "question/1/event")
-	wantWorkEventID, _ := ids.Derive(stored.InvocationID, "questions/work-event")
+	wantWorkEventID, _ := ids.Derive(stored.InvocationID, "work-outcome/event")
 	if request.RequestID != wantRequestID || request.EventID != wantEventID || request.Question != turn.Result.Questions[0] ||
 		request.FactKey != "agent.owner_question.30408080bd1a993a6db4ecc104a77b56" ||
 		request.RequesterID != "agent:"+string(claim.CurrentPersonaID) || queue.success.WorkEventID != wantWorkEventID {
@@ -230,6 +230,23 @@ func TestProcessorProjectsWorkQuestionsAsDeterministicInformationRequests(t *tes
 	result, err = testProcessor(t, directQueue, cipher, now).ProcessOne(context.Background())
 	if err != nil || !result.Projected || directQueue.success == nil || len(directQueue.success.InformationRequests) != 0 || directQueue.success.WorkEventID != "" {
 		t.Fatalf("direct result=%+v success=%+v err=%v", result, directQueue.success, err)
+	}
+}
+
+func TestProcessorProjectsWorkCompletionEventWhenNoOwnerInputIsNeeded(t *testing.T) {
+	now := time.Date(2026, 8, 18, 22, 0, 0, 0, time.UTC)
+	cipher, stored := storedProjectionResult(t, now.Add(-time.Second), "completed", validTurnOutput(t), "")
+	claim := validProjectionClaim(stored, 1)
+	claim.ResultPolicyVersion = agentresultpolicy.CurrentVersion
+	claim.WorkItemID = ids.WorkItemID("81000000-0000-4000-8000-000000000001")
+	queue := &projectionQueue{found: true, claim: claim}
+	result, err := testProcessor(t, queue, cipher, now).ProcessOne(context.Background())
+	if err != nil || !result.Projected || queue.success == nil || len(queue.success.InformationRequests) != 0 {
+		t.Fatalf("result=%+v success=%+v err=%v", result, queue.success, err)
+	}
+	wantWorkEventID, _ := ids.Derive(stored.InvocationID, "work-outcome/event")
+	if queue.success.WorkEventID != wantWorkEventID {
+		t.Fatalf("work event=%s want=%s", queue.success.WorkEventID, wantWorkEventID)
 	}
 }
 
