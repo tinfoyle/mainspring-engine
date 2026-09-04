@@ -2,38 +2,38 @@
 
 - Environment: `https://app.stage.infiniteocean.net`
 - Initial acceptance release: `0.3.0-rc.24`
-- Final corrected release: `0.3.0-rc.26`
-- Final application revision: `118a41eebe0a2982baeb41312696bb288e06d2a2`
-- Final release-manifest revision: `35f00db44ca0080d06403ac486a7f3c5d0ee976c`
-- Final Stage release directory: `/opt/spyglass-stage/releases/35f00db44ca0080d06403ac486a7f3c5d0ee976c`
+- Latest corrected release: `0.3.0-rc.34`
+- Latest application revision: `d899e2994d688af02e061593f211cff1af794b66`
+- Latest release-manifest revision: `e586e93e09087c5f405f1eb348280c527effa5b3`
+- Latest Stage release directory: `/opt/spyglass-stage/releases/e586e93e09087c5f405f1eb348280c527effa5b3`
 - Client: Codex in-app Chromium browser, authenticated with the existing Google-linked owner identity
 - Account: existing paid `Infinite Ocean` Stage Account
-- Result: **passed for the tested customer application slice after the RC.26 Baseline correction below**
+- Result: **passed for the tested customer application slice; complete adaptive-Baseline owner acceptance remains open**
 
 No password, code, session token, cookie, provider credential, private key or payment detail was read or recorded during this review.
 
-## Adaptive Operations Guide deployment — RC.33 (owner review pending)
+## Adaptive Operations Guide deployment — RC.34 (owner review pending)
 
-RC.30 replaced the fixed Baseline questionnaire with an adaptive interview led by the Account's first `Operations Guide`; RC.31 repaired compatibility with historical nullable Agent-result collections, and RC.32 corrected prompt placement. RC.33 makes a submitted human reply appear immediately while the Agent is working. Automation acceptance remains explicit input to the Agent but renders as a compact approval event, disappears from the active offers, and cannot be fired again while the run is pending. The application router now admits the existing Work conversation/provenance link endpoints that the cell already exposed. Reopening Baseline idempotently repairs earlier approvals, links and assigns only incomplete Work, and does not duplicate completed setup tasks.
+RC.30 replaced the fixed Baseline questionnaire with an adaptive interview led by the Account's first `Operations Guide`; RC.31 repaired compatibility with historical nullable Agent-result collections, RC.32 corrected prompt placement, and RC.33 added immediate replies plus compact approval events. RC.34 fixes the subsequent live failure: historical approved tasks are resolved by their stable Agent-message IDs instead of replaying creation after those tasks have changed, and the persisted reply replaces its optimistic copy before setup-Work synchronization. Concurrent recovery loads the already-created task and remains duplicate-safe.
 
 Deployment evidence:
 
-- Source revision: `b84be1dc5b1a79d2947c2bca2d57d64d4deae2a7`.
-- Release-manifest revision and clean VPS checkout: `100c5dc61de9ed6822b73898b679235ba7847232`.
-- Release manifest: `deploy/releases/0.3.0-rc.33.env`.
+- Source revision: `d899e2994d688af02e061593f211cff1af794b66`.
+- Release-manifest revision and clean VPS checkout: `e586e93e09087c5f405f1eb348280c527effa5b3`.
+- Release manifest: `deploy/releases/0.3.0-rc.34.env`.
 - All three images carry provenance and SBOM attestations and passed HIGH/CRITICAL vulnerability plus secret scanning with zero findings.
 - The protected Stage configuration verified before and after deployment.
 - Existing PostgreSQL and object-store volumes were retained; migration ledgers remain 68/80/80.
 - 49 long-running containers are present; all 48 healthchecked workloads are healthy and the internal edge is running.
-- Public, login and MCP metadata endpoints return `200`; the running application and private UI match the recorded digests.
-- An authenticated reload of the exact assessment rendered both prior approvals as compact events, repaired both approved setup Work items, removed the former route error and produced no browser-console errors.
-- Unit coverage verifies immediate optimistic replies and compact automation approval while a real Agent run is pending. Authenticated owner acceptance of the remaining adaptive questions and Your Turn continuation remains open.
+- Public, login and MCP metadata endpoints return `200`; all three running image identities match the recorded digests.
+- An authenticated reload of the exact assessment rendered one durable copy of the affected reply, both prior approvals as compact events, both approved setup Work items, no stale Work conflict and no browser-console errors.
+- Eleven focused Baseline tests cover immediate optimistic replies, compact automation approval, completed-Work replay avoidance, creation-race recovery and reply cleanup when Work repair fails. Authenticated owner acceptance of the remaining adaptive questions and Your Turn continuation remains open.
 
 | Artifact | Digest |
 | --- | --- |
-| Application | `sha256:162a772a3f4eb43c5399f787bd46844a3f588dfc694cd2d38c1ceb88937703fa` |
-| Public UI | `sha256:9f95f8060665a143c848f3d874d302da91316aaa5f98875d05c19723cc7d4aa8` |
-| Private UI | `sha256:77cee73148035c2d3584ae8f1b70ada0a1585c76c4105f3ca152a40a8afad979` |
+| Application | `sha256:83308a98dd516623c8ffddd72f08c8f7ecc94a965c890610141196aca263ac0b` |
+| Public UI | `sha256:98a7ac27d65372d9eb616e81911e57eb04b95c35a009555ac3de3f063d7b5749` |
+| Private UI | `sha256:071563a9d575cbe2301ebdb39ff65a3c199869e43767f895aab503457253a4f1` |
 
 ## Conversational Business Baseline deployment — RC.29
 
