@@ -410,10 +410,10 @@ func ValidateResult(result ResultEnvelope) (ResultEnvelope, error) {
 	result.Delegations = append(make([]Delegation, 0, len(result.Delegations)), result.Delegations...)
 	if result.Baseline != nil {
 		value := *result.Baseline
-		value.CapturedTopics = append([]string(nil), value.CapturedTopics...)
-		value.AutomationOffers = append([]BaselineAutomationOffer(nil), value.AutomationOffers...)
-		value.ApprovedWork = append([]BaselineApprovedWork(nil), value.ApprovedWork...)
-		value.MissingTopics = append([]string(nil), value.MissingTopics...)
+		value.CapturedTopics = append(make([]string, 0, len(value.CapturedTopics)), value.CapturedTopics...)
+		value.AutomationOffers = append(make([]BaselineAutomationOffer, 0, len(value.AutomationOffers)), value.AutomationOffers...)
+		value.ApprovedWork = append(make([]BaselineApprovedWork, 0, len(value.ApprovedWork)), value.ApprovedWork...)
+		value.MissingTopics = append(make([]string, 0, len(value.MissingTopics)), value.MissingTopics...)
 		result.Baseline = &value
 	}
 	for index := range result.ProposedActions {

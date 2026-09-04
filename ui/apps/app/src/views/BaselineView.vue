@@ -32,7 +32,17 @@ const manageable = computed(() => Boolean(session.selected && !session.selected.
 const conversationID = computed(() => messages.value[0]?.conversation_id ?? activeRun.value?.conversation_id ?? "");
 const visibleMessages = computed(() => messages.value.filter((item) => item.body !== bootstrapPrompt));
 const latestAgentMessage = computed(() => [...messages.value].reverse().find((item) => item.role === "persona" && item.result?.baseline));
-const interview = computed<AgentBaselineInterview | undefined>(() => latestAgentMessage.value?.result?.baseline);
+function listOrEmpty<T>(value: ReadonlyArray<T> | null | undefined): ReadonlyArray<T> { return Array.isArray(value) ? value : []; }
+const interview = computed<AgentBaselineInterview | undefined>(() => {
+  const value = latestAgentMessage.value?.result?.baseline; if (!value) return undefined;
+  return {
+    ...value,
+    captured_topics: listOrEmpty(value.captured_topics),
+    automation_offers: listOrEmpty(value.automation_offers),
+    approved_work: listOrEmpty(value.approved_work),
+    missing_topics: listOrEmpty(value.missing_topics)
+  };
+});
 const ready = computed(() => Boolean(interview.value?.ready));
 const capturedTopicCount = computed(() => new Set(facts.value.filter((item) => item.key.startsWith("baseline.")).map((item) => item.key)).size);
 const baselineWork = computed(() => work.value.filter((item) => item.provenance.conversation_id === conversationID.value));
@@ -156,7 +166,7 @@ function beginPolling(run: AgentRun): void {
 }
 
 async function materializeApprovedWork(accountID: string): Promise<void> {
-  const message = [...messages.value].reverse().find((item) => item.role === "persona" && item.result?.baseline?.approved_work.length);
+  const message = [...messages.value].reverse().find((item) => item.role === "persona" && (item.result?.baseline?.approved_work?.length ?? 0) > 0);
   const proposal = message?.result?.baseline?.approved_work[0]; if (!message || !proposal || !persona.value || workPackage.value?.mode !== "enabled") return;
   const item = await createWorkFromAgentMessage(accountID, message.id, { kind: "todo", title: proposal.title, description: `${proposal.description}\n\nThis is approved setup Work from the Business Baseline. Work on this task rather than continuing the onboarding interview.`, priority: proposal.priority, assignment: { responsibility: "shared" }, reason: `Approved during Business Baseline: ${proposal.key}` });
   const linked = item.provenance.conversation_id || !conversationID.value ? item : await linkWorkConversation(accountID, item, { conversation_id: conversationID.value, reason: "Approved during the Business Baseline interview" });

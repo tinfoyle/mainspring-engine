@@ -59,6 +59,15 @@ describe("conversational Business Baseline", () => {
     expect(wrapper.text()).toContain("Commercial HVAC service company"); expect(wrapper.text()).not.toContain("Question 3 of 7");
   });
 
+  it("renders persisted Agent results whose empty collections were encoded as null", async () => {
+    const nullableResult = { ...result, baseline: { ...result.baseline, captured_topics: null, automation_offers: null, approved_work: null, missing_topics: null } } as unknown as AgentMessage["result"];
+    api.listAgentMessages.mockResolvedValue([messages[0], { ...messages[1], result: nullableResult }]);
+    const wrapper = await mountAt(`/app/baseline/${baseline.id}`);
+    expect(wrapper.text()).toContain("How does a new service call reach you today?");
+    expect(wrapper.text()).toContain("Commercial HVAC service company");
+    expect(wrapper.find(".baseline-offers").exists()).toBe(false);
+  });
+
   it("saves the answer under the question selected by the agent before continuing", async () => {
     const wrapper = await mountAt(`/app/baseline/${baseline.id}`); const answer = "Calls come from Google and go onto a whiteboard.";
     await wrapper.get("#baseline-reply").setValue(answer); await wrapper.get("form.baseline-composer").trigger("submit"); await flushPromises();

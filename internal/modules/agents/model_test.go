@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -138,6 +139,13 @@ func TestResultEnvelopeValidatesConversationalBaselineGuidance(t *testing.T) {
 	validated, err := ValidateResult(result)
 	if err != nil || validated.Baseline == nil || validated.Baseline.NextQuestionKey != "baseline.revenue_workflow" {
 		t.Fatalf("validated=%+v err=%v", validated, err)
+	}
+	if validated.Baseline.AutomationOffers == nil || validated.Baseline.ApprovedWork == nil {
+		t.Fatalf("empty Baseline collections must remain JSON arrays: %+v", validated.Baseline)
+	}
+	raw, err := json.Marshal(validated)
+	if err != nil || !bytes.Contains(raw, []byte(`"automation_offers":[]`)) || !bytes.Contains(raw, []byte(`"approved_work":[]`)) {
+		t.Fatalf("baseline collections were not serialized as arrays: %s err=%v", raw, err)
 	}
 	result.Baseline.ApprovedWork = []BaselineApprovedWork{
 		{Key: "schedule.dispatch", Title: "Set up dispatch review", Description: "Choose the calendar and exception owner.", Priority: "high"},
