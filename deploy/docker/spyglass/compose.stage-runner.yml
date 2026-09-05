@@ -18,6 +18,13 @@ x-workload-tls: &workload-tls
   SPYGLASS_WORKLOAD_CA_FILE: /var/run/secrets/spyglass/workload/ca.crt
 
 services:
+  # Scheduled source captures use the public-web adapter's DNS/IP and scope checks.
+  app-api-a:
+    networks: [application, database, provider-egress]
+
+  app-api-b:
+    networks: [application, database, provider-egress]
+
   account-api:
     networks: [application, database, provider-egress]
 

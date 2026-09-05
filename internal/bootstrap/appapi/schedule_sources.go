@@ -3,6 +3,7 @@ package appapi
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	web "github.com/tinfoyle/spyglass-engine/internal/adapters/webresearch"
 	app "github.com/tinfoyle/spyglass-engine/internal/application/scheduling"
@@ -39,7 +40,7 @@ func (s *scheduleSourceExecutor) Dispatch(ctx context.Context, command app.Occur
 			defer cancel()
 			v, err := s.reader.Fetch(sub, raw, web.Policy{HTTPSOrigin: "https://" + u.Host, PathPrefix: "/"})
 			if err != nil {
-				parts[i] = fmt.Sprintf("Source: %s\nStatus: unavailable; do not infer its current prices.\n", raw)
+				parts[i] = fmt.Sprintf("Source: %s\nStatus: unavailable; do not infer its current prices. Reason: %s.\n", raw, sourceFailure(err))
 				return
 			}
 			title, text := web.PageText(v.MediaType, v.Content)
@@ -60,4 +61,20 @@ func (s *scheduleSourceExecutor) Dispatch(ctx context.Context, command app.Occur
 		return false, app.ErrExecutionSnapshotInvalid
 	}
 	return s.OccurrenceExecutor.Dispatch(app.WithSourceContext(ctx, text), command)
+}
+
+// Keep provider response bodies, credentials and network details out of captures.
+func sourceFailure(err error) string {
+	switch {
+	case errors.Is(err, web.ErrDenied):
+		return "destination or redirect outside the allowed public source"
+	case errors.Is(err, web.ErrTooLarge):
+		return "page exceeds the download limit"
+	case errors.Is(err, web.ErrType):
+		return "page format is not supported"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "page timed out"
+	default:
+		return "page could not be reached or the site refused the request"
+	}
 }

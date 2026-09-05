@@ -23,7 +23,7 @@ The queue waits for a fully successful agent run. Failed, partially failed or ca
 
 ## Operations
 
-Docker integration connector workers enable `SPYGLASS_REPORT_EMAIL_ENABLED=true` and receive `SPYGLASS_SMTP_ADDRESS`, `SPYGLASS_SMTP_SERVER_NAME`, optional username/password/root CA, sender address/name and `SPYGLASS_APP_ORIGIN` from the existing protected environment. For Kubernetes, provision these in the worker Secret and permit outbound SMTP to the configured endpoint. Do not log environment values or report bodies.
+Docker integration connector workers enable `SPYGLASS_REPORT_EMAIL_ENABLED=true` and receive `SPYGLASS_SMTP_ADDRESS`, `SPYGLASS_SMTP_SERVER_NAME`, optional username/password/root CA, sender address/name and `SPYGLASS_APP_ORIGIN` from the existing protected environment. Stage deployment must enable the integration-connectors profile; its connector credential directory needs a valid index.json (an empty version-1 credentials list is sufficient for self-email reports) and the existing source cursor key. Verification requires both workers and their outbound network. For Kubernetes, provision SMTP settings in the worker Secret and permit outbound SMTP to the configured endpoint. App API workloads also require outbound public HTTPS for scheduled source captures; the fetcher still validates DNS, pinned addresses and every redirect. Do not log environment values or report bodies.
 
 Global migration 72 and cell migration 87 create the recipient projection and durable delivery queue/functions. Role installation grants the connector worker only the required functions; customer access uses the existing account routing and row isolation. The report table participates in account export, erasure counting and the namespace write fence.
 
@@ -52,3 +52,7 @@ same-origin CSRF check correctly rejects. Consent now uses same-origin referrer
 policy (no external referrer) and permits only the validated callback origin in
 form-action. Exact redirect matching, PKCE, session binding and CSRF origin
 validation remain mandatory. This correction is released in RC53.
+
+## Live execution corrections
+
+RC54 corrects a 15-second runner-to-broker timeout that canceled valid model calls, gives the source-capture service Stage Internet access, and includes the report delivery workers in the deployed/verified profile. A real slow HTTP response and explicit cancellation test cover the timeout regression; a TLS source fixture uses the actual hardened reader. Source failures retain safe, plain-language reasons without exposing provider response bodies.

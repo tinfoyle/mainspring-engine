@@ -146,7 +146,7 @@ test -d "$log_directory" && test ! -L "$log_directory" || { echo "Stage access l
 test "$(stat -c %a "$log_directory")" = 2750 && test "$(stat -c %g "$log_directory")" = 65532 || { echo "Stage access-log directory permissions are incorrect" >&2; exit 1; }
 rendered="$(mktemp)"
 trap 'rm -f "$rendered"' EXIT
-docker compose --project-name spyglass-stage --env-file "$release_file" --env-file "$env_file" --file "$stack_dir/compose.yml" --file "$stack_dir/compose.stage.yml" --file "$stack_dir/compose.stage-runner.yml" --profile knowledge-processing config --format json >"$rendered"
+docker compose --project-name spyglass-stage --env-file "$release_file" --env-file "$env_file" --file "$stack_dir/compose.yml" --file "$stack_dir/compose.stage.yml" --file "$stack_dir/compose.stage-runner.yml" --profile knowledge-processing --profile integration-connectors config --format json >"$rendered"
 python3 - "$rendered" "$network" "$(release_value SPYGLASS_APPLICATION_IMAGE)" "$(release_value SPYGLASS_WEBSITE_IMAGE)" "$(release_value SPYGLASS_PRIVATE_UI_IMAGE)" "$secrets_gid" "$(release_value SPYGLASS_OPERATIONS_UI_IMAGE)" <<'PY'
 import json
 import sys
@@ -160,7 +160,7 @@ runner_services = {
     "tool-router", "runner-controller-a", "runner-controller-b",
     "runner-broker-a", "runner-broker-b", "docker-runner-launcher-a",
     "docker-runner-launcher-b", "model-gateway", "knowledge-document-worker-a",
-    "knowledge-document-worker-b", "baseline-maintenance-worker-a",
+    "knowledge-document-worker-b", "integration-connector-worker-a", "integration-connector-worker-b", "baseline-maintenance-worker-a",
     "baseline-maintenance-worker-b",
 }
 application_services = runner_services | {
@@ -235,7 +235,7 @@ provider_members = {
     name for name, service in services.items()
     if "provider-egress" in service.get("networks", {})
 }
-if provider_members != {"account-api", "billing-worker", "notification-worker", "model-gateway", "runner-broker-a", "runner-broker-b"}:
+if provider_members != {"account-api", "app-api-a", "app-api-b", "billing-worker", "notification-worker", "model-gateway", "runner-broker-a", "runner-broker-b", "integration-connector-worker-a", "integration-connector-worker-b"}:
     raise SystemExit(f"provider egress membership is not least-authority: {sorted(provider_members)}")
 for suffix in ("a", "b"):
     network_name = f"runner-{suffix}-egress"

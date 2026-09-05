@@ -211,3 +211,44 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return function(request)
 }
+
+func TestModelCapabilityCanOutlastExchangeTimeoutAndStillCancel(t *testing.T) {
+	tokenFile := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(tokenFile, []byte("test-token"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	started := make(chan struct{}, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		started <- struct{}{}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-time.After(16 * time.Second):
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"schema_version":1,"output":{}}`))
+	}))
+	defer server.Close()
+	client, err := New(Config{BrokerURL: server.URL, InvocationID: "11000000-0000-4000-8000-000000000001", IdentityTokenFile: tokenFile, HTTPClient: server.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := runnercapability.Call{SchemaVersion: 1, OperationID: "41000000-0000-4000-8000-000000000001", Capability: "agents.model.turn", Input: json.RawMessage(`{}`)}
+	if _, err := client.Invoke(context.Background(), call); err != nil {
+		t.Fatalf("model result canceled by short exchange timeout: %v", err)
+	}
+	<-started
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { _, err := client.Invoke(ctx, call); done <- err }()
+	<-started
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancel error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("model call ignored cancellation")
+	}
+}

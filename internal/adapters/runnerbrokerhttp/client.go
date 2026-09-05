@@ -29,6 +29,9 @@ const (
 	initialFetchRetry    = 250 * time.Millisecond
 	maximumFetchRetry    = 4 * time.Second
 	fetchRetryWindow     = 30 * time.Second
+	// Model capabilities may spend five minutes at the provider. Leave time for
+	// the broker to record and return the bounded result or failure.
+	capabilityTimeout = 5*time.Minute + 10*time.Second
 )
 
 type Config struct {
@@ -39,6 +42,7 @@ type Config struct {
 type Client struct {
 	baseURL, invocationID, tokenFile string
 	http                             *http.Client
+	capabilityHTTP                   *http.Client
 }
 
 func New(config Config) (*Client, error) {
@@ -71,7 +75,9 @@ func New(config Config) (*Client, error) {
 		}
 	}
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return errors.New("runner broker redirects are denied") }
-	return &Client{baseURL: base, invocationID: config.InvocationID, tokenFile: config.IdentityTokenFile, http: client}, nil
+	capabilityClient := *client
+	capabilityClient.Timeout = capabilityTimeout
+	return &Client{baseURL: base, invocationID: config.InvocationID, tokenFile: config.IdentityTokenFile, http: client, capabilityHTTP: &capabilityClient}, nil
 }
 
 func loadRoots(filename string) (*x509.CertPool, error) {
@@ -183,7 +189,7 @@ func (c *Client) Invoke(ctx context.Context, call runnercapability.Call) (runner
 		return runnercapability.Result{}, err
 	}
 	request.Header.Set("Content-Type", "application/json")
-	response, err := c.http.Do(request)
+	response, err := c.capabilityHTTP.Do(request)
 	if err != nil {
 		return runnercapability.Result{}, fmt.Errorf("invoke runner capability: %w", err)
 	}
