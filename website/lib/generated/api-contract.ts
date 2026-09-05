@@ -234,6 +234,7 @@ export const apiRoutes = [
   { service: "operations-api", method: "POST", path: "/api/operations/v1/billing/events/{eventID}/replays", operationId: "operationsReplayBillingEvent", authentication: "operationsCookie", contract: "typed" },
   { service: "operations-api", method: "POST", path: "/api/operations/v1/billing/failures/reports", operationId: "operationsBillingFailures", authentication: "operationsCookie", contract: "typed" },
   { service: "operations-api", method: "POST", path: "/api/operations/v1/billing/subscriptions/{subscriptionID}/refreshes", operationId: "operationsRefreshBillingSubscription", authentication: "operationsCookie", contract: "typed" },
+  { service: "operations-api", method: "POST", path: "/api/operations/v1/directory", operationId: "operationsDirectory", authentication: "operationsCookie", contract: "typed" },
   { service: "operations-api", method: "POST", path: "/api/operations/v1/lookups", operationId: "operationsLookup", authentication: "operationsCookie", contract: "typed" },
   { service: "operations-api", method: "POST", path: "/api/operations/v1/passkey-login/challenges", operationId: "operationsBeginPasskeyLogin", authentication: "public", contract: "typed" },
   { service: "operations-api", method: "POST", path: "/api/operations/v1/passkey-login/challenges/{ceremonyID}/complete", operationId: "operationsCompletePasskeyLogin", authentication: "public", contract: "typed" },

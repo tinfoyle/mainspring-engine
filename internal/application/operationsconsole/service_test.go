@@ -42,11 +42,16 @@ type repository struct {
 	grant     operations.SupportGrant
 	created   operations.SupportGrant
 	viewed    bool
+	directory *operations.DirectoryQuery
 	analytics bool
 }
 
 func (r *repository) Staff(context.Context, ids.UserID) (operations.Staff, error) {
 	return r.staff, nil
+}
+func (r *repository) Directory(_ context.Context, _ operations.Staff, q operations.DirectoryQuery, _ ids.OperationsAuditEventID, _ string) (operations.DirectoryPage, error) {
+	r.directory = &q
+	return operations.DirectoryPage{Kind: q.Kind, Page: q.Page, PageSize: q.PageSize, Users: []operations.DirectoryUser{}, Teams: []operations.DirectoryTeam{}}, nil
 }
 func (r *repository) Lookup(context.Context, operations.Staff, operations.LookupQuery, ids.OperationsAuditEventID, string, time.Time) ([]operations.LookupResult, error) {
 	return []operations.LookupResult{{UserID: targetID, AccountID: accountID}}, nil
@@ -158,5 +163,32 @@ func TestCustomerHistoryAlwaysReturnsAnArray(t *testing.T) {
 	history, err := service.CustomerHistory(context.Background(), targetID, accountID, 50)
 	if err != nil || history == nil || len(history) != 0 {
 		t.Fatalf("history=%v err=%v", history, err)
+	}
+}
+
+func TestDirectoryRequiresAdministratorAndBoundsEveryPage(t *testing.T) {
+	q := operations.DirectoryQuery{Kind: "users", Audit: operations.AuditReason{Ticket: "OPS-100", Reason: "Review users and teams."}}
+	for _, role := range []operations.StaffRole{operations.RoleSupport, operations.RoleAnalytics, operations.RoleBilling, operations.RolePrivacy, operations.RoleAffiliate} {
+		s, r := service(t, role)
+		if _, err := s.Directory(context.Background(), staffID, q); !errors.Is(err, operations.ErrStaffUnauthorized) || r.directory != nil {
+			t.Fatalf("role %s allowed: %v", role, err)
+		}
+	}
+	s, r := service(t, operations.RoleAdministrator)
+	page, err := s.Directory(context.Background(), staffID, q)
+	if err != nil || page.Page != 1 || page.PageSize != 25 {
+		t.Fatalf("default page: %+v %v", page, err)
+	}
+	for _, bad := range []operations.DirectoryQuery{
+		{Kind: "unknown", Page: 1, PageSize: 25, Audit: q.Audit},
+		{Kind: "users", Page: -1, PageSize: 25, Audit: q.Audit},
+		{Kind: "users", Page: 1000001, PageSize: 25, Audit: q.Audit},
+		{Kind: "users", Page: 1, PageSize: 101, Audit: q.Audit},
+		{Kind: "users", Page: 1, PageSize: 25},
+	} {
+		r.directory = nil
+		if _, err := s.Directory(context.Background(), staffID, bad); !errors.Is(err, operations.ErrInvalidInput) || r.directory != nil {
+			t.Fatalf("invalid query reached repository: %+v %v", bad, err)
+		}
 	}
 }

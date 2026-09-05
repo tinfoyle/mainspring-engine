@@ -2362,6 +2362,43 @@ export interface OperationsCreateSupportGrant {
   readonly "ticket": string;
 }
 
+export interface OperationsDirectoryPage {
+  readonly "kind": "users" | "teams";
+  readonly "page": number;
+  readonly "page_size": number;
+  readonly "teams": ReadonlyArray<OperationsDirectoryTeam>;
+  readonly "total": number;
+  readonly "users": ReadonlyArray<OperationsDirectoryUser>;
+}
+
+export interface OperationsDirectoryRequest {
+  readonly "kind": "users" | "teams";
+  readonly "page"?: number;
+  readonly "page_size"?: number;
+  readonly "reason": string;
+  readonly "ticket": string;
+}
+
+export interface OperationsDirectoryTeam {
+  readonly "account_type": string;
+  readonly "created_at": string;
+  readonly "display_name": string;
+  readonly "id": string;
+  readonly "member_count": number;
+  readonly "slug": string;
+  readonly "state": string;
+}
+
+export interface OperationsDirectoryUser {
+  readonly "created_at": string;
+  readonly "display_name": string;
+  readonly "email": string;
+  readonly "email_verified": boolean;
+  readonly "id": string;
+  readonly "state": string;
+  readonly "team_count": number;
+}
+
 export interface OperationsEntitlementView {
   readonly "catalog_version": number;
   readonly "evaluated_at": OperationsTimestamp;
@@ -3514,6 +3551,10 @@ export interface ApiSchemas {
   readonly OperationsBillingView: OperationsBillingView;
   readonly OperationsCompletePasskeyLogin: OperationsCompletePasskeyLogin;
   readonly OperationsCreateSupportGrant: OperationsCreateSupportGrant;
+  readonly OperationsDirectoryPage: OperationsDirectoryPage;
+  readonly OperationsDirectoryRequest: OperationsDirectoryRequest;
+  readonly OperationsDirectoryTeam: OperationsDirectoryTeam;
+  readonly OperationsDirectoryUser: OperationsDirectoryUser;
   readonly OperationsEntitlementView: OperationsEntitlementView;
   readonly OperationsLifecycleView: OperationsLifecycleView;
   readonly OperationsLookupKind: OperationsLookupKind;

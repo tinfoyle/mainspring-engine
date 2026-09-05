@@ -93,7 +93,8 @@ checks passed, all 50 health checks pass, and the published UI bundle contains
 the new field. See the [user-agent verification record](stage-traffic-user-agents-verification-2026-09-05.md).
 
 The RC.49 deployment had a publication-token exposure in private task output.
-Replace the native UbuntuRojo publication token before the next release.
+The exposed token was revoked and the owner supplied a replacement in UbuntuRojo
+on 2026-09-05.
 Use subprocess argument arrays and stdin for credential transfer, with captured
 errors; do not nest token pipelines through PowerShell, Bash and SSH quoting.
 

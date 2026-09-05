@@ -238,6 +238,7 @@ var Routes = [...]Route{
 	{Service: "operations-api", Method: "POST", Path: "/api/operations/v1/billing/events/{eventID}/replays", OperationID: "operationsReplayBillingEvent", Authentication: "operationsCookie", Contract: "typed"},
 	{Service: "operations-api", Method: "POST", Path: "/api/operations/v1/billing/failures/reports", OperationID: "operationsBillingFailures", Authentication: "operationsCookie", Contract: "typed"},
 	{Service: "operations-api", Method: "POST", Path: "/api/operations/v1/billing/subscriptions/{subscriptionID}/refreshes", OperationID: "operationsRefreshBillingSubscription", Authentication: "operationsCookie", Contract: "typed"},
+	{Service: "operations-api", Method: "POST", Path: "/api/operations/v1/directory", OperationID: "operationsDirectory", Authentication: "operationsCookie", Contract: "typed"},
 	{Service: "operations-api", Method: "POST", Path: "/api/operations/v1/lookups", OperationID: "operationsLookup", Authentication: "operationsCookie", Contract: "typed"},
 	{Service: "operations-api", Method: "POST", Path: "/api/operations/v1/passkey-login/challenges", OperationID: "operationsBeginPasskeyLogin", Authentication: "public", Contract: "typed"},
 	{Service: "operations-api", Method: "POST", Path: "/api/operations/v1/passkey-login/challenges/{ceremonyID}/complete", OperationID: "operationsCompletePasskeyLogin", Authentication: "public", Contract: "typed"},

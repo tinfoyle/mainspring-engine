@@ -31,6 +31,7 @@ const lookupKind = ref<OperationsLookupKind>("email");
 const lookupValue = ref("");
 const ticket = ref("");
 const reason = ref("");
+const lookupComplete = ref(false);
 const lookupResults = ref<ReadonlyArray<OperationsLookupResult>>([]);
 const supportView = ref<OperationsSupportViewEnvelope>();
 const billingMode = ref<"test" | "live">("test");
@@ -93,11 +94,17 @@ function restoreModule(): void {
   screen.value = modules.value.find(module => module.id === destination)?.id ?? "overview";
 }
 
+async function lookupFromDirectory(input: { kind: "user_id" | "account_id"; value: string; ticket: string; reason: string }): Promise<void> {
+ lookupKind.value = input.kind; lookupValue.value = input.value; ticket.value = input.ticket; reason.value = input.reason;
+ navigate("lookup");
+ await findAccount();
+}
+
 async function findAccount(): Promise<void> {
-  busy.value = true; error.value = ""; lookupResults.value = [];
+  busy.value = true; error.value = ""; lookupResults.value = []; lookupComplete.value = false;
   try {
     const response = await operationsLookup({ kind: lookupKind.value, value: lookupValue.value.trim(), ticket: ticket.value.trim(), reason: reason.value.trim() });
-    lookupResults.value = response.results;
+    lookupResults.value = response.results; lookupComplete.value = true;
   } catch (value) { error.value = message(value); }
   finally { busy.value = false; }
 }
@@ -257,11 +264,11 @@ onBeforeUnmount(() => { window.removeEventListener("resize", trackViewport); win
         </div>
         <section class="guardrail-card" aria-labelledby="guardrails-title">
           <h2 id="guardrails-title">Built-in guardrails</h2>
-          <ul><li>No broad customer directory or fuzzy search.</li><li>No customer mutations while viewing an account.</li><li>Every lookup, grant, view, and revocation is recorded.</li></ul>
+          <ul><li>User and team lists are administrator-only.</li><li>No customer mutations while viewing an account.</li><li>Every lookup, grant, view, and revocation is recorded.</li></ul>
         </section>
       </section>
 
-      <component :is="activeModule.component" v-else-if="activeModule?.component" :key="screen" />
+      <component :is="activeModule.component" v-else-if="activeModule?.component" :key="screen" @lookup="lookupFromDirectory" />
 
       <section v-else-if="screen === 'lookup'" aria-labelledby="lookup-title">
         <p class="eyebrow">Support</p><h1 id="lookup-title">Find one customer</h1>
@@ -272,7 +279,7 @@ onBeforeUnmount(() => { window.removeEventListener("resize", trackViewport); win
           <div class="form-row"><label>Support ticket<input v-model="ticket" required placeholder="SUP-1042" autocomplete="off" /></label><label>Reason<input v-model="reason" required placeholder="Customer asked us to check billing access" autocomplete="off" /></label></div>
           <IoButton type="submit" :disabled="busy">{{ busy ? "Searching…" : "Find exact match" }}</IoButton>
         </form>
-        <p v-if="lookupResults.length === 0 && lookupValue && !busy" class="empty-state">No result loaded. Confirm the exact identifier and search again.</p>
+        <p v-if="lookupComplete && lookupResults.length === 0 && !busy" class="empty-state">No team membership found for this identifier. A registered user or team can exist without a current membership.</p>
         <div v-else class="result-list">
           <article v-for="result in lookupResults" :key="`${result.user_id}:${result.account_id}`" class="result-card">
             <div><h2>{{ result.account_name }}</h2><p>{{ result.display_name }} · {{ result.email }}</p><small>{{ result.membership_role }} · Account {{ result.account_state }} · User {{ result.user_state }}</small></div>

@@ -24,11 +24,20 @@ The resulting view is read-only and always displays a persistent support-access 
 | `billing` | classified failure reports, exact Stripe-event replay request and exact subscription refresh request |
 | `privacy` | content-minimized due queue, exact request inspection, version-fenced review start and evidence-bound resolution |
 | `affiliate` | exact enrollment inspection, content-free risk signals and version-fenced reactivate/suspend/close |
-| `operations_administrator` | all console actions, including traffic IPs and access logs; does not grant database, customer or deployment authority |
+| `operations_administrator` | all console actions, including user/team directories, traffic IPs and access logs; does not grant database, customer or deployment authority |
 
 Every console action requires a ticket and reason. The API records the immutable staff User ID as `operations/<user-id>` when invoking an existing operator boundary. The billing, privacy and Affiliate pools have execute-only privileges for their specific security-definer functions. The identity pool is limited to reviewed User/staff/authenticator/session/security-rate-limit relations and three Google identity columns, and cannot read Accounts or business data. The support projection pool can execute only Operations projection functions plus read the restore checkpoint required by the service readiness gate. It has no direct customer-table access.
 
 The console intentionally excludes Affiliate settlement/check issuance, billing credits, legal-hold or retention decisions, money adjustment, privacy evidence creation, and Account erasure execution. Those remain separately governed procedures. New actions must be added one at a time with a named role, exact API contract, narrow database function, immutable evidence and denial tests.
+
+## Administrator directory
+
+The administrator-only **Users & teams** module exposes an audited, read-only
+page of users or team accounts. Each response includes a total and up to 100
+rows; the UI defaults to 25. Users without memberships and teams without members
+are included. Ordinary Support, Analytics, Billing, Privacy and Affiliate roles
+do not gain directory access. Exact support lookup and grants remain separate.
+See the [admin guide](stage-admin-guide.md#browse-all-users-and-teams).
 
 ## Staff governance
 

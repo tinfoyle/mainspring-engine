@@ -57,6 +57,39 @@ prompted, enter a fresh code, select **Confirm**, then repeat the original
 action. Staff revocation invalidates access. Customer sessions and legacy
 passkey login endpoints cannot open the Stage admin console.
 
+## Browse all users and teams
+
+Open **Users & teams**. The Users list loads automatically. Select **Teams**
+to browse team accounts. Both lists include every retained record, including
+pending users, users without team memberships and closed or inactive accounts.
+Erased records that no longer exist cannot appear.
+
+Use **Rows per page** for 25, 50 or 100 rows; **Next**, **Previous** and **First**
+move between pages. Totals and the displayed range appear above the table.
+Records are newest first, with an ID tie-breaker for equal creation times.
+**Refresh list** reloads the first page. Each page reflects current data, so new
+registrations or deletions can move records between pages while you browse.
+
+Users show name, email, verification status, user status, active team count and
+join date. Teams show name, short name, status, account type, active member
+count and creation date. **View user** or **View team** opens the existing exact
+customer lookup with the selected ID and review details. A further support view
+still needs its own timed grant. A user or team with no eligible membership may
+have no lookup result even though it appears in the directory.
+
+Only administrators can use these lists. **Review details** contains the
+reference and reason attached to every page read. Both the service and database
+check the current role. The database returns an explicit field projection and
+writes an immutable `directory_viewed` audit event before returning a page;
+the runtime role has no direct table access. Migration global 71 installs this
+function and its ordering indexes.
+
+For a release check, run `verify-stage-directory.py --stage --staff-user-id UUID`
+on the VPS from the active checkout, supplying an already assigned administrator.
+It reads two one-row pages through the restricted projection role, checks each
+audit event, prints only totals and pass/fail facts, and checks anonymous and
+cross-origin API denials. It creates no users, teams, memberships or support grants.
+
 ## Read traffic and IP logs
 
 Open **Traffic & logs**. Select Last hour, Last 24 hours or Last 7 days. Supply

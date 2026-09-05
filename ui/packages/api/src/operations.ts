@@ -3,6 +3,7 @@ import type {
   AdminLoginStatus, AdminSetup, AdminVerification, OperationsAnalyticsReport, OperationsAnalyticsRequest, OperationsAuditReason,
   OperationsAffiliateEnrollmentEnvelope, OperationsAffiliateRiskEnvelope, OperationsAffiliateTransitionRequest,
   OperationsBillingActionRequest, OperationsBillingFailuresReport, OperationsBillingFailuresRequest, OperationsBillingRecordEnvelope,
+  OperationsDirectoryRequest, OperationsDirectoryPage,
   OperationsCreateSupportGrant, OperationsLookupPage, OperationsLookupRequest,
   OperationsPasskeyCeremony, OperationsRevokeSupportGrant, OperationsSession,
   OperationsPrivacyOpenRequest, OperationsPrivacyQueue, OperationsPrivacyRequestEnvelope,
@@ -29,6 +30,10 @@ export function completeOperationsPasskeyLogin(ceremonyID: string, credential: R
 
 export function logoutOperations(): Promise<void> {
   return requestJSON<void>(`${root}/session`, { method: "DELETE" });
+}
+
+export function operationsDirectory(input: OperationsDirectoryRequest): Promise<OperationsDirectoryPage> {
+ return requestJSON<OperationsDirectoryPage>(`${root}/directory`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export function operationsLookup(input: OperationsLookupRequest): Promise<OperationsLookupPage> {

@@ -40,6 +40,8 @@ type consoleFake struct {
 	staff           operations.Staff
 	staffErr        error
 	authErr         error
+	directoryQuery  operations.DirectoryQuery
+	directoryActor  ids.UserID
 	lookupQuery     operations.LookupQuery
 	lookupActor     ids.UserID
 	viewAudit       operations.AuditReason
@@ -60,6 +62,10 @@ func (fake *consoleFake) RecordAuthentication(context.Context, ids.UserID, ids.S
 func (fake *consoleFake) RecordLogout(context.Context, ids.UserID, ids.SessionID) error {
 	fake.logoutRecorded = true
 	return nil
+}
+func (fake *consoleFake) Directory(_ context.Context, actor ids.UserID, q operations.DirectoryQuery) (operations.DirectoryPage, error) {
+	fake.directoryQuery, fake.directoryActor = q, actor
+	return operations.DirectoryPage{Kind: q.Kind, Page: q.Page, PageSize: q.PageSize, Users: []operations.DirectoryUser{}, Teams: []operations.DirectoryTeam{}}, nil
 }
 func (fake *consoleFake) Lookup(_ context.Context, actor ids.UserID, query operations.LookupQuery) ([]operations.LookupResult, error) {
 	fake.lookupActor, fake.lookupQuery = actor, query

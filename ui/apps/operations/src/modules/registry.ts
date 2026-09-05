@@ -1,12 +1,13 @@
 import { defineAsyncComponent, type Component } from "vue";
 
-export type ModuleID = "overview" | "lookup" | "traffic" | "analytics" | "billing" | "privacy" | "affiliate" | "help";
+export type ModuleID = "overview" | "directory" | "lookup" | "traffic" | "analytics" | "billing" | "privacy" | "affiliate" | "help";
 export interface OperationsModule { id: ModuleID; label: string; description: string; roles: readonly string[]; component?: Component }
 
 // New modules declare navigation, required roles and their own component here.
 // The server must independently enforce the same authority on every endpoint.
 export const operationsModules: readonly OperationsModule[] = [
   { id: "overview", label: "Overview", description: "Choose an admin task.", roles: [] },
+  { id: "directory", label: "Users & teams", description: "Browse all users and teams, one page at a time.", roles: ["operations_administrator"], component: defineAsyncComponent(() => import("./DirectoryPanel.vue")) },
   { id: "lookup", label: "Customer lookup", description: "Find one customer and open a timed, read-only support view.", roles: ["support"] },
   { id: "traffic", label: "Traffic & logs", description: "See requests, unique IPs, response codes and recent request logs.", roles: ["operations_administrator"], component: defineAsyncComponent(() => import("./TrafficPanel.vue")) },
   { id: "analytics", label: "Analytics", description: "Review consented website, signup and in-app events.", roles: ["analytics"], component: defineAsyncComponent(() => import("./AnalyticsPanel.vue")) },

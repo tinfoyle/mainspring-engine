@@ -231,8 +231,8 @@ func TestOperationsContractIsSeparateAndTyped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(routes) != 26 {
-		t.Fatalf("operations route count=%d, want 26", len(routes))
+	if len(routes) != 27 {
+		t.Fatalf("operations route count=%d, want 27", len(routes))
 	}
 	for _, route := range routes {
 		if route.Service != "operations-api" || route.Contract != "typed" {

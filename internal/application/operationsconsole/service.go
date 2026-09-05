@@ -1,5 +1,5 @@
 // Package operationsconsole coordinates staff-only, least-authority access to
-// aggregate analytics and exact customer support projections.
+// aggregate analytics, administrator directories and exact support projections.
 package operationsconsole
 
 import (
@@ -19,6 +19,7 @@ var environmentPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,79}$`)
 
 type Repository interface {
 	Staff(context.Context, ids.UserID) (operations.Staff, error)
+	Directory(context.Context, operations.Staff, operations.DirectoryQuery, ids.OperationsAuditEventID, string) (operations.DirectoryPage, error)
 	Lookup(context.Context, operations.Staff, operations.LookupQuery, ids.OperationsAuditEventID, string, time.Time) ([]operations.LookupResult, error)
 	CreateGrant(context.Context, operations.SupportGrant, ids.OperationsAuditEventID, string) (operations.SupportGrant, error)
 	Grant(context.Context, ids.OperationsSupportGrantID, ids.UserID) (operations.SupportGrant, error)

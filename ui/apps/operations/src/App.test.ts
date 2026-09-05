@@ -20,7 +20,7 @@ describe("operations console", () => {
     expect(wrapper.get("h1").text()).toBe("Admin overview");
     expect(wrapper.get("nav").text()).toContain("Customer lookup");
     expect(wrapper.get("nav").text()).toContain("Analytics");
-    expect(wrapper.text()).toContain("No broad customer directory or fuzzy search.");
+    expect(wrapper.text()).toContain("User and team lists are administrator-only.");
     const results = await axe.run(wrapper.element, { rules: { "color-contrast": { enabled: false } } });
     expect(results.violations).toEqual([]);
     wrapper.unmount();

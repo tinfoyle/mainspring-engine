@@ -36,6 +36,7 @@ type Console interface {
 	Staff(context.Context, ids.UserID) (operations.Staff, error)
 	RecordAuthentication(context.Context, ids.UserID, ids.SessionID) (operations.Staff, error)
 	RecordLogout(context.Context, ids.UserID, ids.SessionID) error
+	Directory(context.Context, ids.UserID, operations.DirectoryQuery) (operations.DirectoryPage, error)
 	Lookup(context.Context, ids.UserID, operations.LookupQuery) ([]operations.LookupResult, error)
 	CreateGrant(context.Context, operationsconsole.CreateGrantCommand) (operations.SupportGrant, error)
 	ViewAccount(context.Context, ids.UserID, ids.OperationsSupportGrantID, operations.AuditReason) (operations.AccountView, error)
@@ -141,6 +142,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/operations/v1/session", server.currentSession)
 	mux.HandleFunc("DELETE /api/operations/v1/session", server.logout)
 	mux.HandleFunc("POST /api/operations/v1/lookups", server.lookup)
+	mux.HandleFunc("POST /api/operations/v1/directory", server.directory)
 	mux.HandleFunc("POST /api/operations/v1/support-grants", server.createGrant)
 	mux.HandleFunc("POST /api/operations/v1/support-grants/{grantID}/views", server.viewAccount)
 	mux.HandleFunc("POST /api/operations/v1/support-grants/{grantID}/revocations", server.revokeGrant)
