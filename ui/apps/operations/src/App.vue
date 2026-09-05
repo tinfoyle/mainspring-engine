@@ -51,6 +51,14 @@ const roles = computed(() => session.value?.staff.roles ?? []);
 const modules = computed(() => availableModules(roles.value));
 const activeModule = computed(() => modules.value.find(module => module.id === screen.value));
 const grantActive = computed(() => supportView.value?.view.grant.state === "active");
+const noSubscription = computed(() => {
+  const billing = supportView.value?.view.billing;
+  return Boolean(billing && !billing.subscription_id && !billing.state);
+});
+const subscriptionStatus = computed(() => {
+  const billing = supportView.value?.view.billing;
+  return noSubscription.value ? "No subscription" : billing?.state?.replaceAll("_", " ") || "Status unavailable";
+});
 const navigationUnavailable = computed(() => !isDesktop.value && !menuOpen.value);
 
 function message(value: unknown): string {
@@ -287,13 +295,20 @@ onBeforeUnmount(() => { window.removeEventListener("resize", trackViewport); win
           </article>
         </div>
         <section v-if="supportView" class="account-view" aria-labelledby="account-view-title">
-          <div class="section-heading"><div><p class="eyebrow">Read only</p><h2 id="account-view-title">{{ supportView.view.account.display_name }}</h2></div><span class="state-pill">{{ supportView.view.account.state }}</span></div>
+          <div class="section-heading"><div><p class="eyebrow">Read only</p><h2 id="account-view-title">{{ supportView.view.account.display_name }}</h2></div><span class="state-pill">{{ supportView.view.account.state === "active" ? "Team open" : "Team " + supportView.view.account.state }}</span></div>
           <div class="detail-grid">
             <article><h3>Customer</h3><dl><dt>Name</dt><dd>{{ supportView.view.user.display_name }}</dd><dt>Email</dt><dd>{{ supportView.view.user.email }}</dd><dt>Email verified</dt><dd>{{ formatDate(supportView.view.user.email_verified_at) }}</dd><dt>Passkeys</dt><dd>{{ supportView.view.user.passkey_count }}</dd><dt>Membership</dt><dd>{{ supportView.view.membership.role }} · {{ supportView.view.membership.state }}</dd></dl></article>
-            <article><h3>Billing</h3><dl><dt>Status</dt><dd>{{ supportView.view.billing.state || "Not connected" }}</dd><dt>Offer</dt><dd>{{ supportView.view.billing.offer_code || "Not set" }}</dd><dt>Period ends</dt><dd>{{ formatDate(supportView.view.billing.current_period_end) }}</dd><dt>Cancel at</dt><dd>{{ formatDate(supportView.view.billing.cancel_at) }}</dd><dt>Stripe customer</dt><dd>{{ supportView.view.billing.customer_id || "Not set" }}</dd></dl></article>
-            <article><h3>Access</h3><dl><dt>Entitlement version</dt><dd>{{ supportView.view.entitlements.version }}</dd><dt>Catalog version</dt><dd>{{ supportView.view.entitlements.catalog_version }}</dd><dt>AI tokens available</dt><dd>{{ supportView.view.ai_tokens.available.toLocaleString() }}</dd><dt>Consumed</dt><dd>{{ supportView.view.ai_tokens.consumed.toLocaleString() }}</dd><dt>Reserved</dt><dd>{{ supportView.view.ai_tokens.reserved.toLocaleString() }}</dd></dl></article>
+            <article><h3>Subscription</h3><dl><dt>Status</dt><dd>{{ subscriptionStatus }}</dd><dt>Plan</dt><dd>{{ supportView.view.billing.offer_code || "Not set" }}</dd><dt>Period ends</dt><dd>{{ formatDate(supportView.view.billing.current_period_end) }}</dd><dt>Cancel at</dt><dd>{{ formatDate(supportView.view.billing.cancel_at) }}</dd><dt>Stripe customer</dt><dd>{{ supportView.view.billing.customer_id || "Not set" }}</dd></dl></article>
+            <article>
+              <h3>AI tokens</h3>
+              <dl><dt>Available</dt><dd>{{ supportView.view.ai_tokens.available.toLocaleString() }}</dd><dt>Used</dt><dd>{{ supportView.view.ai_tokens.consumed.toLocaleString() }}</dd><dt>Set aside for AI work</dt><dd>{{ supportView.view.ai_tokens.reserved.toLocaleString() }}</dd></dl>
+              <p v-if="supportView.view.ai_tokens.available === 0" class="account-help">No AI tokens available for new AI work.</p>
+              <p v-if="noSubscription && supportView.view.account.type === 'inactive' && supportView.view.ai_tokens.available === 0 && supportView.view.ai_tokens.reserved === 0" class="account-help">Signing up does not add AI tokens. The included allowance is added after a verified subscription payment.</p>
+              <p v-if="supportView.view.ai_tokens.reserved > 0" class="account-help">Tokens set aside for AI work are unavailable until that work finishes or releases them.</p>
+            </article>
             <article><h3>Lifecycle</h3><dl><dt>Status</dt><dd>{{ supportView.view.lifecycle.state || "No active request" }}</dd><dt>Execute after</dt><dd>{{ formatDate(supportView.view.lifecycle.execute_after) }}</dd><dt>Delete after</dt><dd>{{ formatDate(supportView.view.lifecycle.delete_after) }}</dd><dt>Blocker</dt><dd>{{ supportView.view.lifecycle.blocker_code || "None" }}</dd></dl></article>
           </div>
+          <details class="account-technical"><summary>Technical details</summary><dl><dt>Entitlement version</dt><dd>{{ supportView.view.entitlements.version }}</dd><dt>Catalog version</dt><dd>{{ supportView.view.entitlements.catalog_version }}</dd></dl></details>
           <article class="history-card"><h3>Support history visible to the customer</h3><p v-if="supportView.view.support_history.length === 0">No prior support access.</p><ol v-else><li v-for="event in supportView.view.support_history" :key="event.id"><strong>{{ event.action }}</strong> by {{ event.staff_display_name }} · {{ event.ticket }}<br /><span>{{ event.reason }} · {{ formatDate(event.occurred_at) }}</span></li></ol></article>
         </section>
       </section>

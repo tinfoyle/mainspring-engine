@@ -54,3 +54,12 @@ button, input, select { font: inherit; }
 @media (min-width: 42rem) { .action-grid, .detail-grid, .form-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }.result-card { grid-template-columns: 1fr auto; }.support-banner { grid-template-columns: auto 1fr auto; align-items: center; }.support-banner button { justify-self: end; } }
 @media (min-width: 64rem) { .topbar { display: none; }.sidebar { transform: none; width: 18rem; }.content { width: min(64rem, calc(100% - 22rem)); margin-left: calc(18rem + 2rem); }.support-banner { top: 0; margin-left: 18rem; }.action-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (forced-colors: active) { .sidebar, .support-banner { border: 1px solid CanvasText; }.action-card, .form-card, .account-view { border-color: CanvasText; } }
+
+.account-view .section-heading { flex-wrap: wrap; }
+.account-view .state-pill { flex-shrink: 0; }
+.account-help { margin: 1rem 0 0; color: var(--io-ink-soft); line-height: 1.5; }
+.account-technical { margin-top: 1.25rem; }
+.account-technical summary { display: list-item; width: fit-content; min-height: 44px; padding: .65rem 0; cursor: pointer; font-weight: 700; }
+.account-technical dl { display: grid; grid-template-columns: minmax(0, 1fr) 1fr; gap: .6rem; max-width: 28rem; }
+.account-technical dt { color: var(--io-ink-soft); }
+.account-technical dd { margin: 0; font-weight: 700; }

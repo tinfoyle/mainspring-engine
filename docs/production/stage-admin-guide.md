@@ -90,6 +90,22 @@ It reads two one-row pages through the restricted projection role, checks each
 audit event, prints only totals and pass/fail facts, and checks anonymous and
 cross-origin API denials. It creates no users, teams, memberships or support grants.
 
+## Understand a customer support view
+
+After an exact lookup, select **Open 15-minute view**. **Team open** means the
+team record is open; it does not indicate a paid subscription or AI allowance.
+The separate **Subscription** card shows the recorded subscription status.
+**No subscription** means there is no subscription ID or status in the local
+billing projection, even if a Stripe customer record exists.
+
+**AI tokens** shows available credits, credits used and credits set aside for AI
+work. These are Spyglass AI credits, not raw provider token counts. Signing up
+does not add an allowance; the included allowance follows a verified
+subscription payment. A zero available balance alone does not establish that
+credits were never added: they may have been spent, expired or reserved.
+The screen therefore describes the current balance without claiming a grant
+history. **Technical details** expands the entitlement and catalog versions.
+
 ## Read traffic and IP logs
 
 Open **Traffic & logs**. Select Last hour, Last 24 hours or Last 7 days. Supply
