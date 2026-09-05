@@ -1,6 +1,6 @@
 # UbuntuRojo and Stage release handoff
 
-Status: current as of Spyglass `0.3.0-rc.48` on 2026-09-05.
+Status: current as of Spyglass `0.3.0-rc.49` on 2026-09-05.
 
 This is the short operator path for working on Spyglass locally and moving a
 review candidate to the Hostinger Stage VPS. It is not a production/LKE
@@ -41,9 +41,9 @@ Stage uses four HTTPS names:
 - `https://mcp.stage.infiniteocean.net`
 - `https://ops.stage.infiniteocean.net` (Google plus authenticator staff console)
 
-The active release is `0.3.0-rc.48`. Its four images were built from source commit
-`0b4e098f8ade791029bb9f22883bbf37afbf3361`; the reviewed manifest and active
-VPS checkout are commit `cfc62274ce49446a909f804349d2bd7d773d1839`.
+The active release is `0.3.0-rc.49`. Its four images were built from source commit
+`3ea72ffdf5eb6d10994ca8ac9120769ef524ed64`; the reviewed manifest and active
+VPS checkout are commit `8225c3e526d28fbc9af34ffb4034116114a2dc2d`.
 `/opt/spyglass-stage/current` resolves to that immutable checkout. The database
 ledgers are global `70` and cell A/B `86/86`. Stage has 51 long-running
 containers; all 50 health checks pass and the internal edge is the exception.
@@ -75,9 +75,8 @@ that admin login route with Google plus an independent authenticator code.
 RC.48 uses the existing Google provider callback and a browser-bound encrypted
 handoff. The live Google journey reaches the owner's authenticator setup page.
 The exact Google-connected owner has an active operations_administrator role;
-zero owner admin sessions and zero confirmed authenticators remain until the
-owner scans the QR code and confirms a code on their Android phone. Google
-alone cannot enter the dashboard. The identity database role can read only
+the owner confirmed authenticator enrollment, successful admin sign-in and
+visible traffic entries on 2026-09-05. Google alone cannot enter the dashboard. The identity database role can read only
 Google identity identifier columns, not customer password hashes.
 
 Firefox, desktop Chromium and phone-layout checks passed for enrollment,
@@ -86,6 +85,17 @@ PostgreSQL suites passed, with focused regressions for the final handoff and
 column-permission corrections. All 50 Stage health checks pass; live traffic
 redaction/denial and consented analytics/cleanup certificates passed again.
 See the [authenticator verification record](stage-admin-authenticator-verification-2026-09-05.md).
+
+RC.49 adds user agents to protected access logs and the Request logs table.
+Collection began at 2026-09-05 19:53:01 UTC; old records show Not recorded.
+Long values have an expandable preview. All four host collection/redaction
+checks passed, all 50 health checks pass, and the published UI bundle contains
+the new field. See the [user-agent verification record](stage-traffic-user-agents-verification-2026-09-05.md).
+
+The RC.49 deployment had a publication-token exposure in private task output.
+Replace the native UbuntuRojo publication token before the next release.
+Use subprocess argument arrays and stdin for credential transfer, with captured
+errors; do not nest token pipelines through PowerShell, Bash and SSH quoting.
 
 Rollback to RC.46 would remove authenticator admin login and lock out staff
 without a passkey. Preserve the new authentication route when selecting a
