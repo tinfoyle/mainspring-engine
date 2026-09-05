@@ -1,6 +1,6 @@
 # UbuntuRojo and Stage release handoff
 
-Status: current as of Spyglass `0.3.0-rc.50` on 2026-09-05.
+Status: current as of Spyglass `0.3.0-rc.51` on 2026-09-05.
 
 This is the short operator path for working on Spyglass locally and moving a
 review candidate to the Hostinger Stage VPS. It is not a production/LKE
@@ -41,9 +41,9 @@ Stage uses four HTTPS names:
 - `https://mcp.stage.infiniteocean.net`
 - `https://ops.stage.infiniteocean.net` (Google plus authenticator staff console)
 
-The active release is `0.3.0-rc.50`. Its four images were built from source commit
-`4601b5587d7df6bf3e1f38208b0181f9acd3fb3d`; the reviewed manifest and active
-VPS checkout are commit `a3c04bd8dd7f103567627325bdc3ef4360a9fe15`.
+The active release is `0.3.0-rc.51`. Its four images were built from source commit
+`d3545848240ba69d1111fc9c43196a9146240cea`; the reviewed manifest and active
+VPS checkout are commit `160875d1dddc57497539f9aeaeb556510dedd145`.
 `/opt/spyglass-stage/current` resolves to that immutable checkout. The database
 ledgers are global `71` and cell A/B `86/86`. Stage has 51 long-running
 containers; all 50 health checks pass and the internal edge is the exception.
@@ -99,6 +99,13 @@ the runtime role has no direct customer-table access. Live checks read two users
 and two teams across one-row pages, confirmed per-page audits and public API
 denials, and verified the deployed UI bundle. All 50 health checks pass.
 See the [directory verification record](stage-admin-directory-verification-2026-09-05.md).
+
+RC.51 clarifies the customer support view: **Team open** is separate from
+**Subscription**, absent billing shows **No subscription**, and **AI tokens**
+uses Available, Used and Set aside for AI work. Empty-balance guidance explains
+the signup/payment boundary; version numbers are under **Technical details**.
+All 50 health checks pass. See the
+[support-view verification record](stage-admin-support-view-verification-2026-09-05.md).
 
 The RC.49 deployment had a publication-token exposure in private task output.
 The exposed token was revoked and the owner supplied a replacement in UbuntuRojo
