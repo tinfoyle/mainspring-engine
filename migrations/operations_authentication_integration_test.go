@@ -53,7 +53,8 @@ func TestPostgresAdminAuthenticatorEnrollmentReplayRecoveryAndRevocation(t *test
 	const role = "spyglass_operations_auth_test"
 	_, err = pool.Exec(ctx, `CREATE ROLE `+role+` NOLOGIN NOBYPASSRLS;
  GRANT USAGE ON SCHEMA public TO `+role+`;
- GRANT SELECT ON users,authentication_identities,operations_staff,operations_staff_role_assignments,operations_access_events TO `+role+`;
+ GRANT SELECT (user_id,provider,identifier) ON authentication_identities TO `+role+`;
+ GRANT SELECT ON users,operations_staff,operations_staff_role_assignments,operations_access_events TO `+role+`;
  GRANT SELECT,INSERT,UPDATE ON operations_authenticators,operations_sessions TO `+role+`;
  GRANT SELECT,INSERT,UPDATE,DELETE ON operations_login_challenges TO `+role+`;
  GRANT INSERT ON operations_authentication_events TO `+role)
@@ -63,6 +64,9 @@ func TestPostgresAdminAuthenticatorEnrollmentReplayRecoveryAndRevocation(t *test
 	defer func() { _, _ = pool.Exec(context.Background(), `DROP OWNED BY `+role+`; DROP ROLE `+role) }()
 	restricted := openPool(t, ctx, databaseURL, func(ctx context.Context, c *pgx.Conn) error { _, e := c.Exec(ctx, "SET ROLE "+role); return e })
 	defer restricted.Close()
+	if _, e := restricted.Exec(ctx, "SELECT secret_hash FROM authentication_identities"); e == nil {
+		t.Fatal("admin identity role can read customer password hashes")
+	}
 	repo := postgres.NewOperationsAuthenticationRepository(restricted)
 	sessionsService, err := sessions.NewService(postgres.NewOperationsSessionRepository(restricted), ids.RandomGenerator{}, clock, 8*time.Hour, 30*time.Minute, 15*time.Minute)
 	if err != nil {

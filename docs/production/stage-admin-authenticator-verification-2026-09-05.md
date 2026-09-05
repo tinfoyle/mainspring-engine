@@ -1,6 +1,6 @@
 # Stage admin authenticator verification — 2026-09-05
 
-Candidate: 0.3.0-rc.47. The owner explicitly authorized Google plus an
+Candidate: 0.3.0-rc.48. The owner explicitly authorized Google plus an
 independent authenticator code as the admin authentication route.
 
 ## Local evidence
@@ -36,3 +36,12 @@ human acceptance step until that setup is complete.
 
 See [the admin guide](stage-admin-guide.md) for enrollment, everyday login,
 recovery and staff role commands.
+
+
+RC.47 live testing identified a native-form handoff problem: no-referrer made
+the browser's POST Origin opaque, which the admin API correctly rejected.
+RC.48 uses the origin-only policy for that one handoff document; callback
+queries remain excluded. The exact Origin and encrypted challenge checks are
+retained. The identity role is also restricted to user_id/provider/identifier
+columns and cannot read customer password hashes. These fixes have focused
+backend, PostgreSQL and browser regression coverage.

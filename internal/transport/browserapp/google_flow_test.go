@@ -127,6 +127,9 @@ func TestAdminGoogleHandoffUsesVerifiedAssertionAndNoCustomerSession(t *testing.
 	if err != nil || ticket.Identifier != "https://accounts.google.com\x1fstaff-google-subject" {
 		t.Fatal("handoff is not bound to verified Google subject", err)
 	}
+	if response.Header().Get("Referrer-Policy") != "origin" {
+		t.Fatal("native handoff must preserve Origin without forwarding callback query")
+	}
 	if !strings.Contains(response.Header().Get("Content-Security-Policy"), "form-action https://ops.example.test") {
 		t.Fatal("unbounded handoff destination")
 	}

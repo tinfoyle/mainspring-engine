@@ -60,3 +60,24 @@ test("a recovery code requires replacement enrollment and a bad code stays block
   await expect(page.getByRole("heading", { name: "Set up your authenticator" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Admin overview" })).toHaveCount(0);
 });
+
+
+test("native Google handoff preserves source origin without callback query", async ({ page }) => {
+  const origin = "http://127.0.0.1:4178";
+  let receivedOrigin = "";
+  let receivedReferrer = "";
+  await page.route("http://localhost:4178/admin-handoff-result", async route => {
+    receivedOrigin = route.request().headers()["origin"] ?? "";
+    receivedReferrer = route.request().headers()["referer"] ?? "";
+    await route.fulfill({ contentType: "text/html", body: "<h1>Authenticator required</h1>" });
+  });
+  await page.route(origin + "/handoff-fixture?code=synthetic", route => route.fulfill({
+    contentType: "text/html", headers: { "Referrer-Policy": "origin" },
+    body: '<form method="post" action="http://localhost:4178/admin-handoff-result"><button>Continue to admin</button></form>'
+  }));
+  await page.goto(origin + "/handoff-fixture?code=synthetic");
+  await page.getByRole("button", { name: "Continue to admin" }).click();
+  await expect(page.getByRole("heading", { name: "Authenticator required" })).toBeVisible();
+  expect(receivedOrigin).toBe(origin);
+  expect(receivedReferrer).toBe(origin + "/");
+});

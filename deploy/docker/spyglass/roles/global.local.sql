@@ -144,7 +144,7 @@ REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM spyglass_operations
 REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM spyglass_operations_identity, spyglass_operations_projection;
 
 GRANT SELECT ON account_erasure_restore_ledger TO spyglass_operations_identity, spyglass_operations_projection;
-GRANT SELECT ON authentication_identities TO spyglass_operations_identity;
+GRANT SELECT (user_id,provider,identifier) ON authentication_identities TO spyglass_operations_identity;
 GRANT SELECT,INSERT,UPDATE,DELETE ON operations_login_challenges TO spyglass_operations_identity;
 GRANT SELECT,INSERT,UPDATE ON operations_authenticators TO spyglass_operations_identity;
 GRANT INSERT ON operations_authentication_events TO spyglass_operations_identity;

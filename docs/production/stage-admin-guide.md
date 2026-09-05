@@ -1,6 +1,6 @@
 # Stage admin console
 
-The staff console is at **https://ops.stage.infiniteocean.net**. RC.47 replaces
+The staff console is at **https://ops.stage.infiniteocean.net**. RC.48 replaces
 the Stage passkey requirement with **Google sign-in plus an independent
 authenticator code**. Staff sessions remain separate from customer sessions.
 See the [release handoff](stage-release-operator-handoff.md) for deployment status.
@@ -115,7 +115,7 @@ manifest from the release handoff. The wrapper passes the protected migration
 credential only to an ephemeral operator container; it never prints it.
 
 ```bash
-release_file="$PWD/deploy/releases/0.3.0-rc.47.env"
+release_file="$PWD/deploy/releases/0.3.0-rc.48.env"
 stage_env=/opt/spyglass-stage/secrets/2026-08-31-01/stage.env
 sudo bash deploy/docker/spyglass/stage-operations-staff.sh "$release_file" "$stage_env" \
   show --email=staff@example.com

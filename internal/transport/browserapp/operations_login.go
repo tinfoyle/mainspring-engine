@@ -51,7 +51,9 @@ func (s *Server) completeOperationsGoogle(w http.ResponseWriter, r *http.Request
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Referrer-Policy", "no-referrer")
+	// Native cross-origin POSTs need an origin-preserving referrer policy.
+	// "origin" sends only scheme/host, never the Google callback query.
+	w.Header().Set("Referrer-Policy", "origin")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+nonce+"'; form-action "+s.operationsOrigin+"; frame-ancestors 'none'; base-uri 'none'")
 	_ = operationsHandoff.Execute(w, map[string]string{"Action": s.operationsOrigin + "/api/operations/v1/auth/google/complete", "Ticket": ticket, "Nonce": nonce})
 }
