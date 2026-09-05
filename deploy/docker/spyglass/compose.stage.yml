@@ -44,6 +44,7 @@ services:
       SPYGLASS_OPERATIONS_PRIVACY_DATABASE_URL: ${SPYGLASS_OPERATIONS_PRIVACY_DATABASE_URL:?set operations privacy database URL}
       SPYGLASS_OPERATIONS_AFFILIATE_DATABASE_URL: ${SPYGLASS_OPERATIONS_AFFILIATE_DATABASE_URL:?set operations affiliate database URL}
       SPYGLASS_OPERATIONS_ORIGIN: https://ops.stage.infiniteocean.net
+      SPYGLASS_APP_ORIGIN: https://app.stage.infiniteocean.net
       SPYGLASS_PASSKEY_RP_ID: ${SPYGLASS_PASSKEY_RP_ID}
       SPYGLASS_PASSKEY_ENCRYPTION_KEYS: ${SPYGLASS_PASSKEY_ENCRYPTION_KEYS}
       SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION: ${SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION}
@@ -162,6 +163,7 @@ services:
     environment:
       <<: *global-restore
       SPYGLASS_GOOGLE_LOGIN_CLIENT_FILE: /var/run/secrets/spyglass/google-login/client
+      SPYGLASS_OPERATIONS_ORIGIN: https://ops.stage.infiniteocean.net
     volumes: ["${SPYGLASS_STAGE_GOOGLE_LOGIN_CLIENT_FILE:?set Google login client file}:/var/run/secrets/spyglass/google-login/client:ro"]
     depends_on: {global-roles: {condition: service_completed_successfully}}
   admission-api:

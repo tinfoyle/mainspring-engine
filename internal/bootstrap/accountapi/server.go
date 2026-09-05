@@ -37,6 +37,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/multifactor"
 	"github.com/tinfoyle/spyglass-engine/internal/application/notifications"
 	"github.com/tinfoyle/spyglass-engine/internal/application/oidcauth"
+	"github.com/tinfoyle/spyglass-engine/internal/application/operationsauth"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyconsent"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyrights"
@@ -91,6 +92,7 @@ type Config struct {
 	ExportDownloadLifetime       time.Duration
 	LocalMCPClientMetadata       *mcpauth.Client
 	GoogleLoginClientFile        string
+	OperationsOrigin             string
 }
 
 type Server struct {
@@ -437,6 +439,14 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 			return nil, authenticationErr
 		}
 		browserOptions = append(browserOptions, browserapp.WithGoogleLogin(googleAuthentication, googleProvider, googleidentity.Issuer, config.AppOrigin+"/auth/google/callback"))
+		if config.OperationsOrigin != "" {
+			adminCipher, cipherErr := operationsauth.NewCipher(config.PasskeyEncryptionKeys, config.PasskeyActiveKeyVersion)
+			if cipherErr != nil {
+				pool.Close()
+				return nil, cipherErr
+			}
+			browserOptions = append(browserOptions, browserapp.WithOperationsLogin(config.OperationsOrigin, adminCipher))
+		}
 	}
 	browser, err := browserapp.New(registrations, authenticationService, sessionService, accountAccess, invitationService, catalogCache.Current, nil, nil, browserapp.Config{SecureCookies: true, TrustedOrigins: []string{config.AppOrigin}}, logger, browserOptions...)
 	if err != nil {

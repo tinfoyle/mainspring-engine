@@ -74,12 +74,12 @@ func Run(ctx context.Context, config Config) error {
 		return fmt.Errorf("resolve operations staff User: %w", err)
 	}
 	if action == "assign" {
-		var passkeyCount int
-		if err := pool.QueryRow(ctx, `SELECT count(*) FROM passkey_credentials WHERE user_id=$1`, userID).Scan(&passkeyCount); err != nil {
-			return fmt.Errorf("verify operations staff passkey: %w", err)
+		var connected bool
+		if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM authentication_identities WHERE user_id=$1 AND provider='oidc' AND left(identifier,length($2))=$2)`, userID, "https://accounts.google.com\x1f").Scan(&connected); err != nil {
+			return fmt.Errorf("verify staff Google identity: %w", err)
 		}
-		if passkeyCount == 0 {
-			return errors.New("the User must register a passkey before receiving an operations role")
+		if !connected {
+			return errors.New("the User must connect Google before receiving an operations role; authenticator enrollment is required at first admin login")
 		}
 		generator := ids.RandomGenerator{}
 		_, err = pool.Exec(ctx, `SELECT spyglass_operations_assign_staff_role($1,$2,$3,$4,$5,$6,$7)`,

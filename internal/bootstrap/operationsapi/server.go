@@ -16,6 +16,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/application/billingadmin"
+	"github.com/tinfoyle/spyglass-engine/internal/application/operationsauth"
 	"github.com/tinfoyle/spyglass-engine/internal/application/operationsconsole"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyrightsadmin"
@@ -35,6 +36,7 @@ type Config struct {
 	PrivacyDatabaseURL    string
 	AffiliateDatabaseURL  string
 	Origin                string
+	AppOrigin             string
 	PasskeyRPID           string
 	PasskeyEncryptionKeys map[int][]byte
 	PasskeyActiveVersion  int
@@ -223,6 +225,17 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 	api, err := transport.New(consoleService, passkeyService, sessionService, operatorServices,
 		transport.Cookie{Secure: config.SecureCookie}, config.Origin, config.Environment, config.MaxRequestBody, logger)
 	if err != nil {
+		return nil, err
+	}
+	adminCipher, err := operationsauth.NewCipher(config.PasskeyEncryptionKeys, config.PasskeyActiveVersion)
+	if err != nil {
+		return nil, err
+	}
+	adminAuth, err := operationsauth.New(postgres.NewOperationsAuthenticationRepository(identityPool), adminCipher, sessionService, clock, config.Origin)
+	if err != nil {
+		return nil, err
+	}
+	if err = api.WithAuthenticator(adminAuth, networkGuard, config.AppOrigin); err != nil {
 		return nil, err
 	}
 	closeIdentity, closeProjection, closeBilling, closePrivacy, closeAffiliate = false, false, false, false, false

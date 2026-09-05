@@ -1,17 +1,21 @@
 package browserapp
 
 import (
+	"bytes"
 	"context"
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/oidcauth"
+	"github.com/tinfoyle/spyglass-engine/internal/application/operationsauth"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
 )
@@ -78,6 +82,7 @@ func TestGoogleSignupFlowPreservesAccountAndPurchaseIntent(t *testing.T) {
 type googleProviderStub struct {
 	state, nonce, challenge string
 	exchanges               int
+	assertion               oidcauth.Assertion
 }
 
 func (p *googleProviderStub) AuthorizationURL(state, nonce, challenge, _ string) (string, error) {
@@ -86,5 +91,48 @@ func (p *googleProviderStub) AuthorizationURL(state, nonce, challenge, _ string)
 }
 func (p *googleProviderStub) Exchange(context.Context, string, string, string, string) (oidcauth.Assertion, error) {
 	p.exchanges++
-	return oidcauth.Assertion{}, nil
+	return p.assertion, nil
+}
+
+func TestAdminGoogleHandoffUsesVerifiedAssertionAndNoCustomerSession(t *testing.T) {
+	cipher, _ := operationsauth.NewCipher(map[int][]byte{1: bytes.Repeat([]byte{2}, 32)}, 1)
+	provider := &googleProviderStub{assertion: oidcauth.Assertion{Issuer: "https://accounts.google.com", Subject: "staff-google-subject", Email: "staff@example.test", EmailVerified: true}}
+	server := &Server{googleProvider: provider, googleRedirectURI: "https://app.example.test/auth/google/callback", operationsOrigin: "https://ops.example.test", operationsCipher: cipher,
+		config: Config{SecureCookies: true, SessionCookieName: "customer-session", TrustedOrigins: []string{"https://app.example.test"}}, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	state, _ := operationsauth.RandomToken()
+	begin := httptest.NewRecorder()
+	request := httptest.NewRequest("GET", "https://app.example.test/auth/google/operations?state="+state, nil)
+	// Existing customer cookies are deliberately irrelevant to admin sign-in.
+	request.AddCookie(&http.Cookie{Name: "customer-session", Value: "unrelated-customer"})
+	server.beginOperationsGoogle(begin, request)
+	if begin.Code != 303 {
+		t.Fatal(begin.Code)
+	}
+	callback := httptest.NewRequest("GET", "https://app.example.test/auth/google/callback?state="+provider.state+"&code=google-code", nil)
+	callback.AddCookie(begin.Result().Cookies()[0])
+	response := httptest.NewRecorder()
+	server.completeGoogleLogin(response, callback)
+	if response.Code != 200 || provider.exchanges != 1 {
+		t.Fatal(response.Code)
+	}
+	if response.Header().Get("Location") != "" {
+		t.Fatal("ticket leaked into URL")
+	}
+	body := response.Body.String()
+	match := regexp.MustCompile(`name="ticket" value="([^"]+)"`).FindStringSubmatch(body)
+	if len(match) != 2 {
+		t.Fatal("missing handoff form")
+	}
+	ticket, err := operationsauth.OpenTicket(cipher, html.UnescapeString(match[1]), server.operationsOrigin, state, time.Now())
+	if err != nil || ticket.Identifier != "https://accounts.google.com\x1fstaff-google-subject" {
+		t.Fatal("handoff is not bound to verified Google subject", err)
+	}
+	if !strings.Contains(response.Header().Get("Content-Security-Policy"), "form-action https://ops.example.test") {
+		t.Fatal("unbounded handoff destination")
+	}
+	for _, cookie := range response.Result().Cookies() {
+		if cookie.Name != "__Host-spyglass_google_flow" || cookie.MaxAge != -1 {
+			t.Fatal("customer session created by admin handoff")
+		}
+	}
 }

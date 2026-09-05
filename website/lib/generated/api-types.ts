@@ -232,6 +232,39 @@ export interface ActiveSessions {
   readonly "sessions": ReadonlyArray<ActiveSession>;
 }
 
+export interface AdminCode {
+  readonly "code": string;
+  readonly "recovery"?: boolean;
+}
+
+export interface AdminGoogleTicket {
+  readonly "ticket": string;
+}
+
+export interface AdminLoginStatus {
+  readonly "display_name": string;
+  readonly "stage": "code" | "enroll";
+}
+
+export interface AdminReauthentication {
+  readonly "code": string;
+}
+
+export interface AdminSetup {
+  readonly "secret": string;
+  readonly "uri": string;
+}
+
+export interface AdminStart {
+  readonly "url": string;
+}
+
+export interface AdminVerification {
+  readonly "recovery_codes"?: ReadonlyArray<string> | null;
+  readonly "session"?: OperationsSession;
+  readonly "stage"?: "enroll";
+}
+
 export interface AffiliateCommissionEntry {
   readonly "affiliate_id": string;
   readonly "amount_minor": number;
@@ -2453,7 +2486,7 @@ export interface OperationsRevokeSupportGrant {
 }
 
 export interface OperationsSession {
-  readonly "authentication_method": "passkey";
+  readonly "authentication_method": "passkey" | "google_totp";
   readonly "expires_at": OperationsTimestamp;
   readonly "staff": OperationsStaff;
 }
@@ -3179,6 +3212,13 @@ export interface ApiSchemas {
   readonly ActivateMarketingCampaignRequest: ActivateMarketingCampaignRequest;
   readonly ActiveSession: ActiveSession;
   readonly ActiveSessions: ActiveSessions;
+  readonly AdminCode: AdminCode;
+  readonly AdminGoogleTicket: AdminGoogleTicket;
+  readonly AdminLoginStatus: AdminLoginStatus;
+  readonly AdminReauthentication: AdminReauthentication;
+  readonly AdminSetup: AdminSetup;
+  readonly AdminStart: AdminStart;
+  readonly AdminVerification: AdminVerification;
   readonly AffiliateCommissionEntry: AffiliateCommissionEntry;
   readonly AffiliateDataExport: AffiliateDataExport;
   readonly AffiliateDataExportAttribution: AffiliateDataExportAttribution;

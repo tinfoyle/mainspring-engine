@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
@@ -22,10 +23,19 @@ func NewOperationsSessionRepository(pool *pgxpool.Pool) *OperationsSessionReposi
 }
 
 func (repository *OperationsSessionRepository) Create(ctx context.Context, value sessions.Session) error {
-	if value.AuthenticationMethod != sessions.AuthenticationMethodPasskey || value.ReauthenticationMethod != sessions.AuthenticationMethodPasskey {
+	return insertOperationsSession(ctx, repository.pool, value)
+}
+
+type operationsSessionWriter interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}
+
+func insertOperationsSession(ctx context.Context, writer operationsSessionWriter, value sessions.Session) error {
+
+	if value.AuthenticationMethod != value.ReauthenticationMethod || (value.AuthenticationMethod != sessions.AuthenticationMethodPasskey && value.AuthenticationMethod != sessions.AuthenticationMethodGoogleTOTP) {
 		return sessions.ErrInvalidSession
 	}
-	command, err := repository.pool.Exec(ctx, `
+	command, err := writer.Exec(ctx, `
 		INSERT INTO operations_sessions
 			(id,user_id,token_hash,security_version,authenticated_at,reauthenticated_at,last_seen_at,rotated_at,
 			 expires_at,client_label,authentication_method,reauthentication_method)
@@ -118,7 +128,7 @@ func (repository *OperationsSessionRepository) Active(ctx context.Context, userI
 }
 
 func (repository *OperationsSessionRepository) MarkReauthenticated(ctx context.Context, userID ids.UserID, sessionID ids.SessionID, method sessions.AuthenticationMethod, now time.Time) (bool, error) {
-	if method != sessions.AuthenticationMethodPasskey {
+	if method != sessions.AuthenticationMethodPasskey && method != sessions.AuthenticationMethodGoogleTOTP {
 		return false, sessions.ErrInvalidSession
 	}
 	command, err := repository.pool.Exec(ctx, `

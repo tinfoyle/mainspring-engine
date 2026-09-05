@@ -12,9 +12,11 @@
   "dependencies": {
     "@spyglass/api": "0.1.0",
     "@spyglass/design-system": "0.1.0",
+    "qrcode": "1.5.4",
     "vue": "3.5.41"
   },
   "devDependencies": {
+    "@types/qrcode": "1.5.6",
     "@vitejs/plugin-vue": "6.0.8",
     "@vue/test-utils": "2.4.11",
     "happy-dom": "20.11.6",

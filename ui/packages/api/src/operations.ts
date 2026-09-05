@@ -1,6 +1,6 @@
 import { requestJSON } from "./client";
 import type {
-  OperationsAnalyticsReport, OperationsAnalyticsRequest, OperationsAuditReason,
+  AdminLoginStatus, AdminSetup, AdminVerification, OperationsAnalyticsReport, OperationsAnalyticsRequest, OperationsAuditReason,
   OperationsAffiliateEnrollmentEnvelope, OperationsAffiliateRiskEnvelope, OperationsAffiliateTransitionRequest,
   OperationsBillingActionRequest, OperationsBillingFailuresReport, OperationsBillingFailuresRequest, OperationsBillingRecordEnvelope,
   OperationsCreateSupportGrant, OperationsLookupPage, OperationsLookupRequest,
@@ -94,3 +94,9 @@ export function operationsInspectAffiliateRisk(affiliateID: string, input: Opera
 export function operationsTransitionAffiliate(affiliateID: string, input: OperationsAffiliateTransitionRequest): Promise<OperationsAffiliateEnrollmentEnvelope> {
   return requestJSON<OperationsAffiliateEnrollmentEnvelope>(`${root}/affiliates/${encodeURIComponent(affiliateID)}/transitions`, { method: "POST", body: JSON.stringify(input) });
 }
+
+export function beginAdminLogin(): Promise<{ url: string }> { return requestJSON(`${root}/auth/start`, { method: "POST", body: "{}" }); }
+export function adminLoginStatus(): Promise<AdminLoginStatus> { return requestJSON(`${root}/auth`); }
+export function setupAdminAuthenticator(): Promise<AdminSetup> { return requestJSON(`${root}/auth/enrollment`, { method: "POST", body: "{}" }); }
+export function verifyAdminAuthenticator(code: string, recovery = false): Promise<AdminVerification> { return requestJSON(`${root}/auth/verify`, { method: "POST", body: JSON.stringify({ code, recovery }) }); }
+export function reauthenticateAdmin(code: string): Promise<void> { return requestJSON(`${root}/auth/reauthenticate`, { method: "POST", body: JSON.stringify({ code }) }); }

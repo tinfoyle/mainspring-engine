@@ -6,6 +6,7 @@ export default defineConfig({
   use: { baseURL: "http://127.0.0.1:4178", locale: "en-US", trace: "retain-on-failure" },
   webServer: { command: "npm exec --workspace=@spyglass/operations -- vite preview --host 127.0.0.1 --port 4178", url: "http://127.0.0.1:4178", reuseExistingServer: false },
   projects: [
+    { name: "firefox", use: { browserName: "firefox", viewport: { width: 1280, height: 900 } } },
     { name: "desktop", use: { browserName: "chromium", viewport: { width: 1280, height: 900 } } },
     { name: "phone", use: { browserName: "chromium", viewport: { width: 360, height: 800 } } }
   ]

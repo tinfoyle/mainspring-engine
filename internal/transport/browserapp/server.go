@@ -27,6 +27,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/invitations"
 	"github.com/tinfoyle/spyglass-engine/internal/application/mcpauth"
 	"github.com/tinfoyle/spyglass-engine/internal/application/oidcauth"
+	"github.com/tinfoyle/spyglass-engine/internal/application/operationsauth"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recoverycodes"
@@ -97,6 +98,8 @@ type Server struct {
 	googleProvider       GoogleIdentityProvider
 	googleIssuer         string
 	googleRedirectURI    string
+	operationsOrigin     string
+	operationsCipher     *passkeys.Cipher
 }
 
 type Option func(*Server)
@@ -198,6 +201,12 @@ func New(registrations *registration.Service, authenticationService *authenticat
 			return nil, errors.New("Google login redirect must be the exact application callback")
 		}
 	}
+	if server.operationsOrigin != "" || server.operationsCipher != nil {
+		u, e := url.Parse(server.operationsOrigin)
+		if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || server.operationsCipher == nil || googleParts != 4 {
+			return nil, errors.New("operations Google handoff requires an exact HTTPS origin and encryption")
+		}
+	}
 	return server, nil
 }
 
@@ -218,6 +227,7 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.login)
 	mux.HandleFunc("GET /auth/google", s.beginGoogleLogin)
+	mux.HandleFunc("GET /auth/google/operations", s.beginOperationsGoogle)
 	mux.HandleFunc("POST /auth/google/signup", s.beginGoogleSignup)
 	mux.HandleFunc("GET /auth/google/callback", s.completeGoogleLogin)
 	mux.HandleFunc("GET /forgot-password", s.forgotPasswordPage)
@@ -620,6 +630,7 @@ const googleFlowCookie = "__Host-spyglass_google_flow"
 
 type googleFlow struct {
 	State, Nonce, Verifier, Mode, ReturnTo, AccountName, Region, OfferCode string
+	OperationsState                                                        string
 }
 
 func (s *Server) beginGoogleLogin(w http.ResponseWriter, r *http.Request) {
@@ -729,6 +740,10 @@ func (s *Server) completeGoogleLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Warn("Google login exchange rejected", "error", err)
 		s.googleFailure(w, r, flow.Mode)
+		return
+	}
+	if flow.Mode == "operations" {
+		s.completeOperationsGoogle(w, r, flow, assertion)
 		return
 	}
 	if flow.Mode == "connect" {
@@ -865,6 +880,10 @@ func (s *Server) clearGoogleFlow(w http.ResponseWriter) {
 }
 
 func (s *Server) googleFailure(w http.ResponseWriter, r *http.Request, mode string) {
+	if mode == "operations" && s.operationsOrigin != "" {
+		http.Redirect(w, r, s.operationsOrigin+"/?login=failed", http.StatusSeeOther)
+		return
+	}
 	if mode == "connect" {
 		http.Redirect(w, r, "/app/security?status=google_failed", http.StatusSeeOther)
 		return
@@ -887,6 +906,12 @@ func googleRandom() (string, error) {
 func validGoogleFlow(flow googleFlow) bool {
 	valid := func(value string) bool { return len(value) == 43 && !strings.ContainsAny(value, "\r\n\t ") }
 	if !valid(flow.State) || !valid(flow.Nonce) || !valid(flow.Verifier) || safeReturnTo(flow.ReturnTo) != flow.ReturnTo {
+		return false
+	}
+	if flow.Mode == "operations" {
+		return operationsauth.ValidToken(flow.OperationsState) && flow.AccountName == "" && flow.Region == "" && flow.OfferCode == "" && flow.ReturnTo == ""
+	}
+	if flow.OperationsState != "" {
 		return false
 	}
 	if flow.Mode == "signup" {

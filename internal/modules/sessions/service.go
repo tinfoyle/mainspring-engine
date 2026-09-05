@@ -36,11 +36,12 @@ type Session struct {
 type AuthenticationMethod string
 
 const (
-	AuthenticationMethodPassword AuthenticationMethod = "password"
-	AuthenticationMethodPasskey  AuthenticationMethod = "passkey"
-	AuthenticationMethodOIDC     AuthenticationMethod = "oidc"
-	AuthenticationMethodSMSOTP   AuthenticationMethod = "sms_otp"
-	AuthenticationMethodEmailOTP AuthenticationMethod = "email_otp"
+	AuthenticationMethodPassword   AuthenticationMethod = "password"
+	AuthenticationMethodPasskey    AuthenticationMethod = "passkey"
+	AuthenticationMethodOIDC       AuthenticationMethod = "oidc"
+	AuthenticationMethodGoogleTOTP AuthenticationMethod = "google_totp"
+	AuthenticationMethodSMSOTP     AuthenticationMethod = "sms_otp"
+	AuthenticationMethodEmailOTP   AuthenticationMethod = "email_otp"
 )
 
 type AuthenticationAssurance string
@@ -53,7 +54,7 @@ const (
 )
 
 func (m AuthenticationMethod) Valid() bool {
-	return m == AuthenticationMethodPassword || m == AuthenticationMethodPasskey || m == AuthenticationMethodOIDC || m == AuthenticationMethodSMSOTP || m == AuthenticationMethodEmailOTP
+	return m == AuthenticationMethodGoogleTOTP || m == AuthenticationMethodPassword || m == AuthenticationMethodPasskey || m == AuthenticationMethodOIDC || m == AuthenticationMethodSMSOTP || m == AuthenticationMethodEmailOTP
 }
 
 func (m AuthenticationMethod) Assurance() AuthenticationAssurance {
@@ -62,7 +63,7 @@ func (m AuthenticationMethod) Assurance() AuthenticationAssurance {
 		return AssuranceSingleFactor
 	case AuthenticationMethodPasskey:
 		return AssuranceUserVerifiedCryptographic
-	case AuthenticationMethodSMSOTP, AuthenticationMethodEmailOTP:
+	case AuthenticationMethodGoogleTOTP, AuthenticationMethodSMSOTP, AuthenticationMethodEmailOTP:
 		return AssuranceMultiFactor
 	default:
 		return AssuranceUnknown
@@ -145,6 +146,20 @@ func (s *Service) IssueForClient(ctx context.Context, userID ids.UserID, securit
 }
 
 func (s *Service) IssueForClientWithMethod(ctx context.Context, userID ids.UserID, securityVersion uint64, clientLabel string, method AuthenticationMethod) (Issued, error) {
+	issued, err := s.PrepareForClientWithMethod(userID, securityVersion, clientLabel, method)
+	if err != nil {
+		return Issued{}, err
+	}
+	if err = s.repository.Create(ctx, issued.Session); err != nil {
+		return Issued{}, err
+	}
+	return issued, nil
+}
+
+// PrepareForClientWithMethod creates an unpersisted session for an application
+// transaction. It grants no access until its repository inserts the session.
+func (s *Service) PrepareForClientWithMethod(userID ids.UserID, securityVersion uint64, clientLabel string, method AuthenticationMethod) (Issued, error) {
+
 	if userID == "" || securityVersion == 0 {
 		return Issued{}, errors.New("user ID and security version are required")
 	}
@@ -164,9 +179,6 @@ func (s *Service) IssueForClientWithMethod(ctx context.Context, userID ids.UserI
 		clientLabel = clientLabel[:160]
 	}
 	session := Session{ID: ids.SessionID(s.ids.New()), UserID: userID, TokenHash: hash, SecurityVersion: securityVersion, AuthenticatedAt: now, ReauthenticatedAt: now, LastSeenAt: now, RotatedAt: now, ExpiresAt: now.Add(s.absoluteTTL), ClientLabel: clientLabel, AuthenticationMethod: method, ReauthenticationMethod: method}
-	if err := s.repository.Create(ctx, session); err != nil {
-		return Issued{}, err
-	}
 	return Issued{Session: session, Token: token}, nil
 }
 

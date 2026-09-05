@@ -1,28 +1,61 @@
 # Stage admin console
 
-The staff console is at **https://ops.stage.infiniteocean.net**. It has a separate
-passkey-only session. Signing into the customer app with Google does not grant
-staff access. See the current [release handoff](stage-release-operator-handoff.md)
-for the deployed release and acceptance status.
+The staff console is at **https://ops.stage.infiniteocean.net**. RC.47 replaces
+the Stage passkey requirement with **Google sign-in plus an independent
+authenticator code**. Staff sessions remain separate from customer sessions.
+See the [release handoff](stage-release-operator-handoff.md) for deployment status.
 
 ## First sign-in
 
-1. Sign into https://app.stage.infiniteocean.net with your ordinary account.
-2. Open **Security** at `/app/security`. Add a named passkey using Windows Hello
-   or a security key and complete any requested identity verification.
-3. A platform owner assigns your staff role using the command below. Having a
-   passkey by itself does not make someone an administrator.
-4. Open https://ops.stage.infiniteocean.net and choose **Sign in with passkey**.
-   Complete the authenticator prompt. Use a current browser supporting WebAuthn
-   Related Origin Requests. The app remains the passkey relying party; only the
-   exact admin origin is allowed by its `/.well-known/webauthn` document.
-5. Use **Sign out** when finished. Sessions expire after eight hours or thirty
-   minutes of inactivity. No password or Google fallback opens the console.
+1. Use your existing Google-connected Spyglass account. A platform owner assigns
+   its staff role using the offline command below. An ordinary account is not
+   automatically an administrator.
+2. Open https://ops.stage.infiniteocean.net in Firefox and select
+   **Continue with Google**. Choose your approved Google account.
+3. Install/open Google Authenticator on your Android phone. Select **+**, then
+   **Scan a QR code**, and scan the admin setup screen. No Bluetooth or USB key
+   is needed. If scanning is unavailable, expand **Enter a setup key instead**
+   and choose a time-based entry in the authenticator app.
+4. Enter the six-digit code labeled **Spyglass Admin** and select
+   **Confirm authenticator**.
+5. Download or write down the eight recovery codes and store them safely
+   offline. Select **I saved my recovery codes**, then **Open admin**.
+   The codes appear only once. Do not send the QR image, setup key, authenticator
+   codes or recovery codes to anyone, including in chat or support tickets.
 
-If your passkey is missing, return to the app's Security page. If sign-in is
-denied after authentication, have an owner check the staff role. Do not disable
-the passkey requirement to resolve either condition. Never use a virtual
-authenticator to enroll a real owner's account.
+For subsequent sign-ins, select **Continue with Google**, then enter the current
+Spyglass Admin authenticator code. These codes work offline on the phone.
+A code already used successfully cannot be used again: wait for the next code.
+Five incorrect attempts within fifteen minutes pause verification for that
+staff account, even if you start another login.
+
+Google Authenticator can operate without syncing to a Google account. Keeping
+this admin entry independent of the account used for sign-in gives better
+separation; preserve the offline recovery codes if choosing that option.
+Authenticator codes are susceptible to phishing. Bookmark the exact admin URL.
+
+## Lost phone or authenticator
+
+Sign in with the approved Google account, select **Lost your authenticator?**,
+and enter an unused recovery code. This does not open admin. It revokes existing
+admin sessions, disables the old authenticator for login, and opens replacement
+setup. Scan the new QR code, confirm a new authenticator code, and save the new
+recovery codes. Replacement invalidates all previous recovery codes.
+
+If replacement is interrupted, sign in again with Google and use another unused
+recovery code. There is no email/SMS fallback. If both the authenticator and all
+recovery codes are lost, the operator must revoke staff access and follow a
+separately reviewed identity-recovery procedure; do not remove MFA requirements
+or edit authentication evidence to regain access.
+
+## Session security
+
+Use **Sign out** when finished. Sessions expire after eight hours or thirty
+minutes of inactivity. Support grants and sensitive billing, privacy or
+affiliate changes require a code verified in the last fifteen minutes. If
+prompted, enter a fresh code, select **Confirm**, then repeat the original
+action. Staff revocation invalidates access. Customer sessions and legacy
+passkey login endpoints cannot open the Stage admin console.
 
 ## Read traffic and IP logs
 
@@ -82,7 +115,7 @@ manifest from the release handoff. The wrapper passes the protected migration
 credential only to an ephemeral operator container; it never prints it.
 
 ```bash
-release_file="$PWD/deploy/releases/0.3.0-rc.46.env"
+release_file="$PWD/deploy/releases/0.3.0-rc.47.env"
 stage_env=/opt/spyglass-stage/secrets/2026-08-31-01/stage.env
 sudo bash deploy/docker/spyglass/stage-operations-staff.sh "$release_file" "$stage_env" \
   show --email=staff@example.com
@@ -95,7 +128,7 @@ sudo bash deploy/docker/spyglass/stage-operations-staff.sh "$release_file" "$sta
 ```
 
 Use the smallest role appropriate to the person's task. Assignment requires an
-active ordinary account with an enrolled passkey. Revoking the final role
+active ordinary account with a connected Google identity. Enrollment is enforced\nat first admin sign-in before a staff session can be created. Revoking the final role
 suspends staff access and revokes its sessions. Role changes are audited. See
 [Operations Console operations](operations-console-operations.md) for other
 module boundaries and incident response.

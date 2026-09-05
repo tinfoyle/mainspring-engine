@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  APIProblem, beginOperationsPasskeyLogin, completeOperationsPasskeyLogin,
+  APIProblem, reauthenticateAdmin,
   createOperationsSupportGrant, logoutOperations, openOperationsSupportView,
   operationsLookup, operationsSession,
   operationsBillingFailures, operationsReplayBillingEvent, operationsRefreshBillingSubscription,
@@ -15,7 +15,7 @@ import {
 } from "@spyglass/api";
 import { IoButton, IoLogo } from "@spyglass/design-system";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { getOperationsAssertion } from "./webauthn";
+import AdminLogin from "./AdminLogin.vue";
 
 import { availableModules, type ModuleID as Screen } from "./modules/registry";
 const screen = ref<Screen>("overview");
@@ -23,6 +23,8 @@ const session = ref<OperationsSession>();
 const loadingSession = ref(true);
 const busy = ref(false);
 const error = ref("");
+const reauthNeeded = ref(false);
+const reauthCode = ref("");
 const menuOpen = ref(false);
 const isDesktop = ref(typeof window !== "undefined" && window.innerWidth >= 1024);
 const lookupKind = ref<OperationsLookupKind>("email");
@@ -51,7 +53,7 @@ const grantActive = computed(() => supportView.value?.view.grant.state === "acti
 const navigationUnavailable = computed(() => !isDesktop.value && !menuOpen.value);
 
 function message(value: unknown): string {
-  if (value instanceof APIProblem) return value.message;
+  if (value instanceof APIProblem) { if (value.problem?.code === "admin_reauthentication_required") reauthNeeded.value = true; return value.message; }
   if (value instanceof Error) return value.message;
   return "The request could not be completed.";
 }
@@ -63,14 +65,11 @@ async function loadSession(): Promise<void> {
   finally { loadingSession.value = false; }
 }
 
-async function signIn(): Promise<void> {
+function signedIn(value: OperationsSession): void { session.value = value; restoreModule(); error.value = ""; }
+async function confirmIdentity(): Promise<void> {
   busy.value = true; error.value = "";
-  try {
-    const ceremony = await beginOperationsPasskeyLogin();
-    const credential = await getOperationsAssertion(ceremony);
-    session.value = await completeOperationsPasskeyLogin(ceremony.ceremony_id, credential, "operations-console");
-    restoreModule();
-  } catch (value) { error.value = message(value); }
+  try { await reauthenticateAdmin(reauthCode.value); reauthNeeded.value = false; reauthCode.value = ""; }
+  catch (value) { error.value = message(value); }
   finally { busy.value = false; }
 }
 
@@ -222,16 +221,7 @@ onBeforeUnmount(() => { window.removeEventListener("resize", trackViewport); win
 
 <template>
   <div v-if="loadingSession" class="centered" aria-live="polite">Checking staff session…</div>
-  <main v-else-if="!session" class="login-shell">
-    <section class="login-card" aria-labelledby="login-title">
-      <IoLogo />
-      <p class="eyebrow">Staff only</p>
-      <h1 id="login-title">Operations Console</h1>
-      <p>Use your staff passkey. Customer passwords and customer sessions cannot open this console.</p>
-      <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
-      <IoButton :disabled="busy" @click="signIn">{{ busy ? "Waiting for passkey…" : "Sign in with passkey" }}</IoButton>
-    </section>
-  </main>
+  <AdminLogin v-else-if="!session" @signed-in="signedIn" />
   <div v-else class="shell">
     <header class="topbar">
       <button class="menu-button" type="button" :aria-expanded="menuOpen" aria-controls="operations-navigation" @click="menuOpen = !menuOpen">Menu</button>
@@ -257,6 +247,7 @@ onBeforeUnmount(() => { window.removeEventListener("resize", trackViewport); win
     </div>
     <main class="content" :class="{ 'content--with-banner': supportView }">
       <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
+      <form v-if="reauthNeeded" class="form-card" @submit.prevent="confirmIdentity"><h2>Confirm it is you</h2><label>Authenticator code<input v-model="reauthCode" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required /></label><IoButton type="submit" :disabled="busy">Confirm</IoButton><p>After confirming, repeat the action you were taking.</p></form>
       <section v-if="screen === 'overview'" aria-labelledby="overview-title">
         <p class="eyebrow">Operations</p>
         <h1 id="overview-title">Admin overview</h1>

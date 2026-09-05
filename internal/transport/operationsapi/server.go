@@ -14,9 +14,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/application/analyticsreport"
 	"github.com/tinfoyle/spyglass-engine/internal/application/billingadmin"
+	"github.com/tinfoyle/spyglass-engine/internal/application/operationsauth"
 	"github.com/tinfoyle/spyglass-engine/internal/application/operationsconsole"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyrightsadmin"
@@ -85,6 +87,9 @@ type Cookie struct {
 }
 
 type Server struct {
+	auth        *operationsauth.Service
+	guard       *abuse.Guard
+	appOrigin   string
 	console     Console
 	passkeys    PasskeyLogin
 	sessions    SessionService
@@ -122,8 +127,17 @@ func (server *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", server.live)
 	mux.HandleFunc("GET /health/ready", server.ready)
-	mux.HandleFunc("POST /api/operations/v1/passkey-login/challenges", server.beginPasskeyLogin)
-	mux.HandleFunc("POST /api/operations/v1/passkey-login/challenges/{ceremonyID}/complete", server.completePasskeyLogin)
+	if server.auth == nil {
+		mux.HandleFunc("POST /api/operations/v1/passkey-login/challenges", server.beginPasskeyLogin)
+		mux.HandleFunc("POST /api/operations/v1/passkey-login/challenges/{ceremonyID}/complete", server.completePasskeyLogin)
+	} else {
+		mux.HandleFunc("POST /api/operations/v1/auth/start", server.beginGoogle)
+		mux.HandleFunc("POST /api/operations/v1/auth/google/complete", server.acceptGoogle)
+		mux.HandleFunc("GET /api/operations/v1/auth", server.authStatus)
+		mux.HandleFunc("POST /api/operations/v1/auth/enrollment", server.enrollAuthenticator)
+		mux.HandleFunc("POST /api/operations/v1/auth/verify", server.verifyAuthenticator)
+		mux.HandleFunc("POST /api/operations/v1/auth/reauthenticate", server.reauthenticate)
+	}
 	mux.HandleFunc("GET /api/operations/v1/session", server.currentSession)
 	mux.HandleFunc("DELETE /api/operations/v1/session", server.logout)
 	mux.HandleFunc("POST /api/operations/v1/lookups", server.lookup)
@@ -180,9 +194,13 @@ func (server *Server) authenticate(w http.ResponseWriter, request *http.Request)
 		writeProblem(w, http.StatusUnauthorized, "session_invalid", "the staff session is invalid or expired")
 		return sessions.Authenticated{}, operations.Staff{}, false
 	}
-	if authenticated.Session.AuthenticationMethod != sessions.AuthenticationMethodPasskey {
+	expected := sessions.AuthenticationMethodPasskey
+	if server.auth != nil {
+		expected = sessions.AuthenticationMethodGoogleTOTP
+	}
+	if authenticated.Session.AuthenticationMethod != expected {
 		server.clearCookie(w)
-		writeProblem(w, http.StatusUnauthorized, "passkey_required", "staff sessions require passkey authentication")
+		writeProblem(w, http.StatusUnauthorized, "admin_authentication_required", "Google sign-in and an authenticator code are required")
 		return sessions.Authenticated{}, operations.Staff{}, false
 	}
 	staff, err := server.console.Staff(request.Context(), authenticated.Session.UserID)
@@ -193,6 +211,10 @@ func (server *Server) authenticate(w http.ResponseWriter, request *http.Request)
 	}
 	if authenticated.RotatedToken != "" {
 		server.setCookie(w, authenticated.RotatedToken, authenticated.Session.ExpiresAt)
+	}
+	if server.auth != nil && sensitiveAction(request) && time.Since(authenticated.Session.ReauthenticatedAt) > 15*time.Minute {
+		writeProblem(w, http.StatusForbidden, "admin_reauthentication_required", "Enter a new authenticator code, then repeat this action.")
+		return sessions.Authenticated{}, operations.Staff{}, false
 	}
 	return authenticated, staff, true
 }

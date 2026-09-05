@@ -222,7 +222,7 @@ func TestCommittedContractMatchesTransportsAndGeneratedFiles(t *testing.T) {
 	}
 }
 
-func TestOperationsContractIsSeparatePasskeyOnlyAndTyped(t *testing.T) {
+func TestOperationsContractIsSeparateAndTyped(t *testing.T) {
 	root, err := repositoryRoot()
 	if err != nil {
 		t.Fatal(err)
@@ -231,14 +231,14 @@ func TestOperationsContractIsSeparatePasskeyOnlyAndTyped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(routes) != 20 {
-		t.Fatalf("operations route count=%d, want 20", len(routes))
+	if len(routes) != 26 {
+		t.Fatalf("operations route count=%d, want 26", len(routes))
 	}
 	for _, route := range routes {
 		if route.Service != "operations-api" || route.Contract != "typed" {
 			t.Fatalf("unsafe operations route: %+v", route)
 		}
-		if route.Authentication != "operationsCookie" && !strings.Contains(route.OperationID, "PasskeyLogin") {
+		if route.Authentication != "operationsCookie" && !strings.Contains(route.OperationID, "PasskeyLogin") && !strings.HasPrefix(route.OperationID, "operationsAdmin") {
 			t.Fatalf("operations route lacks isolated cookie: %+v", route)
 		}
 	}
