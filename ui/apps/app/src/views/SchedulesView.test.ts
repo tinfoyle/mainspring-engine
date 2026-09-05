@@ -71,7 +71,7 @@ describe("Schedules surface", () => {
     await flushPromises();
     expect(wrapper.text()).toContain("Operations Boardroom");
     expect(wrapper.text()).not.toContain("Boardroom ID");
-    const boardroomField = wrapper.findAll("label").find((label) => label.text().startsWith("Boardroom"));
+    const boardroomField = wrapper.findAll("label").find((label) => label.text().startsWith("Agent team"));
     await boardroomField?.get("select").setValue(boardroom.id);
     await flushPromises();
     expect(api.listAgentPersonas).toHaveBeenCalledWith(account.account_id, boardroom.id);

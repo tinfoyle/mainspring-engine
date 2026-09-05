@@ -127,7 +127,7 @@ async function emit(name: Parameters<typeof emitAnalytics>[1]["name"], fields: R
   try {
     await emitAnalytics(analyticsAllowed.value, { name, fields });
   } catch {
-    // Optional measurement never changes checkout behavior.
+    // Optional analytics never changes checkout behavior.
   }
 }
 
@@ -325,7 +325,6 @@ onBeforeUnmount(() => {
   <section class="page checkout-page">
     <p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
     <header class="page-heading">
-      <p class="eyebrow">Secure checkout</p>
       <h1>Review before Stripe.</h1>
       <p>Confirm the published offer and any Affiliate referral. Payment details are collected by Stripe; access changes only after Spyglass projects the signed payment event.</p>
     </header>
@@ -343,14 +342,14 @@ onBeforeUnmount(() => {
       <h2>Payment needs attention</h2><p>Stripe returned a subscription that is past due or paused. Access is based only on the current local entitlement snapshot; review Billing before relying on paid packages.</p>
     </div>
     <div v-else-if="returnState === 'failed'" class="queue-state queue-state--error" role="alert">
-      <h2>The subscription did not become active</h2><p>The signed Stripe projection is expired, unpaid, or canceled. No paid access was granted from the browser redirect.</p>
+      <h2>The subscription did not become active</h2><p>Payment was not completed. Return to checkout to try again.</p>
     </div>
 
     <div v-if="loading" class="queue-state" role="status">Loading the published Catalog and Account billing state…</div>
     <div v-else-if="errorMessage && !catalog" class="queue-state queue-state--error" role="alert"><h2>Checkout is unavailable</h2><p>{{ errorMessage }}</p><IoButton kind="secondary" @click="load">Try again</IoButton></div>
     <div v-else class="checkout-layout">
       <section class="checkout-card" aria-labelledby="offer-heading">
-        <p class="eyebrow">1 · Offer</p><h2 id="offer-heading">Choose the published offer</h2>
+        <h2 id="offer-heading">Choose the published offer</h2>
         <label for="checkout-offer">Plan and billing interval</label>
         <select id="checkout-offer" v-model="selectedOfferCode">
           <option value="" disabled>Choose a current offer</option>
@@ -369,7 +368,7 @@ onBeforeUnmount(() => {
       </section>
 
       <section v-if="commissioningOffer" class="checkout-card" aria-labelledby="commissioning-heading">
-        <p class="eyebrow">2 · Setup</p><h2 id="commissioning-heading">Commissioning <small>optional</small></h2>
+        <h2 id="commissioning-heading">Commissioning <small>optional</small></h2>
         <template v-if="billing?.commissioning_purchased">
           <p class="referral-confirmed" role="status">Standard commissioning is already recorded for this Account.</p>
           <p class="form-note">Contact Support if you need another case-by-case engagement.</p>

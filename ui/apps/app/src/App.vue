@@ -38,7 +38,7 @@ onMounted(async () => {
     });
     if (emitted) sessionStorage.setItem("spyglass_application_entered", "1");
   } catch {
-    // Optional measurement never interrupts the application shell.
+    // Optional analytics never interrupts the application shell.
   }
 });
 
@@ -52,7 +52,7 @@ const workspaceNavigation: NavigationItem[] = [
   { to: "/app/your-turn", label: "Your Turn" },
   { to: "/app/work", label: "Work", packageCode: "work" },
   { to: "/app/knowledge", label: "Knowledge", packageCode: "knowledge" },
-  { to: "/app/baseline", label: "Baseline" },
+  { to: "/app/baseline", label: "Business setup" },
   { to: "/app/agents", label: "Agents", packageCode: "agents" },
   { to: "/app/schedules", label: "Schedules", packageCode: "agents" },
   { to: "/app/finance", label: "Finance", packageCode: "finance" },
@@ -64,7 +64,7 @@ const accountNavigation: NavigationItem[] = [
   { to: "/app/billing", label: "Billing" },
   { to: "/app/security", label: "Security" },
   { to: "/app/account-exports", label: "Exports" },
-  { to: "/app/account-closures", label: "Lifecycle" },
+  { to: "/app/account-closures", label: "Close account" },
   { to: "/app/affiliate", label: "Affiliate" },
   { to: "/app/privacy", label: "Privacy" }
 ];
@@ -222,7 +222,7 @@ function containMenuFocus(event: KeyboardEvent): void {
         </div>
         <button class="sign-out-button" type="button" :disabled="signingOut" @click="signOut">
           <span class="sign-out-icon" aria-hidden="true">↪</span>
-          <span><strong>{{ signingOut ? "Signing out…" : "Sign out" }}</strong><small>See you next time</small></span>
+          <span><strong>{{ signingOut ? "Signing out…" : "Sign out" }}</strong><small></small></span>
         </button>
         <p v-if="signOutError" class="sidebar-error" role="alert">{{ signOutError }}</p>
       </div>

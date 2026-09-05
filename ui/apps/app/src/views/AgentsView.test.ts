@@ -26,7 +26,7 @@ const account = {
 const room = { id: "20000000-0000-4000-8000-000000000002", manager_persona_id: "30000000-0000-4000-8000-000000000003", name: "Operating review", purpose: "Resolve launch constraints.", state: "active", version: 4, created_at: "2026-08-24T20:00:00Z", updated_at: "2026-08-24T20:00:00Z" } satisfies AgentBoardroom;
 const persona = {
   id: room.manager_persona_id, boardroom_id: room.id, state: "active", latest_version: 2, persona_version_id: "40000000-0000-4000-8000-000000000004",
-  name: "Operations Lead", role: "Synthesis manager", description: "Synthesizes evidence and open risks.", system_instructions: "Review the evidence and state bounded recommendations.", content_digest: "a".repeat(64),
+  name: "Operations Lead", role: "Summary agent", description: "Synthesizes evidence and open risks.", system_instructions: "Review the evidence and state bounded recommendations.", content_digest: "a".repeat(64),
   policy: { complexity: "balanced", maximum_input_tokens: 10000, maximum_output_tokens: 2000, maximum_cost_micros: 100000, maximum_tool_steps: 2, citation_policy: "required", action_policy: "propose", tools: [], output_schema: {} },
   created_at: "2026-08-24T20:00:00Z", updated_at: "2026-08-24T20:00:00Z"
 } satisfies AgentPersona;
@@ -62,7 +62,7 @@ describe("Agents surface", () => {
     const wrapper = await mountAt(`/app/agents/boardrooms/${room.id}`);
     expect(wrapper.text()).toContain("Operating review"); expect(wrapper.text()).toContain("Operations Lead");
     expect(wrapper.text()).toContain("Complexity"); expect(wrapper.text()).toContain("Balanced");
-    expect(wrapper.text()).toContain("Propose only—human approval remains external"); expect(wrapper.text()).toContain("Convene Boardroom");
+    expect(wrapper.text()).toContain("Ask for approval first"); expect(wrapper.text()).toContain("Send");
     expect(wrapper.findAllComponents(RouterLinkStub).some((link) => link.props("to") === `/app/agents/boardrooms/${room.id}/conversations/${conversation.id}`)).toBe(true);
   });
 
@@ -70,12 +70,12 @@ describe("Agents surface", () => {
     const wrapper = await mountAt(`/app/agents/boardrooms/${room.id}/conversations/${conversation.id}`);
     expect(api.listAgentMessages).toHaveBeenCalledWith(account.account_id, conversation.id);
     expect(wrapper.text()).toContain("Two readiness gaps remain"); expect(wrapper.text()).toContain("Security review is open");
-    expect(wrapper.text()).toContain("Review consequential proposals in Your Turn"); expect(wrapper.text()).not.toContain("secret_internal_field");
+    expect(wrapper.text()).toContain("Review proposed actions in Your Turn"); expect(wrapper.text()).not.toContain("secret_internal_field");
   });
 
   it("publishes a new immutable Persona with bounded proposal policy", async () => {
     api.publishAgentPersona.mockResolvedValue({ ...persona, id: "b0000000-0000-4000-8000-00000000000b", latest_version: 1 });
-    const wrapper = await mountAt(`/app/agents/boardrooms/${room.id}`); await wrapper.findAll("button").find((item) => item.text() === "New Persona")?.trigger("click");
+    const wrapper = await mountAt(`/app/agents/boardrooms/${room.id}`); await wrapper.findAll("button").find((item) => item.text() === "New agent")?.trigger("click");
     const modal = wrapper.get(".persona-modal"); const inputs = modal.findAll("input:not([type=checkbox])"); await inputs[0]!.setValue("Finance Reviewer"); await inputs[1]!.setValue("Finance specialist"); const textareas = modal.findAll("textarea"); await textareas[0]!.setValue("Reviews operating evidence."); await textareas[1]!.setValue("Review current evidence and make bounded recommendations only.");
     const selects = modal.findAll("select"); await selects[1]!.setValue("propose"); await flushPromises(); const activation = modal.findAll("label").find((item) => item.text().includes("Marketing release activation")); expect(activation).toBeTruthy(); await activation!.find("input").setValue(true); await modal.trigger("submit"); await flushPromises();
     expect(api.publishAgentPersona).toHaveBeenCalledWith(account.account_id, room.id, expect.objectContaining({ expected_latest_version: 0, name: "Finance Reviewer", policy: expect.objectContaining({ complexity: "balanced", action_policy: "propose", action_capabilities: ["marketing.release.activate"], tools: [] }) }));
@@ -83,6 +83,6 @@ describe("Agents surface", () => {
 
   it("lets members run Boardrooms without exposing manager configuration", async () => {
     const session = useSessionStore(); session.accounts = [{ ...account, role: "member" }]; const wrapper = await mountAt(`/app/agents/boardrooms/${room.id}`);
-    expect(wrapper.text()).toContain("Convene Boardroom"); expect(wrapper.text()).not.toContain("New Persona"); expect(wrapper.text()).not.toContain("Set manager"); expect(wrapper.text()).not.toContain("Publish new version");
+    expect(wrapper.text()).toContain("Send"); expect(wrapper.text()).not.toContain("New agent"); expect(wrapper.text()).not.toContain("Save summary agent"); expect(wrapper.text()).not.toContain("Save new version");
   });
 });

@@ -19,6 +19,11 @@ procedure.
   commands at the remote prompt. Complex remote Bash nested inside a
   PowerShell command is easy to misquote: PowerShell can consume assignments,
   quotes or command separators while SSH still exits in a misleading state.
+- If the native SSH config lacks this alias, the configured alias can be used
+  from UbuntuRojo with `ssh -F /mnt/c/Users/Tinfo/.ssh/config -tt infiniteocean`
+  (and the same `-F` argument for `scp`). The Stage identity file must remain
+  on the native Linux filesystem. This fallback was verified during the
+  2026-09-04 functional audit.
 - `rg` is not presently installed in UbuntuRojo. Use `grep` and `find` when it
   is unavailable.
 - Direct commits to `main` are the accepted one-owner workflow. Preserve
@@ -207,4 +212,3 @@ compatible.
 - [Local, Stage and production deployment report](stage-production-deployment-report.md)
 - [Work-to-Agent execution](work-agent-execution.md)
 - [Stage test-account reset](environments/hostinger-stage.md#resetting-a-synthetic-signup-fixture)
-

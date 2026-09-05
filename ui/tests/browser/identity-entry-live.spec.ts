@@ -77,7 +77,7 @@ async function registerVerifiedIdentity(
   await page.getByLabel("Your name").fill("Connected Identity");
   await page.getByLabel("Work email").fill(email);
   await page.getByLabel("Business name").fill(`Connected ${suffix.slice(0, 44)}`);
-  await page.getByRole("button", { name: "Continue securely" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
   expect(submittedOrigin).toBe(pageOrigin);
   await expect(page.locator(".alert"), `page origin ${pageOrigin}; submitted origin ${submittedOrigin}`).toContainText("Your verification link is on its way.");
   await expectNoHorizontalOverflow(page);
@@ -156,12 +156,12 @@ test("identity entry and recovery pages retain one accessible responsive frame",
   page.on("pageerror", (error) => runtimeErrors.push(error.message));
 
   const routes = [
-    { path: "/login?return_to=%2Fapp", heading: "Find the signal. Move the business.", formHeading: "Sign in to Spyglass" },
-    { path: "/signup?offer=team-monthly-v2", heading: "Build a clear operating view.", formHeading: "Create your Account" },
-    { path: "/forgot-password", heading: "Restore access. Keep every Account.", formHeading: "Find your identity" },
-    { path: "/reset-password?token=local-layout-proof", heading: "Set a new key to the view ahead.", formHeading: "Reset your password" },
-    { path: "/verify?token=local-layout-proof&offer=team-monthly-v2", heading: "Secure the view ahead.", formHeading: "Choose your password" },
-    { path: "/contact-change/verify?token=local-layout-proof", heading: "Move the signal. Keep the identity.", formHeading: "Verify the new email" }
+    { path: "/login?return_to=%2Fapp", heading: "Welcome to Spyglass.", formHeading: "Sign in to Spyglass" },
+    { path: "/signup?offer=team-monthly-v2", heading: "Create your Spyglass account.", formHeading: "Create your Account" },
+    { path: "/forgot-password", heading: "Recover your account", formHeading: "Find your identity" },
+    { path: "/reset-password?token=local-layout-proof", heading: "Reset your password", formHeading: "Reset your password" },
+    { path: "/verify?token=local-layout-proof&offer=team-monthly-v2", heading: "Set your password.", formHeading: "Choose your password" },
+    { path: "/contact-change/verify?token=local-layout-proof", heading: "Confirm your new email.", formHeading: "Verify the new email" }
   ] as const;
 
   for (const route of routes) {
@@ -174,12 +174,12 @@ test("@text-zoom identity entry and recovery pages reflow at 200% text size", as
   const runtimeErrors: string[] = [];
   page.on("pageerror", (error) => runtimeErrors.push(error.message));
   const routes = [
-    { path: "/login?return_to=%2Fapp", heading: "Find the signal. Move the business." },
-    { path: "/signup?offer=team-monthly-v2", heading: "Build a clear operating view." },
-    { path: "/forgot-password", heading: "Restore access. Keep every Account." },
-    { path: "/reset-password?token=local-layout-proof", heading: "Set a new key to the view ahead." },
-    { path: "/verify?token=local-layout-proof&offer=team-monthly-v2", heading: "Secure the view ahead." },
-    { path: "/contact-change/verify?token=local-layout-proof", heading: "Move the signal. Keep the identity." }
+    { path: "/login?return_to=%2Fapp", heading: "Welcome to Spyglass." },
+    { path: "/signup?offer=team-monthly-v2", heading: "Create your Spyglass account." },
+    { path: "/forgot-password", heading: "Recover your account" },
+    { path: "/reset-password?token=local-layout-proof", heading: "Reset your password" },
+    { path: "/verify?token=local-layout-proof&offer=team-monthly-v2", heading: "Set your password." },
+    { path: "/contact-change/verify?token=local-layout-proof", heading: "Confirm your new email." }
   ] as const;
 
   for (const route of routes) {
@@ -240,7 +240,7 @@ test("identity consent rejection remains equal, compact, reversible, and non-blo
 test("offer continuity, native validation, and incomplete-link recovery fail safely", async ({ page }) => {
   await page.goto("/signup?offer=team-monthly-v2");
   await expect(page.locator('input[name="offer_code"]')).toHaveValue("team-monthly-v2");
-  await page.getByRole("button", { name: "Continue securely" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.locator("input:invalid")).toHaveCount(3);
   await expect(page).toHaveURL(/\/signup\?offer=team-monthly-v2$/);
 
@@ -306,7 +306,7 @@ test.describe("connected identity success", () => {
       const replacementPasskey = "Recovered virtual passkey";
 
       await page.goto("/app/security");
-      await expect(page.getByRole("heading", { level: 1, name: "Security follows you" })).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1, name: "Security" })).toBeVisible();
       await expect(page.getByRole("heading", { level: 2, name: "Setup incomplete" })).toBeVisible();
       await page.getByLabel("Passkey name").fill(firstPasskey);
       await page.getByRole("button", { name: "Add passkey" }).click();
@@ -318,7 +318,7 @@ test.describe("connected identity success", () => {
       await expect(codes).toHaveCount(10);
       const recoveryCode = (await codes.first().innerText()).trim();
       expect(recoveryCode).toMatch(/^[0-9a-f]{4}(?:-[0-9a-f]{4}){7}$/);
-      await expect(page.getByRole("heading", { level: 2, name: "Identity secured" })).toBeVisible();
+      await expect(page.getByRole("heading", { level: 2, name: "Sign-in protection is set up" })).toBeVisible();
       await expectNoHorizontalOverflow(page);
       await expectAccessible(page);
 
@@ -366,7 +366,7 @@ test.describe("connected identity success", () => {
       const replacementAuthenticator = await client.send("WebAuthn.getCredentials", { authenticatorId: authenticatorID });
       expect(replacementAuthenticator.credentials).toHaveLength(1);
       await page.reload();
-      await expect(page.getByRole("heading", { level: 1, name: "Security follows you" })).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1, name: "Security" })).toBeVisible();
       await page.waitForLoadState("networkidle");
       await page.getByRole("button", { name: "Confirm with a passkey" }).click();
       await expect(page.locator('[aria-live="polite"]')).toContainText("Passkey confirmed.");

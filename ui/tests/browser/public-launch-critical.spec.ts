@@ -142,7 +142,7 @@ test.afterEach(() => {
 
 test("landing consent gates analytics and preserves the signup handoff", async ({ page }, testInfo) => {
   await page.goto("http://127.0.0.1:4174/");
-  await expect(page.getByRole("heading", { level: 1, name: "Know what needs you next." })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Manage your tasks and AI agents." })).toBeVisible();
   await expect(page.locator(".turn-preview")).toHaveCSS("transform", "none");
   await expect(page.getByRole("heading", { name: "Your privacy choices" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
@@ -281,7 +281,7 @@ test("public consent history is inspectable and browser erasure reopens equal ch
 
 test("@text-zoom public acquisition remains usable at 200% text size", async ({ page }) => {
   const routes = [
-    { path: "/", heading: "Know what needs you next." },
+    { path: "/", heading: "Manage your tasks and AI agents." },
     { path: "/pricing", heading: /\$50 a month/ },
     ...publicFeatureAndPolicyRoutes
   ] as const;
@@ -319,7 +319,7 @@ test("@browser-zoom public acquisition reflows at 400% browser scale", async ({ 
   }))).toEqual({ cssWidth: 320, cssHeight: 225, devicePixelRatio: 4, screenWidth: 1280, screenHeight: 900 });
 
   const routes = [
-    { path: "/", heading: "Know what needs you next." },
+    { path: "/", heading: "Manage your tasks and AI agents." },
     { path: "/pricing", heading: /\$50 a month/ },
     ...publicFeatureAndPolicyRoutes
   ] as const;

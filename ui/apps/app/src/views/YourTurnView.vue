@@ -40,13 +40,13 @@ function label(value: string): string {
 
 function title(item: AttentionQueueItem): string {
   if (item.kind === "information" || item.kind === "review") return item.question;
-  return item.capability;
+  return item.capability === "marketing.release.activate" ? "Approve marketing campaign" : label(item.capability.replaceAll(".", " "));
 }
 
 function context(item: AttentionQueueItem): string {
-  if (item.kind === "information") return "A fact is blocking related Work.";
+  if (item.kind === "information") return "An agent needs an answer to continue.";
   if (item.kind === "review") return `Review Work version ${item.work_version}.`;
-  if (item.kind === "approval") return "Inspect the exact proposed action before deciding.";
+  if (item.kind === "approval") return "Review the proposed action and choose whether to approve it.";
   return `Attempt ${item.attempt_count} needs an evidence-based outcome.`;
 }
 
@@ -132,9 +132,8 @@ watch(() => [session.selectedID, session.userID, session.attentionAccess.work, s
     <p class="sr-only" aria-live="polite" aria-atomic="true">{{ announcement }}</p>
     <header class="page-heading page-heading--action">
       <div>
-        <p class="eyebrow">Focused owner attention</p>
         <h1>Your Turn</h1>
-        <p>Questions, reviews, consequential decisions and uncertain outcomes—ordered around the judgment only you can provide.</p>
+        <p>Answer questions, review work, and approve actions that need your decision.</p>
       </div>
       <IoButton kind="secondary" :disabled="loading || !session.selectedID" @click="refresh(true)">{{ loading ? "Refreshing…" : "Refresh" }}</IoButton>
     </header>
@@ -167,7 +166,7 @@ watch(() => [session.selectedID, session.userID, session.attentionAccess.work, s
         <h2>That did not load cleanly</h2><p>{{ error }}</p><IoButton kind="secondary" @click="refresh()">Try again</IoButton>
       </section>
       <section v-else-if="visibleItems.length === 0" class="queue-state" role="status">
-        <h2>Nothing needs you in this view</h2><p>When an Agent or teammate reaches a governed decision boundary, it will appear here.</p>
+        <h2>Nothing needs you in this view</h2><p>Questions and actions that need your decision will appear here.</p>
       </section>
       <template v-else>
         <p v-if="error" class="queue-inline-status queue-inline-status--error" role="alert">{{ error }} Showing the last loaded queue.</p>

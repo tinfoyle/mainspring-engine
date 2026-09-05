@@ -15,6 +15,8 @@ const {
   decideApproval,
   decideWorkReview,
   getAttentionDetail,
+  getMarketingCampaign,
+  getMarketingRelease,
   listMatchingFacts,
   requestActionResolution
 } = vi.hoisted(() => ({
@@ -24,6 +26,8 @@ const {
   decideApproval: vi.fn(),
   decideWorkReview: vi.fn(),
   getAttentionDetail: vi.fn(),
+  getMarketingCampaign: vi.fn(),
+  getMarketingRelease: vi.fn(),
   listMatchingFacts: vi.fn(),
   requestActionResolution: vi.fn()
 }));
@@ -37,6 +41,8 @@ vi.mock("@spyglass/api", async (importOriginal) => {
     decideApproval,
     decideWorkReview,
     getAttentionDetail,
+    getMarketingCampaign,
+    getMarketingRelease,
     listMatchingFacts,
     requestActionResolution,
     getPrivacyConsent: vi.fn().mockResolvedValue({ decided: false, analytics: false, marketing: false, renewal_required: false }),
@@ -139,6 +145,23 @@ beforeEach(async () => {
 });
 
 describe("Your Turn approval detail", () => {
+  it.each([false, true])("shows the marketing release and blocks approval after changes: %s", async (stale) => {
+    const session = useSessionStore(); session.accounts = [account]; session.selectedID = account.account_id;
+    session.userID = "20000000-0000-4000-8000-000000000002";
+    getAttentionDetail.mockResolvedValue({ ...approval, invocation_id: undefined, capability: "marketing.release.activate", payload: { campaign_id: "campaign", campaign_version: 3, release_id: "release", release_version: 2 } });
+    getMarketingCampaign.mockResolvedValue({ id: "campaign", name: "September launch", objective: "Introduce the new service", audience: "Current customers", version: stale ? 4 : 3 });
+    getMarketingRelease.mockResolvedValue({ id: "release", name: "Final copy", channels: ["web"], asset_revision_ids: ["asset"], version: 2, state: "submitted" });
+    const wrapper = mount(YourTurnDetailView, { global: { plugins: [router] } }); await flushPromises();
+    expect(wrapper.text()).toContain("September launch"); expect(wrapper.text()).toContain("Final copy");
+    expect(wrapper.text()).toContain("It does not send or publish content.");
+    expect(wrapper.get('a[href="/app/marketing/releases/release"]').text()).toBe("Review release content");
+    await wrapper.get('input[value="approve"]').setValue(true);
+    await wrapper.get("textarea").setValue("Reviewed the final copy");
+    await wrapper.get('input[type="checkbox"]').setValue(true);
+    expect(wrapper.get('button[type="submit"]').attributes("disabled") !== undefined).toBe(stale);
+    if (stale) expect(wrapper.text()).toContain("This campaign or release has changed");
+    await expectNoAxeViolations(wrapper.element); wrapper.unmount();
+  });
   it("requires explicit exact-payload confirmation before submitting", async () => {
     const session = useSessionStore();
     session.accounts = [account];
@@ -148,7 +171,7 @@ describe("Your Turn approval detail", () => {
     await flushPromises();
     await expectNoAxeViolations(wrapper.element);
 
-    expect(wrapper.text()).toContain("Exact proposed payload");
+    expect(wrapper.text()).toContain("Proposed action");
     await wrapper.get('input[value="approve"]').setValue(true);
     await wrapper.get("textarea").setValue("The governed release is ready.");
     expect(wrapper.get('button[type="submit"]').attributes()).toHaveProperty("disabled");

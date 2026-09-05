@@ -60,7 +60,7 @@ describe("Affiliate identity dashboard", () => {
     api.getAffiliateProgram.mockResolvedValue({ enrollment_open: false, attribution_enabled: false, terms_version: 1, rule_version: 1, settlement_mode: "unconfigured" });
     const wrapper = await mountView();
     expect(wrapper.findAll("dd")[2]?.text()).toBe("Not approved");
-    expect(wrapper.text()).toContain("The UI makes no payout promise");
+    expect(wrapper.text()).toContain("The affiliate program is not open yet");
     expect(wrapper.text()).not.toContain("$10");
     expect(api.getAffiliateStatement).not.toHaveBeenCalled();
   });

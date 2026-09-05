@@ -6,7 +6,7 @@ import { usePublicSeo } from "~/composables/usePublicSeo";
 import { publicFeatures } from "~/content/features";
 
 usePublicSeo({
-  title: "Spyglass — Know what needs you next",
+  title: "Spyglass — Tasks, records and AI agents",
   path: "/",
   description: "Spyglass keeps your jobs, customers, schedule, notes and AI agents together, so you can see what needs attention next.",
   schema: {
@@ -52,11 +52,10 @@ onMounted(async () => {
     <section class="hero">
       <div class="hero__wash" aria-hidden="true" />
       <div class="hero__inner">
-        <p class="eyebrow">Keep the work moving</p>
-        <h1>Know what needs <em>you</em> next.</h1>
-        <p class="hero__lead">Spyglass keeps your jobs, customers, schedule, notes and AI agents in one place. It shows you what needs attention, what is already being handled and what is waiting on your decision.</p>
+        <h1>Manage your tasks<br />and <em>AI agents.</em></h1>
+        <p class="hero__lead">Keep your work, schedule and business notes together. Assign tasks to AI agents and review their questions and requests.</p>
         <div class="hero__actions"><a class="button button--primary" :href="`${appOrigin}/signup?offer=team-monthly-v2`" @click="startTeam($event, 'hero_create_team')">Create your team</a><NuxtLink class="button button--secondary" to="/features">See how it works</NuxtLink></div>
-        <p class="hero__note">$50 USD per team each month, plus applicable tax. Optional analytics stays off unless you accept it.</p>
+        <p class="hero__note">$50 USD per team each month, plus applicable tax.</p>
       </div>
       <div class="turn-preview" aria-label="Preview of Your Turn">
         <header><span>Your Turn</span><strong>3 need you</strong></header>
@@ -66,16 +65,14 @@ onMounted(async () => {
     </section>
 
     <section class="promise section-frame">
-      <p class="eyebrow">How it helps</p>
-      <h2>See the work. Hand it off. Make the calls that matter.</h2>
-      <ol><li><b>01</b><span><strong>Get the picture</strong>Bring in what you already know about your customers, jobs, people and day-to-day work.</span></li><li><b>02</b><span><strong>Make a plan</strong>Loose ends and missing information become clear tasks.</span></li><li><b>03</b><span><strong>Keep it moving</strong>Your team and AI agents handle routine work within the limits you set.</span></li><li><b>04</b><span><strong>Step in when needed</strong>Your Turn collects the questions, reviews and approvals that need you.</span></li></ol>
+      <h2>How Spyglass works</h2>
+      <ol><li><b>01</b><span><strong>Add your business information</strong>Bring in what you already know about your customers, jobs, people and day-to-day work.</span></li><li><b>02</b><span><strong>Make a plan</strong>Loose ends and missing information become clear tasks.</span></li><li><b>03</b><span><strong>Assign work</strong>Your team and AI agents handle routine work within the limits you set.</span></li><li><b>04</b><span><strong>Step in when needed</strong>Your Turn collects the questions, reviews and approvals that need you.</span></li></ol>
     </section>
 
     <section class="your-turn-story">
-      <div><p class="eyebrow">Your day, sorted</p><h2>A to-do list that knows the difference between busywork and judgment.</h2><p>Your Turn puts the decisions only you can make at the top. Every item tells you what happened, what it needs from you and what happens after you answer.</p><NuxtLink to="/features#your-turn">Explore Your Turn →</NuxtLink></div>
-      <blockquote>“What actually needs me today?”<small>Open Spyglass and see it first.</small></blockquote>
+      <div><h2>Questions and approvals in one place.</h2><p>Your Turn puts the decisions only you can make at the top. Every item tells you what happened, what it needs from you and what happens after you answer.</p><NuxtLink to="/features#your-turn">Explore Your Turn →</NuxtLink></div>
     </section>
 
-    <section class="closing-cta section-frame"><p class="eyebrow">Start where you are</p><h2>Bring us the business you already run.<br />Spyglass helps you stay on top of it.</h2><a class="button button--primary" :href="`${appOrigin}/signup?offer=team-monthly-v2`" @click="startTeam($event, 'closing_create_team')">Create your team</a></section>
+    <section class="closing-cta section-frame"><h2>Create a Spyglass account for your business.</h2><a class="button button--primary" :href="`${appOrigin}/signup?offer=team-monthly-v2`" @click="startTeam($event, 'closing_create_team')">Create your team</a></section>
   </div>
 </template>

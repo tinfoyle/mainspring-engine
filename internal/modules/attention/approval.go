@@ -108,7 +108,7 @@ func RestoreConsequentialApproval(approval ConsequentialApproval) (Consequential
 	approval.Reason = strings.TrimSpace(approval.Reason)
 	approval.ExpiresAt, approval.CreatedAt, approval.UpdatedAt = approval.ExpiresAt.UTC(), approval.CreatedAt.UTC(), approval.UpdatedAt.UTC()
 	if err != nil || !bytes.Equal(canonical, approval.CanonicalPayload) || !validID(string(approval.ID)) || !validID(string(approval.AccountID)) ||
-		!validID(approval.OperationID) || !validID(string(approval.InvocationID)) || (approval.WorkItemID != "" && !validID(string(approval.WorkItemID))) ||
+		!validID(approval.OperationID) || (!validID(string(approval.InvocationID)) && !(approval.InvocationID == "" && approval.Proposer.Kind == ActorUser && approval.Capability == "marketing.release.activate" && approval.WorkItemID == "")) || (approval.WorkItemID != "" && !validID(string(approval.WorkItemID))) ||
 		!validCapability(approval.Capability) || approval.InputSHA256 != sha256.Sum256(canonical) || approval.HashVersion != CanonicalPayloadHashVersion ||
 		approval.EvidenceSHA256 == ([sha256.Size]byte{}) || !approval.Proposer.Valid() || approval.PolicyVersion == 0 || approval.Version == 0 ||
 		approval.CreatedAt.IsZero() || approval.UpdatedAt.Before(approval.CreatedAt) || approval.ExpiresAt.Sub(approval.CreatedAt) <= 0 || approval.ExpiresAt.Sub(approval.CreatedAt) > MaximumApprovalLifetime {
@@ -303,6 +303,11 @@ type ActionAuthorization struct {
 }
 
 func (approval ConsequentialApproval) Authorization(at time.Time) (ActionAuthorization, error) {
+	// Human Marketing decisions are applied in the account transaction. They
+	// must never become credentials for a runner invocation.
+	if approval.InvocationID == "" {
+		return ActionAuthorization{}, ErrState
+	}
 	if approval.State != ConsequentialApprovalApproved || approval.Decision == nil {
 		return ActionAuthorization{}, ErrState
 	}

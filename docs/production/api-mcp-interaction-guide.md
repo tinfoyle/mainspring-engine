@@ -1,7 +1,7 @@
 # Spyglass API and MCP interaction guide
 
 - Contract date: 2026-08-24
-- HTTP contract: `api/spyglass.openapi.json` (218 operations)
+- HTTP contract: `api/spyglass.openapi.json` (219 operations)
 - Generated Go inventory: `internal/generated/apicontract/routes.go`
 - Generated TypeScript inventory/types: `website/lib/generated/api-contract.ts` and `website/lib/generated/api-types.ts`
 - MCP inventory: 89 routed cell tools plus five global Account-export tools
@@ -73,7 +73,7 @@ The OpenAPI document is the line-item inventory. The groups below are the stable
 | Knowledge | 13 | evidence, claims/facts, documents, retrieval, publication and citation |
 | Baseline | 18 | current assessment discovery, assessment lifecycle, plan/Work maintenance and source grants |
 | Finance | 21 | Ledgers, posting accounts, entries, period close, reversal and reconciliation |
-| Marketing | 16 | campaigns, immutable asset revisions, release governance and activation lifecycle |
+| Marketing | 17 | campaigns, immutable asset revisions and downloads, release governance and activation lifecycle |
 | Integrations | 21 | connections, credentials, health, OAuth, web research, delivery execution and recovery |
 
 Run `go run ./cmd/apicontract -check` after editing the OpenAPI document. Use `-write` only when intentionally regenerating the Go and TypeScript artifacts.

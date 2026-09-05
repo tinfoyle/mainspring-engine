@@ -38,7 +38,7 @@ describe("Integrations workspace", () => {
   it("loads a durable connection and removes management controls in read-only mode", async () => {
     const session = useSessionStore(); session.accounts = [{ ...account, entitlements: { ...account.entitlements, packages: account.entitlements.packages.map((item) => item.code === "integrations" ? { ...item, mode: "read_only" as const } : item) } }];
     const wrapper = await mountAt(`/app/integrations/connections/${connection.id}`);
-    expect(api.getIntegrationConnection).toHaveBeenCalledWith(accountID, connection.id); expect(wrapper.text()).toContain("Read-only access"); expect(wrapper.text()).toContain("https://example.com/policy"); expect(wrapper.text()).not.toContain("Revise scope"); expect(wrapper.text()).not.toContain("New connection");
+    expect(api.getIntegrationConnection).toHaveBeenCalledWith(accountID, connection.id); expect(wrapper.text()).toContain("Read-only access"); expect(wrapper.text()).toContain("https://example.com/policy"); expect(wrapper.text()).not.toContain("Edit connection"); expect(wrapper.text()).not.toContain("New connection");
   });
 
   it("enforces different-manager confirmation for an uncertain external outcome", async () => {
@@ -49,6 +49,6 @@ describe("Integrations workspace", () => {
   it("searches a reviewed scope and confirms Knowledge capture explicitly", async () => {
     const wrapper = await mountAt("/app/integrations"); await wrapper.findAll("[role=tab]").find((item) => item.text() === "Research")?.trigger("click"); await wrapper.get(".integration-search input").setValue("policy"); await wrapper.get(".integration-search").trigger("submit"); await flushPromises(); expect(wrapper.text()).toContain("Launch controls");
     await wrapper.findAll("button").find((item) => item.text() === "Capture to Knowledge")?.trigger("click"); await wrapper.get("[role=dialog] input").setValue("CAPTURE"); await wrapper.get("[role=dialog]").trigger("submit"); await flushPromises();
-    expect(api.readIntegrationWeb).toHaveBeenCalledWith(accountID, { connection_id: connection.id, url: "https://example.com/policy/launch" }); expect(wrapper.text()).toContain("Knowledge evidence captured");
+    expect(api.readIntegrationWeb).toHaveBeenCalledWith(accountID, { connection_id: connection.id, url: "https://example.com/policy/launch" }); expect(wrapper.text()).toContain("Review Knowledge");
   });
 });

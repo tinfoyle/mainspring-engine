@@ -236,7 +236,7 @@ func TestScheduleExecutionAtomicallyCreatesRunAndAdvancesDefinition(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	processAt := schedule.NextRunAt.Add(time.Minute)
+	processAt := schedule.NextRunAt.Add(time.Minute + 567*time.Nanosecond)
 	processor, err := scheduleapp.NewExecutionProcessor(executions,
 		scheduleExecutionAuthorizer{value: scheduleapp.ExecutionAuthorization{EntitlementVersion: 9, MaximumConcurrentRun: 4, CanReadRestricted: true}},
 		fixedClock{now: processAt}, fixedIDGenerator{value: "84000000-0000-4000-8000-000000000001"}, scheduleapp.DefaultExecutionLease, scheduleapp.DefaultExecutionMaxAttempts)
@@ -253,6 +253,9 @@ func TestScheduleExecutionAtomicallyCreatesRunAndAdvancesDefinition(t *testing.T
 	loadedRun, err := agents.GetRun(ctx, accountID, ids.RunID(runID))
 	if err != nil || loadedRun.Plan.CreatedBy != userID || loadedRun.Plan.EntitlementVersion != 9 || loadedRun.Plan.ConversationID != ids.ConversationID(conversationID) || len(loadedRun.Plan.Turns) != 1 || loadedRun.Plan.Turns[0].PersonaID != personaID {
 		t.Fatalf("run=%+v err=%v", loadedRun, err)
+	}
+	if !loadedRun.Plan.CreatedAt.Equal(processAt.Truncate(time.Microsecond)) {
+		t.Fatalf("scheduled run timestamp was not normalized: %s", loadedRun.Plan.CreatedAt)
 	}
 	advanced, err := definitions.Get(ctx, accountID, scheduleID)
 	if err != nil || advanced.Version != 2 || advanced.NextRunAt == nil || !advanced.NextRunAt.After(processAt) {
@@ -273,7 +276,7 @@ func TestScheduleExecutionAtomicallyCreatesRunAndAdvancesDefinition(t *testing.T
 	}
 
 	triggerID := "75000000-0000-4000-8000-000000000001"
-	triggerAt := processAt.Add(time.Minute)
+	triggerAt := processAt.Add(time.Minute).Truncate(time.Microsecond)
 	triggerRequest := scheduleapp.TriggerRequest{ID: triggerID, AccountID: accountID, ScheduleID: scheduleID, ScheduleVersion: advanced.Version, RequestedBy: userID, RequestedAt: triggerAt}
 	triggerMutation := scheduleapp.Mutation{EventID: triggerID, Kind: "trigger_requested", ActorUserID: userID, Reason: "Run the review now", CorrelationID: triggerID, At: triggerAt}
 	trigger, created, err := definitions.EnqueueTrigger(ctx, triggerRequest, triggerMutation)

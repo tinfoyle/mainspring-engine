@@ -17,6 +17,7 @@ var (
 	ErrNotFound   = errors.New("marketing record was not found")
 	ErrConflict   = errors.New("marketing command conflicts with durable state")
 	ErrRepository = errors.New("marketing repository unavailable")
+	ErrCorrupt    = errors.New("marketing content integrity check failed")
 )
 
 type Mutation struct {
@@ -40,6 +41,7 @@ type Store interface {
 	ReviseCampaign(context.Context, ids.AccountID, ids.MarketingCampaignID, domain.CampaignRevision, Mutation) (domain.Campaign, error)
 	CreateAssetRevision(context.Context, domain.AssetRevisionInput, accounts.MembershipRole, Mutation) (domain.AssetRevision, bool, error)
 	ListAssetRevisions(context.Context, ids.AccountID, AssetRevisionListQuery) (AssetRevisionPage, error)
+	GetAssetRevision(context.Context, ids.AccountID, ids.MarketingAssetRevisionID) (domain.AssetRevision, error)
 	CreateReleasePlan(context.Context, domain.ReleasePlanInput, accounts.MembershipRole, Mutation) (domain.ReleasePlan, bool, error)
 	GetReleasePlan(context.Context, ids.AccountID, ids.MarketingReleaseID) (domain.ReleasePlan, error)
 	ListReleasePlans(context.Context, ids.AccountID, ReleaseListQuery) (ReleasePage, error)

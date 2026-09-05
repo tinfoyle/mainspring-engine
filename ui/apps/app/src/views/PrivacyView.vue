@@ -242,22 +242,21 @@ function rightsStateDescription(state: PrivacyRightsRequest["state"]): string {
   <section class="page privacy-page">
     <p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
     <header class="page-heading">
-      <p class="eyebrow">Your data</p>
-      <h1>Privacy you can act on.</h1>
-      <p>Control optional measurement, erase this browser's pseudonymous data, or submit a verified request covering your identity, Accounts, analytics, or Affiliate records.</p>
+      <h1>Privacy</h1>
+      <p>Choose whether to allow analytics and manage requests about your personal data.</p>
     </header>
 
     <div v-if="loading" class="queue-state" role="status">Loading your privacy controls…</div>
     <template v-else>
       <form class="preference-panel" @submit.prevent="save">
-        <div class="privacy-section-heading"><div><p class="eyebrow">Consent</p><h2>Optional measurement</h2></div><span>Policy {{ preference?.policy_version ?? 1 }}</span></div>
+        <div class="privacy-section-heading"><div><h2>Optional analytics</h2></div><span>Policy {{ preference?.policy_version ?? 1 }}</span></div>
         <div class="preference-row"><div><h3>Necessary</h3><p>Security, sign-in, checkout continuity and this preference.</p></div><strong>Always on</strong></div>
-        <label class="preference-row"><span><strong>Analytics</strong><small>First-party, content-free journey and usability events.</small></span><input v-model="analytics" type="checkbox" /></label>
-        <div class="preference-row"><span><strong>Marketing tracking</strong><small>No purpose, processor, cookie or destination is configured, so there is nothing to accept.</small></span><strong>Not used</strong></div>
+        <label class="preference-row"><span><strong>Analytics</strong><small>Helps us understand which features are used. Does not include your messages or documents.</small></span><input v-model="analytics" type="checkbox" /></label>
+        <div class="preference-row"><span><strong>Marketing tracking</strong><small>Spyglass does not use marketing tracking.</small></span><strong>Not used</strong></div>
         <div class="preference-actions"><IoButton type="submit" :disabled="saving">{{ saving ? "Saving…" : "Save preferences" }}</IoButton><IoButton kind="secondary" :disabled="saving" @click="rejectNonEssential">{{ saving ? "Saving…" : "Reject non-essential" }}</IoButton></div>
         <section class="rights-history consent-history" aria-labelledby="consent-history-heading">
           <h3 id="consent-history-heading">Consent history</h3>
-          <p class="form-note">Immutable optional-purpose choices saved for this browser are shown newest first. Necessary processing is always listed separately above.</p>
+          <p class="form-note">Your previous choices for this browser, newest first.</p>
           <p v-if="historyError" class="form-error" role="alert">{{ historyError }}</p>
           <p v-else-if="consentHistory.length === 0" class="form-note">No saved consent decision exists for this browser.</p>
           <ol v-else>
@@ -270,7 +269,7 @@ function rightsStateDescription(state: PrivacyRightsRequest["state"]): string {
       </form>
 
       <section class="rights-panel" aria-labelledby="rights-heading">
-        <div class="privacy-section-heading"><div><p class="eyebrow">GDPR rights</p><h2 id="rights-heading">Make a tracked request</h2></div><span>Identity confirmation required</span></div>
+        <div class="privacy-section-heading"><div><h2 id="rights-heading">Make a tracked request</h2></div><span>Identity confirmation required</span></div>
         <p class="section-intro">Choose a right and the data boundary it concerns. Submission and cancellation require a recent passkey, text, or email-code confirmation. We track the response deadline; submitting a request does not silently delete legally retained billing or Affiliate evidence.</p>
         <form class="rights-form" @submit.prevent="submitRightsRequest">
           <label for="rights-kind">What would you like to do?</label>
@@ -300,11 +299,11 @@ function rightsStateDescription(state: PrivacyRightsRequest["state"]): string {
       </section>
 
       <section class="privacy-tools" aria-labelledby="privacy-tools-heading">
-        <div class="privacy-section-heading"><div><p class="eyebrow">Direct tools</p><h2 id="privacy-tools-heading">Use the narrowest control</h2></div></div>
+        <div class="privacy-section-heading"><div><h2 id="privacy-tools-heading">Other data controls</h2></div></div>
         <div class="privacy-tool-grid">
-          <article><h3>Account portability</h3><p>Owners can build and download a governed ZIP snapshot of the selected Account.</p><a href="/app/account-exports">Open Account exports</a></article>
+          <article><h3>Account portability</h3><p>Download this account's data as a ZIP file.</p><a href="/app/account-exports">Open Account exports</a></article>
           <article><h3>Affiliate portability</h3><p>Download your enrollment, code history, attribution totals, commission ledger, and support history without referred-customer or payment-provider identifiers.</p><IoButton kind="secondary" :disabled="exportingAffiliate" @click="downloadAffiliateExport">{{ exportingAffiliate ? "Preparing Affiliate export…" : "Download Affiliate data" }}</IoButton></article>
-          <article><h3>Account lifecycle</h3><p>Owners can freeze and close an Account through its audited cooling-off workflow.</p><a href="/app/account-closures">Open Account lifecycle</a></article>
+          <article><h3>Account lifecycle</h3><p>Request closure or cancel a pending request.</p><a href="/app/account-closures">Open Account lifecycle</a></article>
           <article><h3>Identity correction</h3><p>Change the verified login email or review authentication and active sessions.</p><a href="/app/security">Open identity security</a></article>
         </div>
       </section>

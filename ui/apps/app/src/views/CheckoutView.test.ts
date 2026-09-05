@@ -234,7 +234,7 @@ describe("checkout review", () => {
     const wrapper = await mountCheckout("/app/checkout?offer=team-monthly-v2&status=billing");
 
     expect(wrapper.text()).toContain("subscription did not become active");
-    expect(wrapper.text()).toContain("No paid access was granted");
+    expect(wrapper.text()).toContain("Payment was not completed.");
     expect(wrapper.text()).not.toContain("Your subscription is active");
   });
 });

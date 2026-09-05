@@ -84,7 +84,7 @@ main { min-width: 0; }
 .page-heading--action { max-width: none; display: grid; gap: 1rem; }
 .page-heading--action .io-button { justify-self: start; }
 .eyebrow { margin: 0 0 .55rem; color: var(--io-ocean-650); font-size: .76rem; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
-.page h1 { margin: 0; color: var(--io-ocean-950); font-family: Georgia, "Times New Roman", serif; font-size: clamp(2.4rem, 12vw, 4.6rem); font-weight: 500; line-height: .95; letter-spacing: -.055em; }
+.page h1 { margin: 0; color: var(--io-ocean-950); font-family: Georgia, "Times New Roman", serif; font-size: clamp(1.9rem, 5vw, 2.8rem); font-weight: 500; line-height: 1.15; letter-spacing: -.025em; }
 .page-heading > p:last-child { color: var(--io-ink-soft); font-size: 1.04rem; line-height: 1.55; }
 .queue-toolbar { margin: 1.8rem 0 1rem; display: flex; gap: .5rem; overflow-x: auto; padding: .25rem 0 .5rem; scrollbar-width: none; }
 .filter-chip, .filter-button { min-height: 44px; white-space: nowrap; border: 1px solid var(--io-line); border-radius: 999px; padding: .55rem .85rem; color: var(--io-ink-soft); background: var(--io-paper); }
@@ -150,7 +150,7 @@ main { min-width: 0; }
 .attention-card--skeleton { min-height: 11rem; background: linear-gradient(100deg, #f1eee7 20%, #fbf9f4 40%, #f1eee7 60%); background-size: 200% 100%; animation: shimmer 1.4s ease-in-out infinite; }
 .back-link { min-height: 44px; display: inline-flex; align-items: center; color: var(--io-ocean-800); font-weight: 750; text-decoration: none; }
 .detail-heading { margin-top: 1rem; display: grid; gap: 1rem; }
-.detail-heading h1 { max-width: 18ch; overflow-wrap: anywhere; }
+.detail-heading h1 { max-width: 36ch; overflow-wrap: anywhere; }
 .state-badge { justify-self: start; padding: .45rem .7rem; border-radius: 999px; color: var(--io-ocean-800); background: var(--io-sky); font-size: .75rem; font-weight: 800; text-transform: uppercase; }
 .detail-layout { margin-top: 1.5rem; display: grid; gap: 1rem; }
 .detail-card, .decision-card { min-width: 0; padding: 1.1rem; border: 1px solid var(--io-line); border-radius: var(--io-radius-md); background: var(--io-paper); }

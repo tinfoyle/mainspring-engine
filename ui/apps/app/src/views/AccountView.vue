@@ -146,10 +146,10 @@ watch(() => session.selectedID, () => void load(), { immediate: true });
   <section class="page account-page">
     <p class="sr-only" aria-live="polite" aria-atomic="true">{{ announcement }}</p>
     <p v-if="navigationNotice && !actionOpen" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
-    <header class="page-heading"><p class="eyebrow">Account</p><h1>People and authority</h1><p>Invite teammates, keep access current, and make ownership changes with an explicit durable reason.</p></header>
+    <header class="page-heading"><h1>Account</h1><p>Manage your team and who can access this account.</p></header>
 
     <section v-if="selected" class="account-summary" aria-labelledby="account-summary-title">
-      <div><p class="eyebrow">Selected Account</p><h2 id="account-summary-title">{{ selected.display_name }}</h2></div>
+      <div><h2 id="account-summary-title">{{ selected.display_name }}</h2></div>
       <dl><div><dt>Your role</dt><dd>{{ label(selected.role) }}</dd></div><div><dt>Account type</dt><dd>{{ label(selected.account_type) }}</dd></div></dl>
     </section>
     <section v-else-if="!loading" class="queue-state"><h2>Select an Account</h2><p>Team access always belongs to one Account.</p></section>
@@ -160,7 +160,7 @@ watch(() => session.selectedID, () => void load(), { immediate: true });
 
     <template v-else-if="selected && actor">
       <form v-if="canManageTeam" class="invite-form decision-card" @submit.prevent="invite">
-        <div><p class="eyebrow">New access</p><h2>Invite a teammate</h2><p class="form-note">Invitations expire. The recipient signs in with their own identity; credentials are never shared.</p></div>
+        <div><h2>Invite a teammate</h2><p class="form-note">Your teammate will use their own login.</p></div>
         <label>Email address<input v-model="invitation.email" type="email" autocomplete="email" maxlength="320" required></label>
         <label>Starting role<select v-model="invitation.role"><option v-for="role in roles" :key="role.value" :value="role.value">{{ role.label }}</option></select></label>
         <IoButton type="submit" :disabled="saving">{{ saving ? "Creating…" : "Create invitation" }}</IoButton>
@@ -168,7 +168,7 @@ watch(() => session.selectedID, () => void load(), { immediate: true });
       </form>
 
       <section v-if="canManageTeam" class="team-section" aria-labelledby="team-heading">
-        <header><div><p class="eyebrow">Current access</p><h2 id="team-heading">Team</h2></div><span>{{ members.length }} Membership{{ members.length === 1 ? "" : "s" }}</span></header>
+        <header><div><h2 id="team-heading">Team</h2></div><span>{{ members.length }} Membership{{ members.length === 1 ? "" : "s" }}</span></header>
         <ol class="team-list">
           <li v-for="member in members" :key="member.membership_id" class="team-card">
             <div class="team-identity"><span class="agents-avatar" aria-hidden="true">{{ member.display_name.slice(0, 2).toUpperCase() }}</span><div><strong>{{ member.display_name }} <small v-if="isSelf(member)">(you)</small></strong><a :href="`mailto:${member.email}`">{{ member.email }}</a></div></div>
@@ -193,7 +193,7 @@ watch(() => session.selectedID, () => void load(), { immediate: true });
         <h2 id="team-action-title">{{ action === "leave" ? "Leave this Account?" : `${label(action)} ${target?.display_name ?? "Membership"}?` }}</h2>
         <p class="form-note">This change is bound to the currently loaded Membership version and recorded in the durable audit history.</p>
         <label v-if="action === 'role'">New role<select v-model="actionRole"><option v-for="role in roles" :key="role.value" :value="role.value">{{ role.label }}</option></select></label>
-        <label>Operational reason<textarea v-model="actionReason" minlength="3" maxlength="300" rows="4" required></textarea></label>
+        <label>Reason for this change<textarea v-model="actionReason" minlength="3" maxlength="300" rows="4" required></textarea></label>
         <label v-if="requiredConfirmation(action)" class="confirmation-phrase">Type {{ requiredConfirmation(action) }} to confirm<input v-model="confirmation" autocomplete="off" :pattern="requiredConfirmation(action)" required></label>
         <p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
         <p v-if="securityRequired" class="queue-inline-status queue-inline-status--error">{{ error }} <a href="/app/security?return_to=%2Fapp%2Faccount">Continue to Security</a></p>

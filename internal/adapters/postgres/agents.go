@@ -380,6 +380,9 @@ func (r *AgentRepository) StartRun(ctx context.Context, draft agentapp.StartRunD
 }
 
 func startAgentRunInTx(ctx context.Context, tx pgx.Tx, draft agentapp.StartRunDraft) (agentapp.Run, bool, error) {
+	// Every entry point, including scheduled runs, must hash the same timestamp
+	// precision that PostgreSQL can retain.
+	draft.CreatedAt = draft.CreatedAt.UTC().Truncate(time.Microsecond)
 	if draft.Mode == "" {
 		draft.Mode = agentapp.RunModeSelected
 	}
@@ -1177,7 +1180,7 @@ func loadAgentRun(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, runID
 	if err := rows.Err(); err != nil {
 		return agentapp.Run{}, false, err
 	}
-	validated, err := agentdomain.RestoreRunPlan(plan)
+	validated, err := restorePersistedAgentRunPlan(plan)
 	if err != nil {
 		return agentapp.Run{}, false, agentapp.ErrCorrupt
 	}
@@ -1210,6 +1213,25 @@ func loadAgentRun(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, runID
 		return agentapp.Run{}, false, agentapp.ErrCorrupt
 	}
 	return agentapp.Run{Plan: validated, Mode: mode, State: state, Subject: subject, Prompt: prompt, UserMessageID: messageID, InvocationIDs: invocations, Invocations: invocationViews, Resolutions: resolutions, Context: contextReferences, ContextDigest: validatedContextDigest}, true, nil
+}
+
+// Earlier scheduled runs hashed a nanosecond timestamp before PostgreSQL
+// truncated it to microseconds. Recover only the lost sub-microsecond portion,
+// and only when the entire original digest matches. No persisted record is
+// changed and no other integrity check is relaxed.
+func restorePersistedAgentRunPlan(plan agentdomain.RunPlan) (agentdomain.RunPlan, error) {
+	restored, err := agentdomain.RestoreRunPlan(plan)
+	if err == nil || !errors.Is(err, agentdomain.ErrImmutableVersion) || plan.CreatedAt.Nanosecond()%1000 != 0 {
+		return restored, err
+	}
+	base := plan.CreatedAt
+	for nanos := 1; nanos < 1000; nanos++ {
+		plan.CreatedAt = base.Add(time.Duration(nanos))
+		if restored, err = agentdomain.RestoreRunPlan(plan); err == nil {
+			return restored, nil
+		}
+	}
+	return agentdomain.RunPlan{}, agentdomain.ErrImmutableVersion
 }
 
 func loadRunResolution(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, resolutionID ids.RunResolutionID) (agentapp.RunResolution, bool, error) {

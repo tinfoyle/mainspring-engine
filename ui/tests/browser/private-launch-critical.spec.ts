@@ -200,7 +200,7 @@ const agentPersona = {
   latest_version: 2,
   persona_version_id: "14000000-0000-4000-8000-000000000014",
   name: "Operations Lead",
-  role: "Synthesis manager",
+  role: "Summary agent",
   description: "Synthesizes evidence and open risks.",
   system_instructions: "Review the evidence and state bounded recommendations.",
   content_digest: "b".repeat(64),
@@ -287,7 +287,7 @@ const schedule = {
 };
 const financeLedger = { id: "22000000-0000-4000-8000-000000000022", account_id: accountID, name: "Operating", code: "OPS", description: "Primary book", currency: "USD", state: "active", version: 3, created_by: { kind: "user", id: userID }, created_at: "2026-08-24T00:00:00Z", updated_at: "2026-08-24T00:00:00Z" };
 const financeSummary = { ...financeLedger, account_count: 2, draft_count: 1, income_minor: 5000, expense_minor: 2000, net_minor: 3000 };
-const financeEntry = { id: "23000000-0000-4000-8000-000000000023", account_id: accountID, ledger_id: financeLedger.id, number: 8, entry_date: "2026-08-24T00:00:00Z", description: "Monthly close", reference: "CLOSE-8", currency: "USD", total_minor: 5000, state: "draft", version: 5, lines: [{ account_id: "cash", memo: "", debit_minor: 5000, credit_minor: 0 }, { account_id: "income", memo: "", debit_minor: 0, credit_minor: 5000 }], evidence: [], provenance: { source: "manual" }, created_by: { kind: "user", id: userID }, created_at: "2026-08-24T00:00:00Z", updated_at: "2026-08-24T00:00:00Z" };
+const financeEntry = { id: "23000000-0000-4000-8000-000000000023", account_id: accountID, ledger_id: financeLedger.id, number: 8, entry_date: "2026-08-24T00:00:00Z", description: "Monthly close", reference: "CLOSE-8", currency: "USD", total_minor: 5000, state: "draft", version: 5, lines: [{ account_id: "cash", memo: "", debit_minor: 5000, credit_minor: 0 }, { account_id: "income", memo: "", debit_minor: 0, credit_minor: 5000 }], evidence: ["30000000-0000-4000-8000-000000000003"], provenance: { source: "manual" }, created_by: { kind: "user", id: userID }, created_at: "2026-08-24T00:00:00Z", updated_at: "2026-08-24T00:00:00Z" };
 const integrationConnection = { id: "24000000-0000-4000-8000-000000000024", account_id: accountID, name: "Policy research", kind: "web_research", state: "active", current_revision_id: "25000000-0000-4000-8000-000000000025", current_revision: 2, credential_id: "26000000-0000-4000-8000-000000000026", credential_generation: 1, version: 4, created_by: { user_id: userID }, created_at: "2026-08-24T00:00:00Z", updated_at: "2026-08-24T00:00:00Z" };
 const integrationHealth = { id: "27000000-0000-4000-8000-000000000027", account_id: accountID, connection_id: integrationConnection.id, connection_revision_id: integrationConnection.current_revision_id, credential_id: integrationConnection.credential_id, state: "healthy", latency_milliseconds: 81, checked_at: "2026-08-24T00:00:00Z" };
 const integrationDetail = { connection: integrationConnection, revision: { id: integrationConnection.current_revision_id, account_id: accountID, connection_id: integrationConnection.id, revision: 2, capabilities: ["web.research"], scope: { https_origin: "https://example.com", path_prefix: "/policy" }, created_by: { user_id: userID }, created_at: "2026-08-24T00:00:00Z" }, latest_health: integrationHealth };
@@ -682,7 +682,7 @@ test("Your Turn renders the owner queue without responsive overflow", async ({ p
     expect(await page.evaluate(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
   }
   await expect(page.getByRole("heading", { level: 1, name: "Your Turn" })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 2, name: "marketing.release.publish" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "marketing release publish" })).toBeVisible();
   await expect(page.getByRole("group", { name: "Filter Your Turn queue" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
@@ -692,7 +692,7 @@ test("Your Turn preserves the queue offline and refreshes after reconnect", asyn
   allowedBrowserErrors.push(/Failed to load resource:.*ERR_INTERNET_DISCONNECTED/);
   allowedBrowserErrors.push(/Failed to load resource: WebKit encountered an internal error/);
   await page.goto("/app/your-turn");
-  await expect(page.getByRole("heading", { level: 2, name: "marketing.release.publish" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "marketing release publish" })).toBeVisible();
   const attentionPattern = `**/api/v1/accounts/${accountID}/attention/**`;
   const abortAttention = (route: Route) => route.abort("internetdisconnected");
   await page.route(attentionPattern, abortAttention);
@@ -700,7 +700,7 @@ test("Your Turn preserves the queue offline and refreshes after reconnect", asyn
   await expect(page.getByRole("status").filter({ hasText: "You are offline" })).toBeVisible();
   await page.getByRole("button", { name: "Refresh" }).click();
   await expect(page.getByRole("alert")).toContainText("Your Turn is unavailable right now. Showing the last loaded queue.");
-  await expect(page.getByRole("heading", { level: 2, name: "marketing.release.publish" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "marketing release publish" })).toBeVisible();
 
   await page.unroute(attentionPattern, abortAttention);
   await context.setOffline(false);
@@ -715,7 +715,7 @@ test("Your Turn preserves the queue offline and refreshes after reconnect", asyn
 test("Your Turn session expiry preserves the exact sign-in return route", async ({ page }) => {
   allowedBrowserErrors.push(/Failed to load resource:.*401/);
   await page.goto("/app/your-turn");
-  await expect(page.getByRole("heading", { level: 2, name: "marketing.release.publish" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "marketing release publish" })).toBeVisible();
   await page.route(`**/api/v1/accounts/${accountID}/attention/**`, async (route) => {
     await fulfillProblem(route, 401, "authentication_required", "Sign in again.");
   });
@@ -781,9 +781,9 @@ test("Your Turn sends only one decision while approval is pending", async ({ pag
   });
 
   await page.goto(`/app/your-turn/approval/${approvalID}`);
-  await page.getByRole("radio", { name: "Approve exact action" }).check();
-  await page.getByLabel("Decision reason").fill("The governed release is ready.");
-  await page.getByRole("checkbox", { name: /I reviewed the exact payload/ }).check();
+  await page.getByRole("radio", { name: "Approve this action" }).check();
+  await page.getByLabel("Reason").fill("The governed release is ready.");
+  await page.getByRole("checkbox", { name: /I reviewed the proposed action/ }).check();
   await page.locator("form.decision-card").evaluate((form) => {
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
@@ -825,9 +825,9 @@ test("Your Turn warns before leaving an unsaved consequential decision", async (
     });
   });
   await page.goto(`/app/your-turn/approval/${approvalID}`);
-  await page.getByRole("radio", { name: "Approve exact action" }).check();
-  await page.getByLabel("Decision reason").fill("The governed release is ready after final review.");
-  await page.getByRole("checkbox", { name: /I reviewed the exact payload/ }).check();
+  await page.getByRole("radio", { name: "Approve this action" }).check();
+  await page.getByLabel("Reason").fill("The governed release is ready after final review.");
+  await page.getByRole("checkbox", { name: /I reviewed the proposed action/ }).check();
 
   const dismissed = new Promise<string>((resolve) => {
     page.once("dialog", async (dialog) => {
@@ -838,7 +838,7 @@ test("Your Turn warns before leaving an unsaved consequential decision", async (
   await page.getByRole("link", { name: "Back to Your Turn" }).click();
   await expect(dismissed).resolves.toBe("Leave this decision? Your draft will remain only in this browser tab until you return.");
   await expect(page).toHaveURL(new RegExp(`/app/your-turn/approval/${approvalID}$`));
-  await expect(page.getByLabel("Decision reason")).toHaveValue("The governed release is ready after final review.");
+  await expect(page.getByLabel("Reason")).toHaveValue("The governed release is ready after final review.");
   await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your decision draft remains" })).toBeVisible();
 
   page.once("dialog", (dialog) => dialog.accept());
@@ -852,21 +852,21 @@ test("@text-zoom authenticated routes retain content and reflow at 200% text siz
   const routes = [
     { path: "/app/your-turn", heading: "Your Turn" },
     { path: "/app/checkout?offer=team-monthly-v2", heading: "Review before Stripe." },
-    { path: "/app/privacy", heading: "Privacy you can act on." },
-    { path: "/app/affiliate", heading: "One identity. One clear ledger." },
-    { path: "/app/account", heading: "People and authority" },
+    { path: "/app/privacy", heading: "Privacy" },
+    { path: "/app/affiliate", heading: "Affiliate program" },
+    { path: "/app/account", heading: "Account" },
     { path: `/app/work/${workItem.id}`, heading: workItem.title },
-    { path: `/app/knowledge/claims/${knowledgeClaim.id}`, heading: knowledgeClaim.key },
+    { path: `/app/knowledge/claims/${knowledgeClaim.id}`, heading: "Launch release window" },
     { path: `/app/baseline/${baselineID}`, heading: "Business Baseline" },
     { path: `/app/agents/boardrooms/${agentRoom.id}/conversations/${agentConversation.id}`, heading: agentRoom.name },
     { path: `/app/schedules/${schedule.id}`, heading: schedule.name },
-    { path: `/app/finance/entries/${financeEntry.id}`, heading: "A governed ledger for operating truth" },
-    { path: `/app/integrations/executions/${integrationExecution.id}`, heading: "Connect deliberately. Observe every effect." },
-    { path: `/app/marketing/releases/${marketingRelease.id}`, heading: "Prepare the message. Govern the release." },
-    { path: "/app/billing", heading: "Know what the Account pays for" },
-    { path: "/app/security", heading: "Security follows you" },
-    { path: "/app/account-exports", heading: "Take your Account with you" },
-    { path: "/app/account-closures", heading: "Deliberate and recoverable" }
+    { path: `/app/finance/entries/${financeEntry.id}`, heading: "Finance" },
+    { path: `/app/integrations/executions/${integrationExecution.id}`, heading: "Integrations" },
+    { path: `/app/marketing/releases/${marketingRelease.id}`, heading: "Marketing" },
+    { path: "/app/billing", heading: "Billing" },
+    { path: "/app/security", heading: "Security" },
+    { path: "/app/account-exports", heading: "Exports" },
+    { path: "/app/account-closures", heading: "Close account" }
   ] as const;
 
   for (const route of routes) {
@@ -903,21 +903,21 @@ test("@browser-zoom authenticated routes reflow at 400% browser scale", async ({
   const routes = [
     { path: "/app/your-turn", heading: "Your Turn" },
     { path: "/app/checkout?offer=team-monthly-v2", heading: "Review before Stripe." },
-    { path: "/app/privacy", heading: "Privacy you can act on." },
-    { path: "/app/affiliate", heading: "One identity. One clear ledger." },
-    { path: "/app/account", heading: "People and authority" },
+    { path: "/app/privacy", heading: "Privacy" },
+    { path: "/app/affiliate", heading: "Affiliate program" },
+    { path: "/app/account", heading: "Account" },
     { path: `/app/work/${workItem.id}`, heading: workItem.title },
-    { path: `/app/knowledge/claims/${knowledgeClaim.id}`, heading: knowledgeClaim.key },
+    { path: `/app/knowledge/claims/${knowledgeClaim.id}`, heading: "Launch release window" },
     { path: `/app/baseline/${baselineID}`, heading: "Business Baseline" },
     { path: `/app/agents/boardrooms/${agentRoom.id}/conversations/${agentConversation.id}`, heading: agentRoom.name },
     { path: `/app/schedules/${schedule.id}`, heading: schedule.name },
-    { path: `/app/finance/entries/${financeEntry.id}`, heading: "A governed ledger for operating truth" },
-    { path: `/app/integrations/executions/${integrationExecution.id}`, heading: "Connect deliberately. Observe every effect." },
-    { path: `/app/marketing/releases/${marketingRelease.id}`, heading: "Prepare the message. Govern the release." },
-    { path: "/app/billing", heading: "Know what the Account pays for" },
-    { path: "/app/security", heading: "Security follows you" },
-    { path: "/app/account-exports", heading: "Take your Account with you" },
-    { path: "/app/account-closures", heading: "Deliberate and recoverable" }
+    { path: `/app/finance/entries/${financeEntry.id}`, heading: "Finance" },
+    { path: `/app/integrations/executions/${integrationExecution.id}`, heading: "Integrations" },
+    { path: `/app/marketing/releases/${marketingRelease.id}`, heading: "Marketing" },
+    { path: "/app/billing", heading: "Billing" },
+    { path: "/app/security", heading: "Security" },
+    { path: "/app/account-exports", heading: "Exports" },
+    { path: "/app/account-closures", heading: "Close account" }
   ] as const;
 
   for (const route of routes) {
@@ -999,7 +999,7 @@ test("Billing exposes governed top-up, promotion, and later commissioning contro
   });
   await page.goto("/app/billing");
   await expect(page.getByRole("button", { name: "Buy 10,000 AI Tokens for $10.00" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Purchase commissioning" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Buy assisted setup" })).toBeVisible();
   await page.getByRole("button", { name: "Buy 10,000 AI Tokens for $10.00" }).click();
   await expect(page.getByRole("alert")).toContainText("purchase checkout is temporarily unavailable");
   expect(purchaseRequests[0]?.body).toEqual({ kind: "ai_token_top_up", item_code: "tokens_10k_v1" });
@@ -1014,7 +1014,7 @@ test("Billing exposes governed top-up, promotion, and later commissioning contro
 
 test("GDPR controls expose equal rejection and verified rights boundaries", async ({ page }) => {
   await page.goto("/app/privacy");
-  await expect(page.getByRole("heading", { level: 1, name: "Privacy you can act on." })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Privacy" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Reject non-essential" })).toBeVisible();
   await expect(page.getByText("Marketing tracking", { exact: true })).toBeVisible();
   await expect(page.getByText("Not used", { exact: true })).toBeVisible();
@@ -1074,15 +1074,15 @@ test("Affiliate portability hands off exact context for passkey confirmation", a
   await page.goto("/app/privacy");
   await page.getByRole("button", { name: "Download Affiliate data" }).click();
   await expect(page).toHaveURL(/\/app\/security\?return_to=%2Fapp%2Fprivacy&status=strong_reauthentication_required$/);
-  await expect(page.getByRole("heading", { level: 1, name: "Security follows you" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Security" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 });
 
 test("closed Affiliate launch state makes no unapproved payout promise", async ({ page }) => {
   await page.goto("/app/affiliate");
-  await expect(page.getByRole("heading", { level: 1, name: "One identity. One clear ledger." })).toBeVisible();
-  await expect(page.getByText("Enrollment cannot open until the release owner approves")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Affiliate program" })).toBeVisible();
+  await expect(page.getByText("The affiliate program is not open yet.")).toBeVisible();
   await expect(page.getByText("$10", { exact: false })).toHaveCount(0);
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
@@ -1259,14 +1259,14 @@ test("checkout keeps the chosen referral visible when self-referral is denied wi
 
 test("owner-security onboarding records completion only after authoritative readiness", async ({ page }) => {
   await page.goto("/app/security");
-  await expect(page.getByRole("heading", { level: 1, name: "Security follows you" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Security" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Setup incomplete" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
   expect(state.analyticsEvents.filter((event) => event.name === "security_enrollment_completed")).toEqual([]);
 
   await page.getByRole("button", { name: "Create recovery codes" }).click();
-  await expect(page.getByRole("heading", { name: "Identity secured" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign-in protection is set up" })).toBeVisible();
   await expect(page.getByRole("region", { name: "New recovery codes" })).toContainText("Save these now");
   await expect.poll(() => state.analyticsEvents.filter((event) => event.name === "security_enrollment_completed").length).toBe(1);
   expect(state.analyticsEvents.find((event) => event.name === "security_enrollment_completed")).toEqual({
@@ -1302,23 +1302,23 @@ test("Account administration keeps authority, billing, portability, and closure 
   const routes = [
     {
       path: "/app/account",
-      heading: "People and authority",
+      heading: "Account",
       evidence: ["Invite a teammate", "Morgan Member", "Transfer ownership"]
     },
     {
       path: "/app/billing",
-      heading: "Know what the Account pays for",
+      heading: "Billing",
       evidence: ["Checkout required", "No subscription history", "Review paid plans"]
     },
     {
       path: "/app/account-exports",
-      heading: "Take your Account with you",
+      heading: "Exports",
       evidence: ["Request Account export", "Cancel request", queuedExport.id]
     },
     {
       path: "/app/account-closures",
-      heading: "Deliberate and recoverable",
-      evidence: ["Request closure", "No closure history", "Closure is not immediate erasure"]
+      heading: "Close account",
+      evidence: ["Request closure", "No closure history", "Request account closure or check an existing request."]
     }
   ] as const;
 
@@ -1356,7 +1356,7 @@ test("Account administration keeps authority, billing, portability, and closure 
         await page.getByRole("button", { name: isExport ? "Cancel request" : "Request closure" }).click();
         const dialog = page.getByRole("dialog");
         if (isExport) await dialog.getByLabel("Type CANCEL to confirm").fill("CANCEL");
-        else await dialog.getByLabel("Operational reason").fill("The owner is reviewing this lifecycle change.");
+        else await dialog.getByLabel("Reason for this change").fill("The owner is reviewing this lifecycle change.");
         const dismissed = new Promise<string>((resolve) => {
           page.once("dialog", async (browserDialog) => { resolve(browserDialog.type()); await browserDialog.dismiss(); });
         });
@@ -1364,7 +1364,7 @@ test("Account administration keeps authority, billing, portability, and closure 
         await expect(dismissed).resolves.toBe("beforeunload");
         await expect(page).toHaveURL(new RegExp(`${route.path}$`));
         if (isExport) await expect(dialog.getByLabel("Type CANCEL to confirm")).toHaveValue("CANCEL");
-        else await expect(dialog.getByLabel("Operational reason")).toHaveValue("The owner is reviewing this lifecycle change.");
+        else await expect(dialog.getByLabel("Reason for this change")).toHaveValue("The owner is reviewing this lifecycle change.");
         page.once("dialog", (browserDialog) => browserDialog.accept());
         await page.evaluate(() => history.back());
         await expect(page).toHaveURL(/\/app\/billing$/);
@@ -1393,9 +1393,9 @@ test("new Accounts preserve actionable empty states across customer workspaces",
 
   const routes = [
     { path: "/app/baseline", heading: "Tell Spyglass how your business works.", evidence: "Start the conversation" },
-    { path: "/app/finance", heading: "A governed ledger for operating truth", evidence: "No ledgers yet" },
-    { path: "/app/marketing", heading: "Prepare the message. Govern the release.", evidence: "No campaigns yet" },
-    { path: "/app/integrations", heading: "Connect deliberately. Observe every effect.", evidence: "No connections match this view." }
+    { path: "/app/finance", heading: "Finance", evidence: "No ledgers yet" },
+    { path: "/app/marketing", heading: "Marketing", evidence: "No campaigns yet" },
+    { path: "/app/integrations", heading: "Integrations", evidence: "No connections match this view." }
   ] as const;
 
   for (const route of routes) {
@@ -1424,12 +1424,12 @@ test("Work and Knowledge preserve governed operating context", async ({ page }) 
     {
       path: "/app/knowledge",
       heading: "Knowledge",
-      evidence: [knowledgeClaim.key, "92% confidence", knowledgeFact.key]
+      evidence: ["Launch release window", "92% confidence", "Organization legal name"]
     },
     {
       path: `/app/knowledge/claims/${knowledgeClaim.id}`,
-      heading: knowledgeClaim.key,
-      evidence: [knowledgeClaim.value, "Launch plan, page 4", "Agent output is never authoritative"]
+      heading: "Launch release window",
+      evidence: [knowledgeClaim.value, "Launch plan, page 4", "Check the information and its sources before saving it."]
     }
   ] as const;
 
@@ -1549,12 +1549,12 @@ test("conversational Baseline learns, proposes setup Work, and hands off to Your
   await expect(page.getByText("How does a new service call reach you today?", { exact: false }).last()).toBeVisible();
   await page.getByLabel("Your reply").fill("Calls come from Google and go onto a whiteboard.");
   await page.getByRole("button", { name: "Send" }).click();
-  await expect(page.getByRole("heading", { level: 2, name: "Your agent sees a place Spyglass can help." })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "Suggested tasks" })).toBeVisible();
   await page.getByRole("button", { name: "Yes, add this" }).click();
   await expect(page.getByRole("link", { name: "Set up a daily dispatch review" })).toBeVisible();
   await page.getByLabel("Your reply").fill("I assign calls in the morning; my lead technician handles emergencies.");
   await page.getByRole("button", { name: "Send" }).click();
-  await expect(page.getByRole("heading", { level: 2, name: "Your agent has enough to start helping." })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "Business setup complete" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue to Your Turn" })).toBeVisible();
   expect(commandTrail).toEqual([
     "knowledge:evidence", "knowledge:baseline.lead_intake", "knowledge:accepted", "run:Calls come from Google and go onto a whiteboard.",
@@ -1566,16 +1566,16 @@ test("conversational Baseline learns, proposes setup Work, and hands off to Your
 
 test("package workspaces preserve governed list and durable detail context", async ({ page }) => {
   const routes = [
-    { path: "/app/agents", heading: "Agents", evidence: [agentRoom.name, agentRoom.purpose, "New Boardroom"] },
-    { path: `/app/agents/boardrooms/${agentRoom.id}`, heading: agentRoom.name, evidence: [agentPersona.name, "Propose only—human approval remains external", "Convene Boardroom"] },
-    { path: `/app/agents/boardrooms/${agentRoom.id}/conversations/${agentConversation.id}`, heading: agentRoom.name, evidence: [agentMessage.body, "Security review is open", "Review consequential proposals in Your Turn"] },
+    { path: "/app/agents", heading: "Agents", evidence: [agentRoom.name, agentRoom.purpose, "New agent team"] },
+    { path: `/app/agents/boardrooms/${agentRoom.id}`, heading: agentRoom.name, evidence: [agentPersona.name, "Ask for approval first", "Send"] },
+    { path: `/app/agents/boardrooms/${agentRoom.id}/conversations/${agentConversation.id}`, heading: agentRoom.name, evidence: [agentMessage.body, "Security review is open", "Review proposed actions in Your Turn"] },
     { path: "/app/schedules", heading: "Schedules", evidence: [schedule.name, "Mon at 09:30", "New schedule"] },
     { path: `/app/schedules/${schedule.id}`, heading: schedule.name, evidence: [schedule.timezone, "Run now", "Missed run"] },
-    { path: `/app/finance/entries/${financeEntry.id}`, heading: "A governed ledger for operating truth", evidence: ["#8 · Monthly close", "Post entry", "General journal"] },
-    { path: `/app/integrations/connections/${integrationConnection.id}`, heading: "Connect deliberately. Observe every effect.", evidence: [integrationConnection.name, "https://example.com/policy", "Healthy"] },
-    { path: `/app/integrations/executions/${integrationExecution.id}`, heading: "Connect deliberately. Observe every effect.", evidence: ["web.publish · Manual resolution", "A different owner or administrator must confirm this exact outcome"] },
-    { path: `/app/marketing/campaigns/${marketingCampaign.id}`, heading: "Prepare the message. Govern the release.", evidence: [marketingCampaign.name, marketingCampaign.objective, "Revise intent"] },
-    { path: `/app/marketing/releases/${marketingRelease.id}`, heading: "Prepare the message. Govern the release.", evidence: [marketingRelease.name, "never accepts an internal approval identifier", "Open Your Turn"] }
+    { path: `/app/finance/entries/${financeEntry.id}`, heading: "Finance", evidence: ["#8 · Monthly close", "Post entry"] },
+    { path: `/app/integrations/connections/${integrationConnection.id}`, heading: "Integrations", evidence: [integrationConnection.name, "https://example.com/policy", "Healthy"] },
+    { path: `/app/integrations/executions/${integrationExecution.id}`, heading: "Integrations", evidence: ["web.publish · Manual resolution", "A different owner or administrator must confirm this exact outcome"] },
+    { path: `/app/marketing/campaigns/${marketingCampaign.id}`, heading: "Marketing", evidence: [marketingCampaign.name, marketingCampaign.objective, "Edit campaign"] },
+    { path: `/app/marketing/releases/${marketingRelease.id}`, heading: "Marketing", evidence: [marketingRelease.name, "Waiting for an owner or administrator to review this release in Your Turn.", "Open Your Turn"] }
   ] as const;
 
   for (const route of routes) {
@@ -1609,20 +1609,20 @@ test("read-only packages preserve evidence while removing mutation authority", a
     },
     {
       path: `/app/finance/entries/${financeEntry.id}`,
-      heading: "A governed ledger for operating truth",
+      heading: "Finance",
       evidence: ["#8 · Monthly close", "Read-only access"],
       forbiddenButtons: ["Edit draft", "Post entry"]
     },
     {
       path: `/app/integrations/connections/${integrationConnection.id}`,
-      heading: "Connect deliberately. Observe every effect.",
+      heading: "Integrations",
       evidence: [integrationConnection.name, "https://example.com/policy", "Read-only access"],
-      forbiddenButtons: ["Revise scope", "Disable", "Revoke connection"]
+      forbiddenButtons: ["Edit connection", "Disable", "Revoke connection"]
     },
     {
       path: `/app/marketing/releases/${marketingRelease.id}`,
-      heading: "Prepare the message. Govern the release.",
-      evidence: [marketingRelease.name, "never accepts an internal approval identifier", "Read-only access"],
+      heading: "Marketing",
+      evidence: [marketingRelease.name, "Waiting for an owner or administrator to review this release in Your Turn.", "Read-only access"],
       forbiddenButtons: ["Cancel release", "Activate release", "New campaign"]
     }
   ] as const;
@@ -1737,8 +1737,8 @@ test("Work conflict reloads authoritative state before retry", async ({ page }) 
   });
   await page.goto(`/app/work/${workItem.id}`);
   await page.getByRole("button", { name: "Complete" }).click();
-  const dialog = page.getByRole("dialog", { name: "Done this work?" });
-  await dialog.getByLabel("Operational reason").fill("The governed launch checklist is complete.");
+  const dialog = page.getByRole("dialog", { name: "Complete this task?" });
+  await dialog.getByLabel("Reason for this change").fill("The governed launch checklist is complete.");
   await dialog.getByRole("button", { name: "Confirm change" }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole("alert")).toContainText("Spyglass loaded the current version; review it before trying again.");
@@ -1807,7 +1807,7 @@ test("multi-Account switching adopts only the server-confirmed context", async (
   await expect(page.locator("#account")).toHaveValue(secondAccountID);
   expect(selections).toEqual([secondAccountID]);
   if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Privacy you can act on." })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Privacy" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 });
@@ -1842,7 +1842,7 @@ test("Marketing conflict reloads the authoritative campaign before retry", async
     } else await fulfillJSON(route, marketingCampaign);
   });
   await page.goto(`/app/marketing/campaigns/${marketingCampaign.id}`);
-  await page.getByRole("button", { name: "Revise intent" }).click();
+  await page.getByRole("button", { name: "Edit campaign" }).click();
   const dialog = page.getByRole("dialog", { name: "Revise campaign" });
   await dialog.getByLabel("Name").fill("Stale launch draft");
   await dialog.getByRole("button", { name: "Revise campaign" }).click();
@@ -1873,7 +1873,7 @@ test("Membership conflict reloads the authoritative team before retry", async ({
   const member = page.getByRole("listitem").filter({ hasText: memberMembership.display_name });
   await member.getByRole("button", { name: "Change role" }).click();
   await page.getByRole("dialog").getByLabel("New role").selectOption("administrator");
-  await page.getByRole("dialog").getByLabel("Operational reason").fill("Responsibilities changed during review.");
+  await page.getByRole("dialog").getByLabel("Reason for this change").fill("Responsibilities changed during review.");
   await page.getByRole("dialog").getByRole("button", { name: "Confirm" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByRole("alert")).toContainText("This Membership changed. Review the current team before trying again.");
@@ -1897,7 +1897,7 @@ test("Schedule conflict reloads the authoritative definition before retry", asyn
   });
   await page.goto(`/app/schedules/${schedule.id}`);
   await page.getByRole("button", { name: "Pause", exact: true }).click();
-  await page.getByRole("dialog").getByLabel("Operational reason").fill("Pause during launch review.");
+  await page.getByRole("dialog").getByLabel("Reason for this change").fill("Pause during launch review.");
   await page.getByRole("dialog").getByRole("button", { name: "Confirm" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByRole("alert")).toContainText("This schedule changed. Review the current version before trying again.");
@@ -1925,13 +1925,13 @@ test("package workspaces reload authoritative state after stale writes", async (
     });
 
     await page.goto(`/app/knowledge/claims/${knowledgeClaim.id}`);
-    await page.getByLabel("Decision reason").fill("The cited launch plan was superseded during review.");
-    await page.getByRole("button", { name: "Accept claim" }).click();
+    await page.getByLabel("Reason").fill("The cited launch plan was superseded during review.");
+    await page.getByRole("button", { name: "Confirm information" }).click();
     await expect(page.getByRole("alert")).toContainText("This claim changed. Review the current version before deciding again.");
-    await expect(page.getByLabel("Decision reason")).toHaveValue("The cited launch plan was superseded during review.");
+    await expect(page.getByLabel("Reason")).toHaveValue("The cited launch plan was superseded during review.");
     await expect(page.locator(".knowledge-value")).toContainText("September 2");
     await expect(page.locator(".knowledge-detail-card dl div").filter({ hasText: "Version" })).toContainText(String(currentClaim.version));
-    await expect(page.getByRole("button", { name: "Accept claim" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Confirm information" })).toBeEnabled();
     expect(detailLoads).toBeGreaterThanOrEqual(2);
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
@@ -1945,7 +1945,7 @@ test("package workspaces reload authoritative state after stale writes", async (
     await page.getByRole("link", { name: "Back to Knowledge" }).click();
     await expect(dismissed).resolves.toBe("Leave this Knowledge decision? Your unsubmitted reason will remain only on this page.");
     await expect(page).toHaveURL(new RegExp(`/app/knowledge/claims/${knowledgeClaim.id}$`));
-    await expect(page.getByLabel("Decision reason")).toHaveValue("The cited launch plan was superseded during review.");
+    await expect(page.getByLabel("Reason")).toHaveValue("The cited launch plan was superseded during review.");
     await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your Knowledge decision remains" })).toBeVisible();
 
     page.once("dialog", (dialog) => dialog.accept());
@@ -1974,13 +1974,13 @@ test("package workspaces reload authoritative state after stale writes", async (
     await page.goto(`/app/agents/boardrooms/${agentRoom.id}`);
     const persona = page.locator(".agents-persona").filter({ hasText: agentPersona.name });
     await persona.locator("summary").click();
-    await persona.getByRole("button", { name: "Publish new version" }).click();
+    await persona.getByRole("button", { name: "Save new version" }).click();
     const dialog = page.getByRole("dialog", { name: `Publish ${agentPersona.name} version ${agentPersona.latest_version + 1}` });
-    await dialog.getByRole("button", { name: "Publish new version" }).click();
+    await dialog.getByRole("button", { name: "Save new version" }).click();
     await expect(dialog).toHaveCount(0);
     await expect(page.getByRole("alert")).toContainText("This Persona changed. Review its current immutable version before publishing again.");
     await expect(persona.locator("summary")).toContainText(`version ${currentPersona.latest_version}`);
-    await expect(persona.getByRole("button", { name: "Publish new version" })).toBeEnabled();
+    await expect(persona.getByRole("button", { name: "Save new version" })).toBeEnabled();
     expect(personaLoads).toBeGreaterThanOrEqual(2);
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
@@ -2001,9 +2001,9 @@ test("package workspaces reload authoritative state after stale writes", async (
 
     await page.goto(`/app/finance/entries/${financeEntry.id}`);
     await page.getByRole("button", { name: "Post entry" }).click();
-    const dialog = page.getByRole("dialog", { name: "Post journal entry" });
+    const dialog = page.getByRole("dialog", { name: "Post entry" });
     await dialog.getByLabel("Type POST to confirm").fill("POST");
-    await dialog.getByRole("button", { name: "Post journal entry" }).click();
+    await dialog.getByRole("button", { name: "Post entry" }).click();
     await expect(dialog).toHaveCount(0);
     await expect(page.getByRole("alert")).toContainText("This Finance record changed. Review its current version before trying again.");
     await expect(page.getByRole("heading", { level: 2, name: "#8 · Monthly close (updated)" })).toBeVisible();
@@ -2061,11 +2061,11 @@ test("package workspaces preserve customer intent through capacity and downstrea
     await page.goto(`/app/agents/boardrooms/${agentRoom.id}`);
     await page.getByLabel("Subject").fill("Capacity-safe launch review");
     await page.getByLabel("Your question").fill("Which launch constraint needs attention first?");
-    await page.getByRole("button", { name: "Convene Boardroom" }).click();
+    await page.getByRole("button", { name: "Send" }).click();
     await expect(page.getByRole("alert")).toContainText("Wait for an active run to finish");
     await expect(page.getByLabel("Subject")).toHaveValue("Capacity-safe launch review");
     await expect(page.getByLabel("Your question")).toHaveValue("Which launch constraint needs attention first?");
-    await expect(page.getByRole("button", { name: "Convene Boardroom" })).toBeEnabled();
+    await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
     expect(runs).toEqual([{
       mode: "selected",
       persona_ids: [agentPersona.id],
@@ -2081,7 +2081,7 @@ test("package workspaces preserve customer intent through capacity and downstrea
         await dialog.dismiss();
       });
     });
-    await page.getByRole("link", { name: "All Boardrooms" }).click();
+    await page.getByRole("link", { name: "All agent teams" }).click();
     await expect(dismissed).resolves.toBe("Leave Agents? Your unsubmitted Boardroom or Persona changes will be lost.");
     await expect(page).toHaveURL(new RegExp(`/app/agents/boardrooms/${agentRoom.id}$`));
     await expect(page.getByLabel("Subject")).toHaveValue("Capacity-safe launch review");
@@ -2089,7 +2089,7 @@ test("package workspaces preserve customer intent through capacity and downstrea
     await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your Boardroom or Persona changes remain" })).toBeVisible();
 
     page.once("dialog", (dialog) => dialog.accept());
-    await page.getByRole("link", { name: "All Boardrooms" }).click();
+    await page.getByRole("link", { name: "All agent teams" }).click();
     await expect(page).toHaveURL(/\/app\/agents$/);
   });
 
@@ -2099,11 +2099,11 @@ test("package workspaces preserve customer intent through capacity and downstrea
     });
 
     await page.goto(`/app/knowledge/claims/${knowledgeClaim.id}`);
-    await page.getByLabel("Decision reason").fill("The cited launch plan remains the reviewed source.");
-    await page.getByRole("button", { name: "Accept claim" }).click();
+    await page.getByLabel("Reason").fill("The cited launch plan remains the reviewed source.");
+    await page.getByRole("button", { name: "Confirm information" }).click();
     await expect(page.getByRole("alert")).toContainText("Knowledge could not save this decision");
-    await expect(page.getByLabel("Decision reason")).toHaveValue("The cited launch plan remains the reviewed source.");
-    await expect(page.getByRole("button", { name: "Accept claim" })).toBeEnabled();
+    await expect(page.getByLabel("Reason")).toHaveValue("The cited launch plan remains the reviewed source.");
+    await expect(page.getByRole("button", { name: "Confirm information" })).toBeEnabled();
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
     page.once("dialog", (dialog) => dialog.accept());
@@ -2116,14 +2116,15 @@ test("package workspaces preserve customer intent through capacity and downstrea
       await fulfillProblem(route, 503, "finance_temporarily_unavailable", "Finance could not post this entry. Nothing was posted; confirm and try again.");
     });
 
+    await page.goto("/app/your-turn");
     await page.goto(`/app/finance/entries/${financeEntry.id}`);
     await page.getByRole("button", { name: "Post entry" }).click();
-    const dialog = page.getByRole("dialog", { name: "Post journal entry" });
+    const dialog = page.getByRole("dialog", { name: "Post entry" });
     await dialog.getByLabel("Type POST to confirm").fill("POST");
-    await dialog.getByRole("button", { name: "Post journal entry" }).click();
+    await dialog.getByRole("button", { name: "Post entry" }).click();
     await expect(dialog.getByRole("alert")).toContainText("Nothing was posted");
     await expect(dialog.getByLabel("Type POST to confirm")).toHaveValue("POST");
-    await expect(dialog.getByRole("button", { name: "Post journal entry" })).toBeEnabled();
+    await expect(dialog.getByRole("button", { name: "Post entry" })).toBeEnabled();
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
 
@@ -2141,7 +2142,7 @@ test("package workspaces preserve customer intent through capacity and downstrea
     page.once("dialog", (browserDialog) => browserDialog.accept());
     await page.evaluate(() => history.back());
     await expect(page).toHaveURL(/\/app\/your-turn$/);
-    await expect(page.getByRole("heading", { level: 2, name: "marketing.release.publish" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 2, name: "marketing release publish" })).toBeVisible();
   });
 
   await test.step("Marketing failure retains revised campaign intent", async () => {
@@ -2151,8 +2152,9 @@ test("package workspaces preserve customer intent through capacity and downstrea
       } else await fulfillJSON(route, marketingCampaign);
     });
 
+    await page.goto("/app/your-turn");
     await page.goto(`/app/marketing/campaigns/${marketingCampaign.id}`);
-    await page.getByRole("button", { name: "Revise intent" }).click();
+    await page.getByRole("button", { name: "Edit campaign" }).click();
     const dialog = page.getByRole("dialog", { name: "Revise campaign" });
     await dialog.getByLabel("Name").fill("Launch readiness follow-up");
     await dialog.getByRole("button", { name: "Revise campaign" }).click();
@@ -2176,7 +2178,7 @@ test("package workspaces preserve customer intent through capacity and downstrea
     page.once("dialog", (browserDialog) => browserDialog.accept());
     await page.evaluate(() => history.back());
     await expect(page).toHaveURL(/\/app\/your-turn$/);
-    await expect(page.getByRole("heading", { level: 2, name: "marketing.release.publish" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 2, name: "marketing release publish" })).toBeVisible();
   });
 
   await test.step("Integration failure leaves the reviewed command ready to retry", async () => {
@@ -2184,6 +2186,7 @@ test("package workspaces preserve customer intent through capacity and downstrea
       await fulfillProblem(route, 503, "integration_temporarily_unavailable", "Integrations could not disable this connection. Its state is unchanged; try again.");
     });
 
+    await page.goto("/app/your-turn");
     await page.goto(`/app/integrations/connections/${integrationConnection.id}`);
     await page.getByRole("button", { name: "Disable", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Disable connection" });
@@ -2207,7 +2210,7 @@ test("package workspaces preserve customer intent through capacity and downstrea
     page.once("dialog", (browserDialog) => browserDialog.accept());
     await page.evaluate(() => history.back());
     await expect(page).toHaveURL(/\/app\/your-turn$/);
-    await expect(page.getByRole("heading", { level: 2, name: "marketing.release.publish" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 2, name: "marketing release publish" })).toBeVisible();
   });
 
   await test.step("Schedule failure exposes the error inside the retry dialog", async () => {
@@ -2218,10 +2221,10 @@ test("package workspaces preserve customer intent through capacity and downstrea
     await page.goto(`/app/schedules/${schedule.id}`);
     await page.getByRole("button", { name: "Pause", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Pause this schedule?" });
-    await dialog.getByLabel("Operational reason").fill("Pause while provider health is reviewed.");
+    await dialog.getByLabel("Reason for this change").fill("Pause while provider health is reviewed.");
     await dialog.getByRole("button", { name: "Confirm" }).click();
     await expect(dialog.getByRole("alert")).toContainText("It remains active");
-    await expect(dialog.getByLabel("Operational reason")).toHaveValue("Pause while provider health is reviewed.");
+    await expect(dialog.getByLabel("Reason for this change")).toHaveValue("Pause while provider health is reviewed.");
     await expect(dialog.getByRole("button", { name: "Confirm" })).toBeEnabled();
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
@@ -2235,12 +2238,12 @@ test("package workspaces preserve customer intent through capacity and downstrea
     await page.evaluate(() => history.back());
     await expect(dismissed).resolves.toBe("beforeunload");
     await expect(page).toHaveURL(new RegExp(`/app/schedules/${schedule.id}$`));
-    await expect(dialog.getByLabel("Operational reason")).toHaveValue("Pause while provider health is reviewed.");
+    await expect(dialog.getByLabel("Reason for this change")).toHaveValue("Pause while provider health is reviewed.");
 
     page.once("dialog", (browserDialog) => browserDialog.accept());
     await page.evaluate(() => history.back());
     await expect(page).toHaveURL(/\/app\/your-turn$/);
-    await expect(page.getByRole("heading", { level: 2, name: "marketing.release.publish" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 2, name: "marketing release publish" })).toBeVisible();
   });
 });
 
@@ -2390,7 +2393,7 @@ test("GDPR rights requests hand off exact context for passkey confirmation", asy
   await page.getByLabel("Which records?").selectOption("account");
   await page.getByRole("button", { name: "Submit verified request" }).click();
   await expect(page).toHaveURL(/\/app\/security\?return_to=%2Fapp%2Fprivacy&status=strong_reauthentication_required$/);
-  await expect(page.getByRole("heading", { level: 1, name: "Security follows you" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Security" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 });

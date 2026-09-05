@@ -27,7 +27,7 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	}
 	loginBody, _ := io.ReadAll(login.Body)
 	login.Body.Close()
-	if login.StatusCode != http.StatusOK || !bytes.Contains(loginBody, []byte("Find the signal")) || !bytes.Contains(loginBody, []byte("INFINITE OCEAN")) || !bytes.Contains(loginBody, []byte("Sign in with a passkey")) || !bytes.Contains(loginBody, []byte("/assets/spyglass.css?v=5")) || !bytes.Contains(loginBody, []byte("/assets/passkeys.js")) || !bytes.Contains(loginBody, []byte("/assets/privacy-analytics.js?v=4")) || !bytes.Contains(loginBody, []byte(`class="secondary" type="button" data-privacy-accept`)) || !bytes.Contains(loginBody, []byte("Reject non-essential")) || !bytes.Contains(loginBody, []byte("Manage preferences")) || !bytes.Contains(loginBody, []byte("Spyglass does not ask you to consent to one")) || bytes.Contains(loginBody, []byte("privacy-marketing")) {
+	if login.StatusCode != http.StatusOK || !bytes.Contains(loginBody, []byte("Welcome to")) || !bytes.Contains(loginBody, []byte("INFINITE OCEAN")) || !bytes.Contains(loginBody, []byte("Sign in with a passkey")) || !bytes.Contains(loginBody, []byte("/assets/spyglass.css?v=5")) || !bytes.Contains(loginBody, []byte("/assets/passkeys.js")) || !bytes.Contains(loginBody, []byte("/assets/privacy-analytics.js?v=4")) || !bytes.Contains(loginBody, []byte(`class="secondary" type="button" data-privacy-accept`)) || !bytes.Contains(loginBody, []byte("Reject non-essential")) || !bytes.Contains(loginBody, []byte("Manage preferences")) || !bytes.Contains(loginBody, []byte("Spyglass does not ask you to consent to one")) || bytes.Contains(loginBody, []byte("privacy-marketing")) {
 		t.Fatalf("login page: %d %s", login.StatusCode, loginBody)
 	}
 	protected, err := client.Get(server.URL + "/app")
@@ -73,7 +73,7 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 		t.Fatalf("verified analytics envelope changed on refresh: first=%q second=%q", firstMarkers, secondMarkers)
 	}
 	signedIn := postForm(t, client, server.URL+"/login", url.Values{"email": {"avery@example.com"}, "password": {"correct horse battery staple"}})
-	if signedIn.status != http.StatusOK || !bytes.Contains(signedIn.body, []byte("Northstar Studio")) || !bytes.Contains(signedIn.body, []byte("YOUR OPERATING PARTNER")) || !bytes.Contains(signedIn.body, []byte("FEATURE PACKAGES")) || !bytes.Contains(signedIn.body, []byte("BILLING & ACCESS")) || !bytes.Contains(signedIn.body, []byte("Team")) || !bytes.Contains(signedIn.body, []byte("OWNER IDENTITY SETUP")) || !bytes.Contains(signedIn.body, []byte("Secure the helm")) || !bytes.Contains(signedIn.body, []byte("Save recovery codes")) || bytes.Contains(signedIn.body, []byte("People with access")) {
+	if signedIn.status != http.StatusOK || !bytes.Contains(signedIn.body, []byte("Northstar Studio")) || !bytes.Contains(signedIn.body, []byte("YOUR OPERATING PARTNER")) || !bytes.Contains(signedIn.body, []byte("Team")) || !bytes.Contains(signedIn.body, []byte("Secure your account")) || !bytes.Contains(signedIn.body, []byte("Save recovery codes")) || bytes.Contains(signedIn.body, []byte("People with access")) {
 		t.Fatalf("app shell: %d %s", signedIn.status, signedIn.body)
 	}
 	noRedirect := &http.Client{Jar: jar, Timeout: 4 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -91,7 +91,7 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	}
 	workBody, _ := io.ReadAll(workPage.Body)
 	workPage.Body.Close()
-	if workPage.StatusCode != http.StatusOK || !bytes.Contains(workBody, []byte("Bring every commitment")) || !bytes.Contains(workBody, []byte("Review Account plans")) || bytes.Contains(workBody, []byte("/assets/work.js")) {
+	if workPage.StatusCode != http.StatusOK || !bytes.Contains(workBody, []byte("<h1>Work</h1>")) || !bytes.Contains(workBody, []byte("Review Account plans")) || bytes.Contains(workBody, []byte("/assets/work.js")) {
 		t.Fatalf("locked Work page: %d %s", workPage.StatusCode, workBody)
 	}
 	if policy := workPage.Header.Get("Content-Security-Policy"); !strings.Contains(policy, "script-src 'self'") || !strings.Contains(policy, "connect-src 'self'") {
@@ -103,7 +103,7 @@ func TestBrowserRegistrationLoginAndAppShell(t *testing.T) {
 	}
 	agentsBody, _ := io.ReadAll(agentsPage.Body)
 	agentsPage.Body.Close()
-	if agentsPage.StatusCode != http.StatusOK || !bytes.Contains(agentsBody, []byte("Convene the right minds")) || !bytes.Contains(agentsBody, []byte("Operating plan")) || bytes.Contains(agentsBody, []byte("/assets/agents.js")) {
+	if agentsPage.StatusCode != http.StatusOK || !bytes.Contains(agentsBody, []byte("<h1>Agents</h1>")) || !bytes.Contains(agentsBody, []byte("Operating plan")) || bytes.Contains(agentsBody, []byte("/assets/agents.js")) {
 		t.Fatalf("locked Agents page: %d %s", agentsPage.StatusCode, agentsBody)
 	}
 	parsed, _ := url.Parse(server.URL)

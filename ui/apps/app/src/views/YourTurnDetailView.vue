@@ -8,6 +8,8 @@ import {
   decideWorkReview,
   emitAnalytics,
   getAttentionDetail,
+  getMarketingCampaign,
+  getMarketingRelease,
   getPrivacyConsent,
   listMatchingFacts,
   requestActionResolution,
@@ -17,6 +19,8 @@ import {
   type AttentionKind,
   type InformationRequest,
   type KnowledgeFactSummary,
+  type MarketingCampaign,
+  type MarketingRelease,
   type WorkReview
 } from "@spyglass/api";
 import { IoButton } from "@spyglass/design-system";
@@ -29,6 +33,8 @@ const route = useRoute();
 const router = useRouter();
 const session = useSessionStore();
 const detail = ref<AttentionDetail>();
+const marketingCampaign = ref<MarketingCampaign>();
+const marketingRelease = ref<MarketingRelease>();
 const facts = ref<ReadonlyArray<KnowledgeFactSummary>>([]);
 const loading = ref(false);
 const saving = ref(false);
@@ -51,7 +57,7 @@ const title = computed(() => {
   const item = detail.value;
   if (!item) return "Decision detail";
   if (item.kind === "information" || item.kind === "review") return item.question;
-  return item.capability;
+  return item.capability === "marketing.release.activate" ? "Approve marketing campaign" : label(item.capability.replaceAll(".", " "));
 });
 const actionLabel = computed(() => {
   if (detail.value?.kind === "information") return "Submit answer";
@@ -64,9 +70,19 @@ const mayConfirmRecovery = computed(() => detail.value?.kind === "action" && det
   && detail.value.resolution.state === "pending" && detail.value.resolution.requested_by_user_id !== session.userID);
 const mayCaptureInformation = computed(() => detail.value?.kind === "information" && detail.value.requirement.scope === "account");
 const hasDecisionDraft = computed(() => Boolean(decision.value || reason.value.trim() || factID.value || informationAnswer.value.trim() || confirmed.value));
+const marketingApprovalReady = computed(() => {
+  const item = detail.value;
+  if (item?.kind !== "approval" || item.capability !== "marketing.release.activate") return true;
+  const payload = item.payload as { campaign_version?: number; release_version?: number };
+  return Boolean(marketingCampaign.value && marketingRelease.value
+    && marketingCampaign.value.version === payload.campaign_version
+    && marketingRelease.value.version === payload.release_version
+    && marketingRelease.value.state === "submitted");
+});
 const canSubmit = computed(() => {
   const item = detail.value;
   if (!item || !writable.value || saving.value) return false;
+  if (item.kind === "approval" && decision.value === "approve" && !marketingApprovalReady.value) return false;
   if (item.kind === "information") return Boolean(factID.value || (mayCaptureInformation.value && informationAnswer.value.trim()));
   if (item.kind === "action" && item.state === "manual_resolution") return Boolean(mayConfirmRecovery.value && confirmed.value);
   return Boolean(decision.value && reason.value.trim().length >= 3 && (item.kind === "review" || confirmed.value));
@@ -137,10 +153,24 @@ async function load(): Promise<void> {
   const sequence = ++requestSequence;
   loading.value = true;
   error.value = "";
+  marketingCampaign.value = undefined;
+  marketingRelease.value = undefined;
   try {
     const result = await getAttentionDetail(accountID, kind.value, itemID.value);
     if (sequence !== requestSequence) return;
     detail.value = result;
+    if (result.kind === "approval" && result.capability === "marketing.release.activate") {
+      const payload = result.payload as { campaign_id?: string; release_id?: string };
+      if (payload.campaign_id && payload.release_id) {
+        const [campaign, release] = await Promise.all([
+          getMarketingCampaign(accountID, payload.campaign_id),
+          getMarketingRelease(accountID, payload.release_id)
+        ]);
+        if (sequence !== requestSequence) return;
+        marketingCampaign.value = campaign;
+        marketingRelease.value = release;
+      }
+    }
     openedAt = Date.now();
     facts.value = result.kind === "information" ? await listMatchingFacts(accountID, result.requirement) : [];
     restoreDraft();
@@ -231,17 +261,24 @@ watch([decision, reason, factID, informationAnswer], saveDraft);
             <div><dt>Work item</dt><dd class="digest">{{ detail.work_item_id }}</dd></div><div><dt>Work version</dt><dd>{{ detail.work_version }}</dd></div><div><dt>Proposal digest</dt><dd class="digest">{{ detail.proposal_sha256 }}</dd></div><div><dt>Requested</dt><dd>{{ formatDate(detail.created_at) }}</dd></div>
           </dl>
           <details v-if="detail.kind === 'information'"><summary>Technical details</summary><dl><div><dt>Knowledge key</dt><dd>{{ detail.requirement.key }}</dd></div><div><dt>Scope</dt><dd>{{ label(detail.requirement.scope) }}</dd></div></dl></details>
-          <dl v-else-if="detail.kind === 'approval'">
-            <div><dt>Operation</dt><dd class="digest">{{ detail.operation_id }}</dd></div><div><dt>Policy version</dt><dd>{{ detail.policy_version }}</dd></div><div><dt>Evidence digest</dt><dd class="digest">{{ detail.evidence_sha256 }}</dd></div><div><dt>Expires</dt><dd>{{ formatDate(detail.expires_at) }}</dd></div>
-          </dl>
+          <template v-else-if="detail.kind === 'approval'">
+            <template v-if="marketingCampaign && marketingRelease">
+              <dl><div><dt>Campaign</dt><dd>{{ marketingCampaign.name }}</dd></div><div><dt>Purpose</dt><dd>{{ marketingCampaign.objective }}</dd></div><div><dt>Audience</dt><dd>{{ marketingCampaign.audience }}</dd></div><div><dt>Release</dt><dd>{{ marketingRelease.name }}</dd></div><div><dt>Channels</dt><dd>{{ marketingRelease.channels.map(label).join(', ') }}</dd></div><div><dt>Content items</dt><dd>{{ marketingRelease.asset_revision_ids.length }}</dd></div></dl>
+              <p>Approval marks this release as approved and makes it the campaign’s active release. It does not send or publish content.</p>
+              <RouterLink :to="`/app/marketing/releases/${marketingRelease.id}`">Review release content</RouterLink>
+            </template>
+            <p v-if="!marketingApprovalReady" class="form-error">This campaign or release has changed, or its details could not be loaded. Reject this request and create a new release before approving.</p>
+            <p>Decision due: {{ formatDate(detail.expires_at) }}</p>
+            <details><summary>Technical details</summary><dl><div><dt>Operation</dt><dd class="digest">{{ detail.operation_id }}</dd></div><div><dt>Policy version</dt><dd>{{ detail.policy_version }}</dd></div><div><dt>Evidence digest</dt><dd class="digest">{{ detail.evidence_sha256 }}</dd></div></dl><pre>{{ JSON.stringify(detail.payload, null, 2) }}</pre></details>
+            <section v-if="!marketingRelease" class="payload"><h2>Proposed action</h2><pre>{{ JSON.stringify(detail.payload, null, 2) }}</pre></section>
+          </template>
           <dl v-else-if="detail.kind === 'action'">
             <div><dt>Operation</dt><dd class="digest">{{ detail.operation_id }}</dd></div><div><dt>Attempt</dt><dd>{{ detail.attempt_count }}</dd></div><div><dt>Stable error</dt><dd>{{ detail.last_error_code ?? 'None' }}</dd></div><div><dt>Updated</dt><dd>{{ formatDate(detail.updated_at) }}</dd></div>
           </dl>
-          <section v-if="detail.kind === 'approval'" class="payload"><h2>Exact proposed payload</h2><pre>{{ JSON.stringify(detail.payload, null, 2) }}</pre></section>
         </section>
 
         <form class="decision-card" @submit.prevent="complete">
-          <div><p class="eyebrow">{{ detail.kind === 'information' ? 'Your answer' : 'Your judgment' }}</p><h2>{{ actionLabel }}</h2></div>
+          <div><h2>{{ actionLabel }}</h2></div>
 
           <template v-if="detail.kind === 'information'">
             <template v-if="mayCaptureInformation">
@@ -258,13 +295,13 @@ watch([decision, reason, factID, informationAnswer], saveDraft);
 
           <template v-else-if="detail.kind === 'review'">
             <fieldset><legend>Review decision</legend><label><input v-model="decision" type="radio" value="approve" /> Approve this Work version</label><label><input v-model="decision" type="radio" value="request_changes" /> Request changes</label></fieldset>
-            <label for="review-reason">Decision reason</label><textarea id="review-reason" v-model="reason" minlength="3" maxlength="1000" rows="5" required />
+            <label for="review-reason">Reason</label><textarea id="review-reason" v-model="reason" minlength="3" maxlength="1000" rows="5" required />
           </template>
 
           <template v-else-if="detail.kind === 'approval'">
-            <fieldset><legend>Consequential action</legend><label><input v-model="decision" type="radio" value="approve" /> Approve exact action</label><label><input v-model="decision" type="radio" value="reject" /> Reject action</label></fieldset>
-            <label for="approval-reason">Decision reason</label><textarea id="approval-reason" v-model="reason" minlength="3" maxlength="1000" rows="5" required />
-            <label class="confirmation"><input v-model="confirmed" type="checkbox" /> I reviewed the exact payload, evidence digest and frozen policy above.</label>
+            <fieldset><legend>Your decision</legend><label><input v-model="decision" type="radio" value="approve" /> Approve this action</label><label><input v-model="decision" type="radio" value="reject" /> Reject action</label></fieldset>
+            <label for="approval-reason">Reason</label><textarea id="approval-reason" v-model="reason" minlength="3" maxlength="1000" rows="5" required />
+            <label class="confirmation"><input v-model="confirmed" type="checkbox" /> I reviewed the proposed action and understand what will change.</label>
           </template>
 
           <template v-else-if="detail.state === 'unknown'">
@@ -279,7 +316,7 @@ watch([decision, reason, factID, informationAnswer], saveDraft);
             <label v-else class="confirmation"><input v-model="confirmed" type="checkbox" /> I independently verified this observed outcome.</label>
           </template>
 
-          <p class="form-note">Your draft stays in this browser tab until Spyglass accepts it.</p>
+
           <p v-if="!writable" class="form-note">This Account or package is read-only for this decision.</p>
           <p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
           <p v-if="error" class="form-error" role="alert">{{ error }}</p>

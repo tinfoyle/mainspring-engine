@@ -25,7 +25,7 @@ const step = computed(() => {
 
 function problem(cause: unknown, fallback: string): string { return cause instanceof APIProblem ? cause.message : cause instanceof Error ? cause.message : fallback; }
 function returnTo(): string { const raw = Array.isArray(route.query.return_to) ? route.query.return_to[0] : route.query.return_to; return typeof raw === "string" && raw.startsWith("/") && !raw.startsWith("//") && !raw.startsWith("/app/setup") ? raw : "/app/your-turn"; }
-async function recordCompletion(method: string): Promise<void> { try { const consent = await getPrivacyConsent(); await emitAnalytics(consent.decided && consent.analytics && !consent.renewal_required, { name: "security_enrollment_completed", fields: { method } }); } catch { /* Optional measurement never interrupts setup. */ } }
+async function recordCompletion(method: string): Promise<void> { try { const consent = await getPrivacyConsent(); await emitAnalytics(consent.decided && consent.analytics && !consent.renewal_required, { name: "security_enrollment_completed", fields: { method } }); } catch { /* Optional analytics never interrupts setup. */ } }
 async function finish(method?: string): Promise<void> { if (method) await recordCompletion(method); await session.load(); await router.replace(returnTo()); }
 
 async function load(): Promise<void> {
@@ -82,12 +82,12 @@ void load();
       <div class="setup-card">
         <p class="sr-only" aria-live="polite" aria-atomic="true">{{ announcement }}</p>
         <div v-if="loading" class="setup-state" role="status"><span class="setup-spinner" aria-hidden="true" /><h1>Getting setup ready…</h1></div>
-        <div v-else-if="error && !posture" class="setup-state" role="alert"><p class="eyebrow">Something got in the way</p><h1>We could not load account setup</h1><p>{{ error }}</p><IoButton kind="secondary" @click="load">Try again</IoButton></div>
+        <div v-else-if="error && !posture" class="setup-state" role="alert"><h1>We could not load account setup</h1><p>{{ error }}</p><IoButton kind="secondary" @click="load">Try again</IoButton></div>
         <template v-else>
           <p v-if="error" class="queue-inline-status queue-inline-status--error" role="alert">{{ error }}</p>
 
           <section v-if="!choice" class="setup-step">
-            <div class="setup-step-number" aria-hidden="true">1</div><p class="eyebrow">Protect your account</p>
+            <div class="setup-step-number" aria-hidden="true">1</div>
             <h1>How would you like to set up two-factor authentication?</h1>
             <p class="setup-lead">This extra check is required for account owners. Pick the option you will actually have with you when you need it.</p>
             <div class="setup-choice-list">
@@ -98,7 +98,7 @@ void load();
           </section>
 
           <form v-else-if="choice === 'passkey' && step === 2" class="setup-step" @submit.prevent="addPasskey">
-            <div class="setup-step-number" aria-hidden="true">2</div><p class="eyebrow">Passkey</p><h1>Add this device</h1>
+            <div class="setup-step-number" aria-hidden="true">2</div><h1>Add this device</h1>
             <p class="setup-lead">Your phone or computer will use its normal fingerprint, face, PIN, or security-key prompt. You can still sign in with Google or your password.</p>
             <label>Name this device<input v-model="passkeyName" autocomplete="off" minlength="2" maxlength="80" placeholder="Work phone or office laptop" required></label>
             <IoButton type="submit" :disabled="saving">{{ saving ? "Waiting for your device…" : "Add passkey" }}</IoButton>
@@ -106,7 +106,7 @@ void load();
           </form>
 
           <section v-else-if="choice === 'passkey'" class="setup-step">
-            <div class="setup-step-number" aria-hidden="true">3</div><p class="eyebrow">Your way back in</p><h1>Save recovery codes</h1>
+            <div class="setup-step-number" aria-hidden="true">3</div><h1>Save recovery codes</h1>
             <p class="setup-lead">These one-time codes get you back in if you lose every device with your passkey. Store them somewhere separate.</p>
             <template v-if="newCodes.length"><div class="setup-code-panel" role="region" aria-label="New recovery codes"><code v-for="savedCode in newCodes" :key="savedCode">{{ savedCode }}</code></div><p class="setup-code-warning"><strong>This is the only time Spyglass can show these codes.</strong></p><label class="setup-check"><input v-model="savedCodes" type="checkbox"><span>I saved every recovery code somewhere safe.</span></label><IoButton :disabled="saving || !savedCodes" @click="completePasskeySetup">{{ saving ? "Finishing…" : "Finish setup" }}</IoButton></template>
             <template v-else><div class="setup-explainer"><strong>Your passkey is ready.</strong><span>Create recovery codes to finish protecting the account.</span></div><IoButton :disabled="saving" @click="createCodes">{{ saving ? "Creating codes…" : "Create recovery codes" }}</IoButton></template>

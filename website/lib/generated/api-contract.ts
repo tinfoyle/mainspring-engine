@@ -128,6 +128,7 @@ export const apiRoutes = [
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/marketing/campaigns", operationId: "marketingCampaignList", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}", operationId: "marketingCampaignGet", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/asset-revisions", operationId: "marketingAssetRevisionList", authentication: "sessionCookie", contract: "typed" },
+  { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/asset-revisions/{revisionID}/content", operationId: "downloadMarketingAsset", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/releases", operationId: "marketingReleaseList", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/marketing/releases/{releaseID}", operationId: "marketingReleaseGet", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/schedules", operationId: "scheduleList", authentication: "sessionCookie", contract: "typed" },

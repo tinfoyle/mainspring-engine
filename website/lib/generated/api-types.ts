@@ -679,7 +679,7 @@ export interface Approval {
   readonly "id": string;
   readonly "input_sha256": string;
   readonly "invalidated_at"?: string;
-  readonly "invocation_id": string;
+  readonly "invocation_id"?: string;
   readonly "operation_id": string;
   readonly "payload": Readonly<Record<string, unknown>>;
   readonly "policy_version": number;
@@ -714,7 +714,7 @@ export interface ApprovalSummary {
   readonly "decision"?: ApprovalDecisionValue;
   readonly "expires_at": string;
   readonly "id": string;
-  readonly "invocation_id": string;
+  readonly "invocation_id"?: string;
   readonly "operation_id": string;
   readonly "policy_version": number;
   readonly "proposer": AttentionActor;

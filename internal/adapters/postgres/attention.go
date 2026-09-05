@@ -258,7 +258,7 @@ func (r *AttentionRepository) CreateApproval(ctx context.Context, item domain.Co
 			(account_id,id,operation_id,invocation_id,work_item_id,capability,canonical_payload,input_sha256,hash_version,evidence_sha256,
 			 proposer_kind,proposer_id,policy_version,require_independent_review,expires_at,state,version,created_at,updated_at)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`, item.AccountID, item.ID, item.OperationID,
-			item.InvocationID, nullableID(item.WorkItemID), item.Capability, []byte(item.CanonicalPayload), item.InputSHA256[:], item.HashVersion,
+			nullableID(item.InvocationID), nullableID(item.WorkItemID), item.Capability, []byte(item.CanonicalPayload), item.InputSHA256[:], item.HashVersion,
 			item.EvidenceSHA256[:], item.Proposer.Kind, item.Proposer.ID, item.PolicyVersion, item.RequireIndependentReview, item.ExpiresAt,
 			item.State, item.Version, item.CreatedAt, item.UpdatedAt)
 		if err != nil {
@@ -343,6 +343,12 @@ func (r *AttentionRepository) UpdateApproval(ctx context.Context, item domain.Co
 }
 
 func syncApprovalProjection(ctx context.Context, tx pgx.Tx, previous, current domain.ConsequentialApproval) error {
+	if current.InvocationID == "" {
+		if previous.State == domain.ConsequentialApprovalOpen && current.State == domain.ConsequentialApprovalApproved {
+			return activateHumanMarketingApproval(ctx, tx, current)
+		}
+		return nil
+	}
 	if previous.State == domain.ConsequentialApprovalOpen && current.State == domain.ConsequentialApprovalApproved {
 		authorization, err := current.Authorization(current.Decision.DecidedAt)
 		if err != nil {
@@ -478,14 +484,17 @@ func loadApproval(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, id id
 
 func scanApproval(row interface{ Scan(...any) error }) (domain.ConsequentialApproval, error) {
 	var item domain.ConsequentialApproval
-	var workID, decision, decisionReason, decidedBy, canceledKind, canceledID *string
+	var invocationID, workID, decision, decisionReason, decidedBy, canceledKind, canceledID *string
 	var payload, inputDigest, evidenceDigest []byte
 	var decidedAt *time.Time
-	if err := row.Scan(&item.AccountID, &item.ID, &item.OperationID, &item.InvocationID, &workID, &item.Capability, &payload, &inputDigest, &item.HashVersion,
+	if err := row.Scan(&item.AccountID, &item.ID, &item.OperationID, &invocationID, &workID, &item.Capability, &payload, &inputDigest, &item.HashVersion,
 		&evidenceDigest, &item.Proposer.Kind, &item.Proposer.ID, &item.PolicyVersion, &item.RequireIndependentReview, &item.ExpiresAt, &item.State,
 		&decision, &decisionReason, &decidedBy, &decidedAt, &canceledKind, &canceledID, &item.Reason, &item.CanceledAt, &item.InvalidatedAt,
 		&item.ExpiredAt, &item.Version, &item.CreatedAt, &item.UpdatedAt); err != nil {
 		return domain.ConsequentialApproval{}, err
+	}
+	if invocationID != nil {
+		item.InvocationID = ids.AgentInvocationID(*invocationID)
 	}
 	if workID != nil {
 		item.WorkItemID = ids.WorkItemID(*workID)

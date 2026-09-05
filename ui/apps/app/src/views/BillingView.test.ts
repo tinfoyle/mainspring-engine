@@ -44,6 +44,6 @@ describe("Account billing surface", () => {
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/app/billing", component: BillingView }] }); await router.push("/app/billing"); await router.isReady();
     const wrapper = mount(BillingView, { global: { plugins: [router] } }); await flushPromises();
     expect(wrapper.text()).toContain("Standard commissioning is already recorded");
-    expect(wrapper.findAll("button").some((item) => item.text() === "Purchase commissioning")).toBe(false);
+    expect(wrapper.findAll("button").some((item) => item.text() === "Buy assisted setup")).toBe(false);
   });
 });

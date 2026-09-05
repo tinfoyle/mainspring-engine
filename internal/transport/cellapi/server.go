@@ -60,6 +60,7 @@ type Server struct {
 	financeCommands          FinanceCommandService
 	marketing                MarketingQueryService
 	marketingCommands        MarketingCommandService
+	marketingContent         MarketingContentService
 	integrations             IntegrationsQueryService
 	integrationCommands      IntegrationsCommandService
 	integrationAuthorization IntegrationAuthorizationService
@@ -206,6 +207,14 @@ type MarketingQueryService interface {
 	ListAssetRevisions(context.Context, access.Actor, ids.AccountID, marketingapp.AssetRevisionListQuery) (marketingapp.AssetRevisionPage, error)
 	GetRelease(context.Context, access.Actor, ids.AccountID, ids.MarketingReleaseID) (marketingdomain.ReleasePlan, error)
 	ListReleases(context.Context, access.Actor, ids.AccountID, marketingapp.ReleaseListQuery) (marketingapp.ReleasePage, error)
+}
+
+type MarketingContentService interface {
+	Download(context.Context, access.Actor, ids.AccountID, ids.MarketingCampaignID, ids.MarketingAssetRevisionID) (marketingdomain.AssetRevision, []byte, error)
+}
+
+func WithMarketingContent(service MarketingContentService) Option {
+	return func(server *Server) { server.marketingContent = service }
 }
 
 func WithMarketing(service MarketingQueryService) Option {
@@ -425,6 +434,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}", s.marketingCampaignRevise)
 	mux.HandleFunc("DELETE /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}", s.marketingCampaignArchive)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/asset-revisions", s.marketingAssetRevisionList)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/asset-revisions/{revisionID}/content", s.marketingAssetContent)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/asset-revisions", s.marketingAssetRevisionCreate)
 	mux.HandleFunc("POST /internal/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/asset-revisions:draft", s.marketingAgentAssetRevisionDraft)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/marketing/campaigns/{campaignID}/releases", s.marketingReleaseList)

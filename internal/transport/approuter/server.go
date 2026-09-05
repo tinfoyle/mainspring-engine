@@ -261,12 +261,22 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer response.Body.Close()
-	responseBody, err := io.ReadAll(io.LimitReader(response.Body, s.config.MaxResponseBody+1))
-	if err != nil || int64(len(responseBody)) > s.config.MaxResponseBody {
+	responseLimit := s.config.MaxResponseBody
+	// This read route returns an admitted file, which may exceed the normal
+	// JSON response limit. Route authorization above has validated its shape.
+	assetDownload := r.Method == http.MethodGet && strings.HasPrefix(r.PathValue("resource"), "marketing/campaigns/") && strings.HasSuffix(r.PathValue("resource"), "/content")
+	if assetDownload {
+		responseLimit = int64(marketingdomain.MaximumContentBytes)
+	}
+	responseBody, err := io.ReadAll(io.LimitReader(response.Body, responseLimit+1))
+	if err != nil || int64(len(responseBody)) > responseLimit {
 		writeProblem(w, http.StatusBadGateway, "invalid_cell_response", "the cell response exceeded the router limit")
 		return
 	}
 	copyResponseHeader(w.Header(), response.Header, "Content-Type", "ETag", "Location", "Cache-Control")
+	if assetDownload {
+		copyResponseHeader(w.Header(), response.Header, "Content-Disposition", "Content-Security-Policy", "X-Content-Type-Options")
+	}
 	w.Header().Set("X-Request-ID", requestID)
 	w.WriteHeader(response.StatusCode)
 	_, _ = w.Write(responseBody)
@@ -592,6 +602,9 @@ func financeRouteRequirement(method string, parts []string) (access.Requirement,
 func marketingRouteRequirement(method string, parts []string) (access.Requirement, bool) {
 	read := access.Requirement{Package: catalog.PackageMarketing}
 	mutation := access.Requirement{Package: catalog.PackageMarketing, Mutation: true}
+	if len(parts) == 6 && parts[1] == "campaigns" && ids.Validate(parts[2]) == nil && parts[3] == "asset-revisions" && ids.Validate(parts[4]) == nil && parts[5] == "content" {
+		return read, method == http.MethodGet
+	}
 	switch parts[1] {
 	case "campaigns":
 		if len(parts) == 2 {

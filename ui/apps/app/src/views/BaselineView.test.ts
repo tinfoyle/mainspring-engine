@@ -191,8 +191,8 @@ describe("conversational Business Baseline", () => {
     api.getAgentRun.mockImplementation((_: string, runID: string) => Promise.resolve(runID === failedRun.id ? failedRun : retryRun));
     api.resolveAgentRun.mockResolvedValue({ id: "73000000-0000-4000-8000-000000000007", run_id: failedRun.id, retry_run_id: retryRun.id, action: "retry_failed", note: "Retry the Business Baseline reply without duplicating the owner's answer.", actor_id: account.account_id, created_at: "2026-08-24T20:04:01Z" });
     const wrapper = await mountAt(`/app/baseline/${baseline.id}`);
-    expect(wrapper.text()).toContain("Your answer is safe"); expect(wrapper.text()).toContain("Nothing needs to be retyped");
-    expect(wrapper.text()).not.toContain("Baseline established");
+    expect(wrapper.text()).toContain("Your agent could not finish this reply."); expect(wrapper.text()).toContain("Nothing needs to be retyped");
+    expect(wrapper.text()).not.toContain("Business setup complete");
     expect(wrapper.find("#baseline-reply").exists()).toBe(false);
     await wrapper.get(".baseline-run-recovery button").trigger("click"); await flushPromises();
     expect(api.resolveAgentRun).toHaveBeenCalledWith(account.account_id, failedRun.id, { action: "retry_failed", note: "Retry the Business Baseline reply without duplicating the owner's answer." });
@@ -202,6 +202,6 @@ describe("conversational Business Baseline", () => {
   it("ends by handing the owner to Your Turn", async () => {
     const readyResult = { ...result, contribution: "I have enough to get started.", baseline: { ...result.baseline, captured_topics: ["Customers", "Work flow", "Scheduling", "Existing records"], ready: true, next_question_key: "", next_question: "", question_reason: "", readiness_reason: "I understand how work enters, gets scheduled, and gets billed.", missing_topics: [] } };
     api.listAgentMessages.mockResolvedValue([messages[0], { ...messages[1], result: readyResult }]); const wrapper = await mountAt(`/app/baseline/${baseline.id}`);
-    expect(wrapper.text()).toContain("Baseline established"); expect(wrapper.text()).toContain("Continue to Your Turn");
+    expect(wrapper.text()).toContain("Business setup complete"); expect(wrapper.text()).toContain("Continue to Your Turn");
   });
 });

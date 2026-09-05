@@ -66,7 +66,7 @@ describe("Your Turn queue", () => {
     await expectNoAxeViolations(wrapper.element);
 
     expect(listAttentionQueue).toHaveBeenCalledWith(account.account_id, session.userID, expect.objectContaining({ approvals: true, approvalsWritable: true }));
-    expect(wrapper.text()).toContain("marketing.release.publish");
+    expect(wrapper.text()).toContain("marketing release publish");
     expect(wrapper.text()).toContain("Northstar Studio");
     expect(wrapper.get('[aria-label="Filter Your Turn queue"]').attributes("role")).toBe("group");
     expect(wrapper.getComponent(RouterLinkStub).props("to")).toBe(`/app/your-turn/approval/${approval.id}`);
@@ -75,7 +75,7 @@ describe("Your Turn queue", () => {
     listAttentionQueue.mockRejectedValueOnce(new Error("offline"));
     await wrapper.findAll("button").find((button) => button.text() === "Refresh")?.trigger("click");
     await flushPromises();
-    expect(wrapper.text()).toContain("marketing.release.publish");
+    expect(wrapper.text()).toContain("marketing release publish");
     expect(wrapper.text()).toContain("Showing the last loaded queue");
     window.dispatchEvent(new Event("offline"));
     await wrapper.vm.$nextTick();
@@ -102,7 +102,7 @@ describe("Your Turn queue", () => {
     expect(wrapper.text()).toContain("You are offline");
     window.dispatchEvent(new Event("online"));
     await flushPromises();
-    expect(wrapper.text()).toContain("marketing.release.publish");
+    expect(wrapper.text()).toContain("marketing release publish");
     expect(wrapper.text()).toContain("Your Turn refreshed. 1 open item.");
     wrapper.unmount();
   });

@@ -314,7 +314,7 @@ type CreateApprovalCommand struct {
 }
 
 func (s *Service) CreateApproval(ctx context.Context, command CreateApprovalCommand) (domain.ConsequentialApproval, error) {
-	if !validBase(command.Actor, command.AccountID, command.CorrelationID) || ids.Validate(string(command.ApprovalID)) != nil {
+	if !validBase(command.Actor, command.AccountID, command.CorrelationID) || ids.Validate(string(command.ApprovalID)) != nil || ids.Validate(string(command.InvocationID)) != nil {
 		return domain.ConsequentialApproval{}, ErrInvalidCommand
 	}
 	accountContext, err := s.authorize(ctx, command.Actor, command.AccountID, AgentsPackage, true)
@@ -358,6 +358,11 @@ func (s *Service) DecideApproval(ctx context.Context, command DecideApprovalComm
 	item, err := s.repository.GetApproval(ctx, command.AccountID, command.ApprovalID)
 	if err != nil {
 		return domain.ConsequentialApproval{}, err
+	}
+	if item.InvocationID == "" {
+		if _, err := s.authorize(ctx, command.Actor, command.AccountID, "marketing", true); err != nil {
+			return domain.ConsequentialApproval{}, err
+		}
 	}
 	now := s.clock.Now().UTC()
 	actor := domainActor(command.Actor)

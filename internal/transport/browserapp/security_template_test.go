@@ -55,7 +55,7 @@ func TestSecurityPageExposesActiveMCPGrantRevocation(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := output.String()
-	for _, expected := range []string{"CONNECTED MCP CLIENTS", "Desktop MCP Client", "https://client.example/oauth/metadata.json", `action="/app/security/mcp-grants/revoke"`, `name="grant_id" value="40000000-0000-4000-8000-000000000004"`} {
+	for _, expected := range []string{"Desktop MCP Client", "https://client.example/oauth/metadata.json", `action="/app/security/mcp-grants/revoke"`, `name="grant_id" value="40000000-0000-4000-8000-000000000004"`} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("MCP grant control missing %q: %s", expected, body)
 		}

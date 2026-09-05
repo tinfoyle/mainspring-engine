@@ -40,7 +40,7 @@ describe("application shell", () => {
     expect(wrapper.get("nav").attributes("aria-label")).toBe("Main navigation");
     expect(wrapper.get("nav").text()).toContain("Workspace");
     expect(wrapper.get("nav").text()).toContain("Your Turn");
-    expect(wrapper.get("nav").text()).toContain("Baseline");
+    expect(wrapper.get("nav").text()).toContain("Business setup");
     expect(wrapper.get("nav").text()).toContain("Explore plans");
     expect(wrapper.get("nav").text()).not.toContain("Schedules");
     expect(wrapper.get("nav").text()).not.toContain("Finance");
@@ -49,7 +49,7 @@ describe("application shell", () => {
     expect(wrapper.get("nav").text()).toContain("Billing");
     expect(wrapper.get("nav").text()).toContain("Security");
     expect(wrapper.get("nav").text()).toContain("Exports");
-    expect(wrapper.get("nav").text()).toContain("Lifecycle");
+    expect(wrapper.get("nav").text()).toContain("Close account");
     expect(wrapper.find(".nav-link em").exists()).toBe(false);
     await expectNoAxeViolations(wrapper.element);
     wrapper.unmount();
@@ -178,7 +178,7 @@ describe("application shell", () => {
     const wrapper = mount(App, { global: { plugins: [createPinia(), router] } });
     const button = wrapper.get(".sign-out-button");
     expect(button.text()).toContain("Sign out");
-    expect(button.text()).toContain("See you next time");
+    expect(button.text()).not.toContain("See you next time");
     await button.trigger("click");
     await flushPromises();
     expect(analytics.logout).toHaveBeenCalledOnce();

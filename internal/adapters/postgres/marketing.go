@@ -455,6 +455,13 @@ func (repository *MarketingRepository) releaseTransition(ctx context.Context, ac
 		if err != nil {
 			return err
 		}
+		if target == domain.ReleaseSubmitted && current.State == target && current.Version == expected && replayMatches(current) {
+			if err := createHumanMarketingApproval(ctx, tx, current, actor, mutation); err != nil {
+				return err
+			}
+			result = current
+			return nil
+		}
 		if current.Version == expected+1 && current.State == target {
 			matched, err := marketingEventMatches(ctx, tx, accountID, mutation.EventID, "release", string(releaseID), string(target), expected, current.Version)
 			if err != nil || !matched || !replayMatches(current) {
@@ -488,6 +495,9 @@ func (repository *MarketingRepository) releaseTransition(ctx context.Context, ac
 			return err
 		}
 		result = next
+		if target == domain.ReleaseSubmitted {
+			return createHumanMarketingApproval(ctx, tx, next, actor, mutation)
+		}
 		return nil
 	})
 	return result, classifyMarketing(err)
@@ -607,6 +617,16 @@ func loadMarketingCampaign(ctx context.Context, tx pgx.Tx, accountID ids.Account
 		return domain.Campaign{}, marketingapp.ErrRepository
 	}
 	return value, nil
+}
+
+func (repository *MarketingRepository) GetAssetRevision(ctx context.Context, accountID ids.AccountID, revisionID ids.MarketingAssetRevisionID) (domain.AssetRevision, error) {
+	var result domain.AssetRevision
+	err := repository.cell.WithAccountTx(ctx, accountID, pgx.TxOptions{AccessMode: pgx.ReadOnly}, func(ctx context.Context, tx pgx.Tx) error {
+		var err error
+		result, err = loadMarketingAssetRevision(ctx, tx, accountID, revisionID)
+		return err
+	})
+	return result, classifyMarketing(err)
 }
 
 func loadMarketingAssetRevision(ctx context.Context, tx pgx.Tx, accountID ids.AccountID, revisionID ids.MarketingAssetRevisionID) (domain.AssetRevision, error) {

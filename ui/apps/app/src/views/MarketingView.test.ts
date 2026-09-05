@@ -34,23 +34,24 @@ async function mountAt(path: string) {
 describe("Marketing workspace", () => {
   it("loads a durable submitted release without exposing an approval-identity shortcut", async () => {
     const wrapper = await mountAt(`/app/marketing/releases/${release.id}`);
-    expect(api.getMarketingRelease).toHaveBeenCalledWith(accountID, release.id); expect(wrapper.text()).toContain("Launch release"); expect(wrapper.text()).toContain("never accepts an internal approval identifier"); expect(wrapper.text()).toContain("Open Your Turn"); expect(wrapper.find('input[name="approval_id"]').exists()).toBe(false);
+    expect(api.getMarketingRelease).toHaveBeenCalledWith(accountID, release.id); expect(wrapper.text()).toContain("Launch release"); expect(wrapper.text()).toContain("Request approval"); expect(wrapper.text()).toContain("Open Your Turn"); expect(wrapper.find('input[name="approval_id"]').exists()).toBe(false);
+    expect(wrapper.get('a[download]').attributes("href")).toBe(`/api/v1/accounts/${accountID}/marketing/campaigns/${campaign.id}/asset-revisions/${asset.id}/content`);
   });
 
   it("keeps inspection but removes every mutation in package read-only mode", async () => {
     const session = useSessionStore(); session.accounts = [{ ...account, entitlements: { ...account.entitlements, packages: [{ ...account.entitlements.packages[0]!, mode: "read_only" }] } }];
     const wrapper = await mountAt(`/app/marketing/campaigns/${campaign.id}`);
-    expect(wrapper.text()).toContain("Read-only access"); expect(wrapper.text()).toContain("Explain the operating model"); expect(wrapper.text()).not.toContain("New campaign"); expect(wrapper.text()).not.toContain("Revise intent");
+    expect(wrapper.text()).toContain("Read-only access"); expect(wrapper.text()).toContain("Explain the operating model"); expect(wrapper.text()).not.toContain("New campaign"); expect(wrapper.text()).not.toContain("Edit campaign");
   });
 
   it("lets a participant freeze the exact campaign and creative revisions", async () => {
     api.createMarketingRelease.mockResolvedValue({ ...release, state: "draft", version: 1 }); const wrapper = await mountAt(`/app/marketing/campaigns/${campaign.id}`);
-    await wrapper.findAll("button").find((item) => item.text() === "Releases")?.trigger("click"); await wrapper.findAll("button").find((item) => item.text() === "Build release")?.trigger("click"); await wrapper.get('[role="dialog"] input').setValue("Launch snapshot"); await wrapper.get('[role="dialog"]').trigger("submit"); await flushPromises();
+    await wrapper.findAll("button").find((item) => item.text() === "Releases")?.trigger("click"); await wrapper.findAll("button").find((item) => item.text() === "Create release")?.trigger("click"); await wrapper.get('[role="dialog"] input').setValue("Launch snapshot"); await wrapper.get('[role="dialog"]').trigger("submit"); await flushPromises();
     expect(api.createMarketingRelease).toHaveBeenCalledWith(accountID, campaign.id, { campaign_version: 4, name: "Launch snapshot", channels: ["email", "web"], asset_revision_ids: [asset.id] });
   });
 
   it("keeps governance controls manager-only while members can draft", async () => {
     const session = useSessionStore(); session.accounts = [{ ...account, role: "member" }]; const wrapper = await mountAt(`/app/marketing/campaigns/${campaign.id}`);
-    expect(wrapper.text()).toContain("New campaign"); expect(wrapper.text()).toContain("Revise intent"); expect(wrapper.findAll("button").some((item) => item.text() === "Archive")).toBe(false);
+    expect(wrapper.text()).toContain("New campaign"); expect(wrapper.text()).toContain("Edit campaign"); expect(wrapper.findAll("button").some((item) => item.text() === "Archive")).toBe(false);
   });
 });

@@ -692,7 +692,7 @@ type approvalResponse struct {
 	ID                       ids.ConsequentialApprovalID                `json:"id"`
 	WorkItemID               ids.WorkItemID                             `json:"work_item_id,omitempty"`
 	OperationID              string                                     `json:"operation_id"`
-	InvocationID             ids.AgentInvocationID                      `json:"invocation_id"`
+	InvocationID             ids.AgentInvocationID                      `json:"invocation_id,omitempty"`
 	Capability               string                                     `json:"capability"`
 	Payload                  json.RawMessage                            `json:"payload"`
 	InputSHA256              string                                     `json:"input_sha256"`
@@ -739,7 +739,7 @@ type approvalSummaryResponse struct {
 	ID            ids.ConsequentialApprovalID                `json:"id"`
 	WorkItemID    ids.WorkItemID                             `json:"work_item_id,omitempty"`
 	OperationID   string                                     `json:"operation_id"`
-	InvocationID  ids.AgentInvocationID                      `json:"invocation_id"`
+	InvocationID  ids.AgentInvocationID                      `json:"invocation_id,omitempty"`
 	Capability    string                                     `json:"capability"`
 	Proposer      attentionActorResponse                     `json:"proposer"`
 	PolicyVersion uint64                                     `json:"policy_version"`

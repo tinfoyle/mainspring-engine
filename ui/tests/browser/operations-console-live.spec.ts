@@ -40,7 +40,7 @@ async function register(page: Page, context: BrowserContext, request: APIRequest
   await page.getByLabel("Your name").fill(purpose === "staff" ? "Local Operations Staff" : "Local Support Customer");
   await page.getByLabel("Work email").fill(email);
   await page.getByLabel("Business name").fill(`${purpose} workshop ${suffix.slice(-12)}`);
-  await page.getByRole("button", { name: "Continue securely" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
   const verification = await waitForMailLink(request, email);
   await page.goto(verification);
   await page.locator('input[name="password"]').fill(password);

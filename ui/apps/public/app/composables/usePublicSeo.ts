@@ -32,14 +32,14 @@ export function usePublicSeo(options: PublicSeoOptions): void {
     ogType: "website",
     ogUrl: canonical,
     ogImage: socialImage,
-    ogImageAlt: "Infinite Ocean: Spyglass — Know what needs you next",
+    ogImageAlt: "Infinite Ocean: Spyglass — Tasks, records and AI agents",
     ogImageWidth: 1200,
     ogImageHeight: 630,
     twitterCard: "summary_large_image",
     twitterTitle: options.title,
     twitterDescription: options.description,
     twitterImage: socialImage,
-    twitterImageAlt: "Infinite Ocean: Spyglass — Know what needs you next"
+    twitterImageAlt: "Infinite Ocean: Spyglass — Tasks, records and AI agents"
   });
   useHead({
     link: [{ rel: "canonical", href: canonical }],

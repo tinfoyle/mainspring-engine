@@ -186,10 +186,10 @@ body.site-menu-open { overflow: hidden; }
 .public-consent-history__actions { margin-top: 1rem; display: flex; flex-wrap: wrap; gap: .6rem; }
 .public-consent-history__error { color: #9b2f24; }
 .public-consent-history__message { min-height: 1.5rem; color: var(--io-ocean-800); font-weight: 700; }
-.site-footer { padding: 2.5rem max(1rem, calc((100% - 72rem) / 2)); display: grid; gap: 1rem; color: rgb(255 255 255 / 70%); background: #031f27; }
+.site-footer { padding: 2.5rem max(1rem, calc((100% - 72rem) / 2)); display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; color: rgb(255 255 255 / 70%); background: #031f27; }
 .site-footer .io-logo__type small { color: var(--io-seafoam); }
 .site-footer p { max-width: 34rem; line-height: 1.5; }
-.site-footer nav { display: flex; gap: 1rem; }
+.site-footer nav { display: flex; flex-wrap: wrap; gap: 1rem; }
 
 @media (min-width: 48rem) {
   .site-menu { display: none; }

@@ -27,7 +27,7 @@ const claim = {
   citations: [{ evidence_id: "30000000-0000-4000-8000-000000000003", evidence_kind: "document_revision", relation: "supports", locator: "Launch plan, page 4" }]
 } satisfies KnowledgeClaim;
 const fact = {
-  id: "40000000-0000-4000-8000-000000000004", current_claim_id: claim.id, scope: { kind: "account" }, key: "launch.owner",
+  id: "40000000-0000-4000-8000-000000000004", current_claim_id: "60000000-0000-4000-8000-000000000006", scope: { kind: "account" }, key: "launch.owner",
   sensitivity: "internal", state: "active", revision: 2, accepted_at: "2026-08-23T20:00:00Z", updated_at: "2026-08-23T20:00:00Z"
 } satisfies KnowledgeFactSummary;
 
@@ -50,15 +50,16 @@ beforeEach(() => {
 describe("Knowledge surface", () => {
   it("separates proposed review from the accepted fact projection", async () => {
     const wrapper = await mountAt("/app/knowledge");
-    expect(wrapper.text()).toContain("launch.release_window"); expect(wrapper.text()).toContain("92% confidence");
-    expect(wrapper.text()).toContain("launch.owner"); expect(wrapper.text()).toContain("revision 2");
+    expect(wrapper.text()).toContain("Launch release window"); expect(wrapper.text()).toContain("92% confidence");
+    expect(wrapper.text()).toContain("Launch owner"); expect(wrapper.text()).toContain("revision 2");
     expect(wrapper.findAllComponents(RouterLinkStub).some((link) => link.props("to") === `/app/knowledge/claims/${claim.id}`)).toBe(true);
+    expect(wrapper.findAllComponents(RouterLinkStub).some((link) => link.props("to") === `/app/knowledge/claims/${fact.current_claim_id}`)).toBe(true);
   });
 
   it("shows exact value, citation and explicit human decision on a durable route", async () => {
     const wrapper = await mountAt(`/app/knowledge/claims/${claim.id}`);
     expect(api.getKnowledgeClaim).toHaveBeenCalledWith(account.account_id, claim.id);
     expect(wrapper.text()).toContain("August 31"); expect(wrapper.text()).toContain("Launch plan, page 4");
-    expect(wrapper.text()).toContain("Agent output is never authoritative"); expect(wrapper.text()).toContain("Accept claim");
+    expect(wrapper.text()).toContain("Check the information and its sources before saving it."); expect(wrapper.text()).toContain("Confirm information");
   });
 });

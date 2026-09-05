@@ -99,6 +99,35 @@ func TestMutationRequiresTrustedOriginBeforeAuthorization(t *testing.T) {
 	}
 }
 
+func TestMarketingDownloadPreservesAttachmentHeadersAndFileSizeLimit(t *testing.T) {
+	clock := fixedClock{time.Now()}
+	signer, _ := routecontext.NewSigner("router", "current", []byte("0123456789abcdef0123456789abcdef"), 20*time.Second, clock)
+	body := strings.Repeat("x", 5<<20)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", "attachment; filename=audit.txt")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = io.WriteString(w, body)
+	}))
+	defer upstream.Close()
+	cellID := ids.CellID("cell-us-east-01")
+	auth := &captureAuthorizer{result: access.AccountContext{AccountID: routerAccount, CellID: cellID, PlacementGeneration: 7, EntitlementVersion: 4, Role: accounts.RoleOwner}}
+	router, err := New(fakeSessions{authenticated: sessions.Authenticated{Session: sessions.Session{UserID: routerUser}}}, auth, directoryFor(t, cellID, 7, upstream.URL), signer, fixedGenerator{routerRequest}, Config{SessionCookieName: "test", TrustedOrigins: []string{"http://app.test"}}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v1/accounts/" + routerAccount + "/marketing/campaigns/" + routerRequest + "/asset-revisions/" + routerRequest + "/content"
+	request := httptest.NewRequest(http.MethodGet, path, nil)
+	request.AddCookie(&http.Cookie{Name: "test", Value: "opaque"})
+	response := httptest.NewRecorder()
+	router.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.Len() != len(body) || response.Header().Get("Content-Disposition") != "attachment; filename=audit.txt" || response.Header().Get("X-Content-Type-Options") != "nosniff" || response.Header().Get("Content-Security-Policy") != "sandbox; default-src 'none'" {
+		t.Fatalf("file response=%d bytes=%d headers=%v", response.Code, response.Body.Len(), response.Header())
+	}
+}
+
 func TestRouterRejectsUnpublishedWorkCommandsBeforeAuthentication(t *testing.T) {
 	clock := fixedClock{time.Now()}
 	key := []byte("0123456789abcdef0123456789abcdef")
@@ -481,6 +510,8 @@ func TestMarketingRouteAllowlistMatchesCellSurface(t *testing.T) {
 		{http.MethodPut, "marketing/campaigns/" + routerRequest, true, true},
 		{http.MethodDelete, "marketing/campaigns/" + routerRequest, true, true},
 		{http.MethodGet, "marketing/campaigns/" + routerRequest + "/asset-revisions", false, true},
+		{http.MethodGet, "marketing/campaigns/" + routerRequest + "/asset-revisions/" + routerRequest + "/content", false, true},
+		{http.MethodPost, "marketing/campaigns/" + routerRequest + "/asset-revisions/" + routerRequest + "/content", false, false},
 		{http.MethodPost, "marketing/campaigns/" + routerRequest + "/asset-revisions", true, true},
 		{http.MethodGet, "marketing/campaigns/" + routerRequest + "/releases", false, true},
 		{http.MethodPost, "marketing/campaigns/" + routerRequest + "/releases", true, true},

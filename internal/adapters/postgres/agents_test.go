@@ -13,6 +13,29 @@ import (
 
 type agentScanFunc func(...any) error
 
+func TestRestorePersistedAgentRunPlanRecoversOnlyOriginalTimestampPrecision(t *testing.T) {
+	original, err := agentdomain.NewRunPlan(agentdomain.RunPlan{
+		RunID: "61000000-0000-4000-8000-000000000001", AccountID: "11000000-0000-4000-8000-000000000001",
+		BoardroomID: "41000000-0000-4000-8000-000000000001", ConversationID: "71000000-0000-4000-8000-000000000001",
+		CreatedBy: "21000000-0000-4000-8000-000000000001", EntitlementVersion: 2, PolicyVersion: 2,
+		CreatedAt: time.Date(2026, 9, 4, 12, 0, 0, 123456789, time.UTC),
+		Turns:     []agentdomain.PlannedTurn{{Turn: 1, PersonaID: "51000000-0000-4000-8000-000000000001", PersonaVersionID: "31000000-0000-4000-8000-000000000001", PersonaDigest: [32]byte{1}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	persisted := original
+	persisted.CreatedAt = original.CreatedAt.Truncate(time.Microsecond)
+	restored, err := restorePersistedAgentRunPlan(persisted)
+	if err != nil || restored.Digest != original.Digest || !restored.CreatedAt.Equal(original.CreatedAt) {
+		t.Fatalf("restore=%+v err=%v", restored, err)
+	}
+	persisted.PolicyVersion++
+	if _, err := restorePersistedAgentRunPlan(persisted); err == nil {
+		t.Fatal("timestamp recovery accepted a changed policy")
+	}
+}
+
 func (scan agentScanFunc) Scan(destinations ...any) error { return scan(destinations...) }
 
 func TestScanAgentMessageValidatesRoleShapeAndResultBinding(t *testing.T) {

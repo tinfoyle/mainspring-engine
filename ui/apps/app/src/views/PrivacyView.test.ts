@@ -85,7 +85,7 @@ describe("privacy controls", () => {
     const wrapper = await mountView();
     const toggles = wrapper.findAll<HTMLInputElement>('input[type="checkbox"]');
     expect(toggles.map((toggle) => toggle.element.checked)).toEqual([true]);
-    expect(wrapper.text()).toContain("there is nothing to accept");
+    expect(wrapper.text()).toContain("Spyglass does not use marketing tracking.");
 
     await wrapper.findAll("button").find((button) => button.text() === "Reject non-essential")?.trigger("click");
     await flushPromises();
