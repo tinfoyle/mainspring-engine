@@ -120,7 +120,7 @@ func (broker *Broker) loadIndex() (map[string]indexEntry, error) {
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("%w: index contains trailing JSON", ErrConfiguration)
 	}
-	if document.Version != 1 || len(document.Credentials) == 0 || len(document.Credentials) > maximumEntries {
+	if document.Version != 1 || document.Credentials == nil || len(document.Credentials) > maximumEntries {
 		return nil, ErrConfiguration
 	}
 	entries := make(map[string]indexEntry, len(document.Credentials))

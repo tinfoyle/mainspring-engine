@@ -56,3 +56,5 @@ validation remain mandatory. This correction is released in RC53.
 ## Live execution corrections
 
 RC54 corrects a 15-second runner-to-broker timeout that canceled valid model calls, gives the source-capture service Stage Internet access, and includes the report delivery workers in the deployed/verified profile. A real slow HTTP response and explicit cancellation test cover the timeout regression; a TLS source fixture uses the actual hardened reader. Source failures retain safe, plain-language reasons without exposing provider response bodies.
+
+RC55 permits an explicitly empty version-1 connector credential index, so a new installation can run platform self-email reports before any external account connector is configured. Missing/null indexes remain invalid; an empty index cannot lease any credentials.

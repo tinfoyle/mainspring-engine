@@ -3,6 +3,7 @@ package mountedcredentials
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -176,5 +177,27 @@ func writeIndex(t *testing.T, root, reference, filename string) {
 		testAccount, testCredential, reference, filename)
 	if err := os.WriteFile(filepath.Join(root, indexFilename), []byte(value), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestEmptyCredentialIndexStartsWithoutGrantingAnyCredentials(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, indexFilename), []byte(`{"version":1,"credentials":[]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	broker, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := broker.Acquire(context.Background(), credentialRequest("secret://stage/integrations/smtp/v1")); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("empty index granted a credential: %v", err)
+	}
+	for _, raw := range []string{`{"version":1}`, `{"version":1,"credentials":null}`, `{"version":2,"credentials":[]}`} {
+		if err := os.WriteFile(filepath.Join(root, indexFilename), []byte(raw), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := New(root); err == nil {
+			t.Fatalf("malformed empty index accepted: %s", raw)
+		}
 	}
 }
