@@ -134,7 +134,6 @@ async function startSignup(event: MouseEvent): Promise<void> {
     <main id="main" ref="main" tabindex="-1"><NuxtPage /></main>
     <footer class="site-footer">
       <IoLogo />
-      <p>Keep the work moving without letting the business get away from you.</p>
       <nav aria-label="Legal"><NuxtLink to="/privacy">Privacy</NuxtLink><NuxtLink to="/terms">Terms</NuxtLink><NuxtLink to="/sms-consent">SMS consent</NuxtLink><NuxtLink to="/affiliate-terms">Affiliate terms</NuxtLink><a href="mailto:support@infiniteocean.net">Support</a></nav>
     </footer>
     <ConsentBanner />
