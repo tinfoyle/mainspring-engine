@@ -107,7 +107,7 @@ cd /mnt/c/Users/Tinfo/Documents/Mainspring
 ```
 
 The publisher refuses anything except clean, pushed `main`; refuses untracked
-files and existing version/revision tags; builds all three Linux/AMD64 images;
+files and existing version/revision tags; builds all four Linux/AMD64 images (application, public UI, private UI and operations UI);
 attaches SBOM and provenance; scans the immutable digests for high/critical
 vulnerabilities and secrets; and writes
 `deploy/releases/0.3.0-rc.N.env`.

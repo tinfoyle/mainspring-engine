@@ -26,7 +26,7 @@ release_value() {
   sed -n "s/^$1=//p" "$release_file"
 }
 digest='^ghcr\.io/tinfoyle/[a-z0-9._-]+@sha256:[0-9a-f]{64}$'
-for name in SPYGLASS_APPLICATION_IMAGE SPYGLASS_WEBSITE_IMAGE SPYGLASS_PRIVATE_UI_IMAGE; do
+for name in SPYGLASS_APPLICATION_IMAGE SPYGLASS_WEBSITE_IMAGE SPYGLASS_PRIVATE_UI_IMAGE SPYGLASS_OPERATIONS_UI_IMAGE; do
   candidate="$(release_value "$name")"
   [[ "$candidate" =~ $digest ]] || { echo "$name must be an exact tinfoyle GHCR digest" >&2; exit 1; }
   ! grep -q "^$name=" "$env_file" || { echo "$name must come only from the reviewed release file" >&2; exit 1; }
@@ -141,14 +141,18 @@ done
 
 network="$(value SPYGLASS_HOST_EDGE_NETWORK)"
 docker network inspect "$network" >/dev/null
+log_directory=/opt/infiniteocean/caddy/data/spyglass-access
+test -d "$log_directory" && test ! -L "$log_directory" || { echo "Stage access logging must be installed before deployment" >&2; exit 1; }
+test "$(stat -c %a "$log_directory")" = 2750 && test "$(stat -c %g "$log_directory")" = 65532 || { echo "Stage access-log directory permissions are incorrect" >&2; exit 1; }
 rendered="$(mktemp)"
 trap 'rm -f "$rendered"' EXIT
 docker compose --project-name spyglass-stage --env-file "$release_file" --env-file "$env_file" --file "$stack_dir/compose.yml" --file "$stack_dir/compose.stage.yml" --file "$stack_dir/compose.stage-runner.yml" --profile knowledge-processing config --format json >"$rendered"
-python3 - "$rendered" "$network" "$(release_value SPYGLASS_APPLICATION_IMAGE)" "$(release_value SPYGLASS_WEBSITE_IMAGE)" "$(release_value SPYGLASS_PRIVATE_UI_IMAGE)" "$secrets_gid" <<'PY'
+python3 - "$rendered" "$network" "$(release_value SPYGLASS_APPLICATION_IMAGE)" "$(release_value SPYGLASS_WEBSITE_IMAGE)" "$(release_value SPYGLASS_PRIVATE_UI_IMAGE)" "$secrets_gid" "$(release_value SPYGLASS_OPERATIONS_UI_IMAGE)" <<'PY'
 import json
 import sys
+from urllib.parse import urlsplit
 
-path, edge_network, application_image, website_image, private_ui_image, secrets_gid = sys.argv[1:]
+path, edge_network, application_image, website_image, private_ui_image, secrets_gid, operations_ui_image = sys.argv[1:]
 with open(path, encoding="utf-8") as source:
     config = json.load(source)
 services = config["services"]
@@ -160,7 +164,7 @@ runner_services = {
     "baseline-maintenance-worker-b",
 }
 application_services = runner_services | {
-    "account-api", "account-lifecycle-worker", "admission-api", "app-api-a", "app-api-b",
+    "operations-api", "account-api", "account-lifecycle-worker", "admission-api", "app-api-a", "app-api-b",
     "account-export-build-worker-a", "account-export-build-worker-b", "account-export-expiry-worker",
     "affiliate-retention-worker", "app-router", "billing-worker", "cell-a-migrate", "cell-b-migrate",
     "entitlement-worker", "global-migrate", "identity-maintenance-worker",
@@ -169,7 +173,7 @@ application_services = runner_services | {
     "agent-dispatch-worker-a", "agent-dispatch-worker-b", "schedule-execution-worker-a",
     "schedule-execution-worker-b", "agent-projection-worker-a", "agent-projection-worker-b",
 }
-required = runner_services | {"malware-scanner", "document-extractor"}
+required = runner_services | {"malware-scanner", "document-extractor", "operations-api", "operations-ui"}
 missing = sorted(required - services.keys())
 if missing:
     raise SystemExit(f"stage runner topology is incomplete: {', '.join(missing)}")
@@ -195,6 +199,26 @@ if services["website"]["image"] != website_image:
     raise SystemExit("website image does not match the release file")
 if services["private-ui"]["image"] != private_ui_image:
     raise SystemExit("private UI image does not match the release file")
+if services["operations-ui"]["image"] != operations_ui_image:
+    raise SystemExit("operations UI image does not match the release file")
+ops = services["operations-api"]
+ops_env = ops.get("environment", {})
+if ops_env.get("SPYGLASS_OPERATIONS_ORIGIN") != "https://ops.stage.infiniteocean.net" or ops_env.get("SPYGLASS_PASSKEY_RP_ID") != "app.stage.infiniteocean.net":
+    raise SystemExit("operations origin or app passkey RP ID is incorrect")
+credentials = [urlsplit(ops_env.get(f"SPYGLASS_OPERATIONS_{role}_DATABASE_URL", "")) for role in ("IDENTITY", "PROJECTION", "BILLING", "PRIVACY", "AFFILIATE")]
+if len({item.username for item in credentials}) != 5 or len({item.password for item in credentials}) != 5 or any(not item.password or not item.username or item.username == "spyglass_migrator" for item in credentials):
+    raise SystemExit("operations requires five distinct non-migrator credentials")
+if not config["networks"]["operations"].get("internal"):
+    raise SystemExit("operations network must be internal")
+if {name for name, service in services.items() if "operations" in service.get("networks", {})} != {"edge", "operations-api", "operations-ui"}:
+    raise SystemExit("unexpected operations network member")
+for name in ("operations-api", "operations-ui"):
+    service = services[name]
+    if service.get("ports") or not service.get("read_only") or "ALL" not in service.get("cap_drop", []):
+        raise SystemExit(f"{name} must be private and hardened")
+log_mounts = ops.get("volumes", [])
+if len(log_mounts) != 1 or log_mounts[0].get("source") != "/opt/infiniteocean/caddy/data/spyglass-access" or log_mounts[0].get("target") != "/var/log/spyglass/access" or not log_mounts[0].get("read_only"):
+    raise SystemExit("operations must receive only the protected read-only access-log directory")
 if services["mcp-gateway"].get("scale") != 2:
     raise SystemExit("stage MCP gateway must run exactly two replicas")
 affiliate_restore = services["affiliate-retention-worker"].get("environment", {})

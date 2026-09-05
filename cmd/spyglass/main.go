@@ -1430,6 +1430,7 @@ func runOperationsAPI(ctx context.Context, logger *slog.Logger) error {
 		Origin: origin, PasskeyRPID: passkeyRPID, PasskeyEncryptionKeys: passkeyKeys, PasskeyActiveVersion: passkeyActiveVersion,
 		NetworkActorKey: networkActorKey, TrustedProxyCIDRs: csvEnv("SPYGLASS_TRUSTED_PROXY_CIDRS"), MaxDatabaseConns: maxConns,
 		MaxRequestBody: int64(maxBody), SecureCookie: secureCookie,
+		TrafficLogDirectory: os.Getenv("SPYGLASS_OPERATIONS_TRAFFIC_LOG_DIRECTORY"), TrafficHosts: csvEnv("SPYGLASS_OPERATIONS_TRAFFIC_HOSTS"),
 	}, logger)
 	if err != nil {
 		return err

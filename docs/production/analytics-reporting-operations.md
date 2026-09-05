@@ -20,6 +20,12 @@ The dedicated `spyglass_analytics_reporter` role has no table or sequence privil
 
 ## Local operation
 
+The Stage staff console exposes this report at **Analytics** on
+`https://ops.stage.infiniteocean.net`. Access requires a passkey and the
+`analytics` or `operations_administrator` role. See the
+[Stage admin guide](stage-admin-guide.md) for enrollment, roles, report controls,
+and how consented product reports differ from request/IP traffic.
+
 Run through the UbuntuRojo local Docker composition:
 
 ```sh

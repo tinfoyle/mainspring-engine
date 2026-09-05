@@ -238,6 +238,7 @@ export const apiRoutes = [
   { service: "operations-api", method: "POST", path: "/api/operations/v1/support-grants", operationId: "operationsCreateSupportGrant", authentication: "operationsCookie", contract: "typed" },
   { service: "operations-api", method: "POST", path: "/api/operations/v1/support-grants/{grantID}/revocations", operationId: "operationsRevokeSupportGrant", authentication: "operationsCookie", contract: "typed" },
   { service: "operations-api", method: "POST", path: "/api/operations/v1/support-grants/{grantID}/views", operationId: "operationsOpenSupportView", authentication: "operationsCookie", contract: "typed" },
+  { service: "operations-api", method: "POST", path: "/api/operations/v1/traffic/reports", operationId: "operationsTrafficReport", authentication: "operationsCookie", contract: "typed" },
 ] as const;
 
 export type ApiRoute = (typeof apiRoutes)[number];

@@ -13,6 +13,7 @@ services:
     networks:
       edge:
       application:
+      operations:
       host-edge:
         aliases: [spyglass-stage-edge]
     logging: &stage-logging
@@ -20,6 +21,69 @@ services:
       options: {max-size: 10m, max-file: "5"}
 
   global-db:
+    logging: *stage-logging
+
+  operations-api:
+    image: ${SPYGLASS_APPLICATION_IMAGE:?set application release digest}
+    command: [operations-api]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    cpus: 1.0
+    environment:
+      <<: *global-restore
+      SPYGLASS_ENV: ${SPYGLASS_PROCESS_ENV}
+      SPYGLASS_ENVIRONMENT: stage
+      SPYGLASS_HTTP_ADDRESS: :8080
+      SPYGLASS_OPERATIONS_IDENTITY_DATABASE_URL: ${SPYGLASS_OPERATIONS_IDENTITY_DATABASE_URL:?set operations identity database URL}
+      SPYGLASS_OPERATIONS_PROJECTION_DATABASE_URL: ${SPYGLASS_OPERATIONS_PROJECTION_DATABASE_URL:?set operations projection database URL}
+      SPYGLASS_OPERATIONS_BILLING_DATABASE_URL: ${SPYGLASS_OPERATIONS_BILLING_DATABASE_URL:?set operations billing database URL}
+      SPYGLASS_OPERATIONS_PRIVACY_DATABASE_URL: ${SPYGLASS_OPERATIONS_PRIVACY_DATABASE_URL:?set operations privacy database URL}
+      SPYGLASS_OPERATIONS_AFFILIATE_DATABASE_URL: ${SPYGLASS_OPERATIONS_AFFILIATE_DATABASE_URL:?set operations affiliate database URL}
+      SPYGLASS_OPERATIONS_ORIGIN: https://ops.stage.infiniteocean.net
+      SPYGLASS_PASSKEY_RP_ID: ${SPYGLASS_PASSKEY_RP_ID}
+      SPYGLASS_PASSKEY_ENCRYPTION_KEYS: ${SPYGLASS_PASSKEY_ENCRYPTION_KEYS}
+      SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION: ${SPYGLASS_PASSKEY_ENCRYPTION_ACTIVE_VERSION}
+      SPYGLASS_NETWORK_ACTOR_KEY: ${SPYGLASS_NETWORK_ACTOR_KEY}
+      SPYGLASS_OPERATIONS_TRAFFIC_LOG_DIRECTORY: /var/log/spyglass/access
+      SPYGLASS_OPERATIONS_TRAFFIC_HOSTS: stage.infiniteocean.net,app.stage.infiniteocean.net,mcp.stage.infiniteocean.net,ops.stage.infiniteocean.net
+    volumes:
+      - type: bind
+        source: /opt/infiniteocean/caddy/data/spyglass-access
+        target: /var/log/spyglass/access
+        read_only: true
+        bind: {create_host_path: false}
+    expose: ["8080"]
+    healthcheck:
+      test: [CMD, /spyglass, healthcheck, --url=http://127.0.0.1:8080/health/ready]
+      interval: 10s
+      timeout: 4s
+      retries: 20
+      start_period: 10s
+    depends_on: {global-roles: {condition: service_completed_successfully}}
+    networks: [operations, database]
+    logging: *stage-logging
+
+  operations-ui:
+    image: ${SPYGLASS_OPERATIONS_UI_IMAGE:?set operations UI release digest}
+    restart: unless-stopped
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 64m
+    cpus: 0.5
+    expose: ["8080"]
+    healthcheck:
+      test: [CMD, /static-server, healthcheck]
+      interval: 10s
+      timeout: 4s
+      retries: 20
+      start_period: 5s
+    networks: [operations]
     logging: *stage-logging
   cell-a-db:
     logging: *stage-logging
@@ -346,6 +410,8 @@ services:
     depends_on: {cell-b-roles: {condition: service_completed_successfully}}
 
 networks:
+  operations:
+    internal: true
   host-edge:
     external: true
     name: ${SPYGLASS_HOST_EDGE_NETWORK:-infiniteocean_public}

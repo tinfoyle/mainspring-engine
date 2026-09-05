@@ -2493,6 +2493,54 @@ export interface OperationsSupportViewEnvelope {
 
 export type OperationsTimestamp = string;
 
+export interface OperationsTrafficCount {
+  readonly "label": string;
+  readonly "requests": number;
+}
+
+export interface OperationsTrafficEntry {
+  readonly "duration_ms": number;
+  readonly "host": string;
+  readonly "ip": string;
+  readonly "method": string;
+  readonly "status": number;
+  readonly "time": string;
+}
+
+export interface OperationsTrafficIP {
+  readonly "first_seen": string;
+  readonly "ip": string;
+  readonly "last_seen": string;
+  readonly "requests": number;
+}
+
+export interface OperationsTrafficReport {
+  readonly "available_from": string | null;
+  readonly "available_to": string | null;
+  readonly "days": ReadonlyArray<OperationsTrafficCount>;
+  readonly "files_read": number;
+  readonly "from": string;
+  readonly "generated_at": string;
+  readonly "hosts": ReadonlyArray<OperationsTrafficCount>;
+  readonly "invalid_records": number;
+  readonly "ip_list_truncated": boolean;
+  readonly "ips": ReadonlyArray<OperationsTrafficIP>;
+  readonly "logs": ReadonlyArray<OperationsTrafficEntry>;
+  readonly "requests": number;
+  readonly "server_errors": number;
+  readonly "statuses": ReadonlyArray<OperationsTrafficCount>;
+  readonly "to": string;
+  readonly "truncated": boolean;
+  readonly "unique_ips": number;
+}
+
+export interface OperationsTrafficRequest {
+  readonly "from": string;
+  readonly "reason": string;
+  readonly "ticket": string;
+  readonly "to": string;
+}
+
 export type OperationsUUID = string;
 
 export interface OperationsUserView {
@@ -3449,6 +3497,11 @@ export interface ApiSchemas {
   readonly OperationsSupportGrantEnvelope: OperationsSupportGrantEnvelope;
   readonly OperationsSupportViewEnvelope: OperationsSupportViewEnvelope;
   readonly OperationsTimestamp: OperationsTimestamp;
+  readonly OperationsTrafficCount: OperationsTrafficCount;
+  readonly OperationsTrafficEntry: OperationsTrafficEntry;
+  readonly OperationsTrafficIP: OperationsTrafficIP;
+  readonly OperationsTrafficReport: OperationsTrafficReport;
+  readonly OperationsTrafficRequest: OperationsTrafficRequest;
   readonly OperationsUUID: OperationsUUID;
   readonly OperationsUserView: OperationsUserView;
   readonly OwnershipTransfer: OwnershipTransfer;

@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/accesslogs"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/application/abuse"
 	"github.com/tinfoyle/spyglass-engine/internal/application/affiliateadmin"
@@ -19,6 +20,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyrightsadmin"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/application/trafficreport"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/sessions"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/networkactor"
@@ -41,6 +43,8 @@ type Config struct {
 	MaxDatabaseConns      int32
 	MaxRequestBody        int64
 	SecureCookie          bool
+	TrafficLogDirectory   string
+	TrafficHosts          []string
 }
 
 type Server struct {
@@ -201,9 +205,23 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 	if err != nil {
 		return nil, err
 	}
-	api, err := transport.New(consoleService, passkeyService, sessionService, transport.OperatorServices{
-		Billing: billingService, Privacy: privacyService, Affiliate: affiliateService,
-	}, transport.Cookie{Secure: config.SecureCookie}, config.Origin, config.Environment, config.MaxRequestBody, logger)
+	var trafficService *trafficreport.Service
+	if config.TrafficLogDirectory != "" {
+		reader, err := accesslogs.New(config.TrafficLogDirectory, config.TrafficHosts)
+		if err != nil {
+			return nil, err
+		}
+		trafficService, err = trafficreport.New(reader, postgres.NewOperationsTrafficAuthorizer(projectionPool, config.Environment))
+		if err != nil {
+			return nil, err
+		}
+	}
+	operatorServices := transport.OperatorServices{Billing: billingService, Privacy: privacyService, Affiliate: affiliateService}
+	if trafficService != nil {
+		operatorServices.Traffic = trafficService
+	}
+	api, err := transport.New(consoleService, passkeyService, sessionService, operatorServices,
+		transport.Cookie{Secure: config.SecureCookie}, config.Origin, config.Environment, config.MaxRequestBody, logger)
 	if err != nil {
 		return nil, err
 	}

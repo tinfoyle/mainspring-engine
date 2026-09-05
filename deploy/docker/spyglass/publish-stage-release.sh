@@ -9,13 +9,14 @@ release_directory="$repository_root/deploy/releases"
 application_image=ghcr.io/tinfoyle/spyglass-engine
 website_image=ghcr.io/tinfoyle/infinite-ocean-public-ui
 private_ui_image=ghcr.io/tinfoyle/infinite-ocean-private-ui
+operations_ui_image=ghcr.io/tinfoyle/infinite-ocean-operations-ui
 trivy_image='docker.io/aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969'
 
 usage() {
   cat <<'EOF'
 Usage: publish-stage-release.sh [--dry-run] VERSION
 
-Build, attest, scan and push the matched Spyglass application/public/private
+Build, attest, scan and push the matched Spyglass application/public/private/operations
 image set to GHCR, then write deploy/releases/VERSION.env with exact digests.
 
 Environment:
@@ -120,7 +121,7 @@ builder_name="spyglass-release-${revision:0:12}-$$"
 docker buildx create --driver docker-container --name "$builder_name" --use >/dev/null
 docker buildx inspect --builder "$builder_name" --bootstrap >/dev/null
 
-for image in "$application_image" "$website_image" "$private_ui_image"; do
+for image in "$application_image" "$website_image" "$private_ui_image" "$operations_ui_image"; do
   for tag in "$version" "sha-$revision"; do
     if docker buildx imagetools inspect "$image:$tag" >/dev/null 2>&1; then
       die "immutable tag already exists: $image:$tag"
@@ -165,6 +166,7 @@ build_image() {
 application_digest="$(build_image application "$application_image" "$repository_root" "$repository_root/Dockerfile" '')"
 website_digest="$(build_image public-ui "$website_image" "$repository_root/ui" "$repository_root/ui/Dockerfile" public-runtime)"
 private_ui_digest="$(build_image private-ui "$private_ui_image" "$repository_root/ui" "$repository_root/ui/Dockerfile" app-runtime)"
+operations_ui_digest="$(build_image operations-ui "$operations_ui_image" "$repository_root/ui" "$repository_root/ui/Dockerfile" operations-runtime)"
 
 export TRIVY_USERNAME="$ghcr_username"
 export TRIVY_PASSWORD="$ghcr_token"
@@ -196,6 +198,7 @@ scan_image() {
 scan_image application "$application_image@$application_digest"
 scan_image public-ui "$website_image@$website_digest"
 scan_image private-ui "$private_ui_image@$private_ui_digest"
+scan_image operations-ui "$operations_ui_image@$operations_ui_digest"
 
 release_temporary="$temporary_directory/$version.env"
 printf '%s\n' \
@@ -204,6 +207,7 @@ printf '%s\n' \
   "SPYGLASS_APPLICATION_IMAGE=$application_image@$application_digest" \
   "SPYGLASS_WEBSITE_IMAGE=$website_image@$website_digest" \
   "SPYGLASS_PRIVATE_UI_IMAGE=$private_ui_image@$private_ui_digest" \
+  "SPYGLASS_OPERATIONS_UI_IMAGE=$operations_ui_image@$operations_ui_digest" \
   >"$release_temporary"
 chmod 644 "$release_temporary"
 mv "$release_temporary" "$release_file"

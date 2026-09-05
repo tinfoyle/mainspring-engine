@@ -1,6 +1,7 @@
 # Operations Console operations
 
-- Status: locally feature-complete; environment provisioning and human acceptance remain release gates
+- Status: Stage enablement authorized on 2026-09-04; see the release handoff for deployed artifact and human acceptance status
+- Stage origin: `https://ops.stage.infiniteocean.net`; [step-by-step admin guide](stage-admin-guide.md)
 - Local origin: `https://ops.infiniteocean.localhost:8444`
 - Services: separate Vue staff UI and `operations-api`
 - Authentication: passkey only; isolated `__Host-spyglass_operations` session cookie
@@ -23,7 +24,7 @@ The resulting view is read-only and always displays a persistent support-access 
 | `billing` | classified failure reports, exact Stripe-event replay request and exact subscription refresh request |
 | `privacy` | content-minimized due queue, exact request inspection, version-fenced review start and evidence-bound resolution |
 | `affiliate` | exact enrollment inspection, content-free risk signals and version-fenced reactivate/suspend/close |
-| `operations_administrator` | all console actions; does not grant database, customer or deployment authority |
+| `operations_administrator` | all console actions, including traffic IPs and access logs; does not grant database, customer or deployment authority |
 
 Every console action requires a ticket and reason. The API records the immutable staff User ID as `operations/<user-id>` when invoking an existing operator boundary. The billing, privacy and Affiliate pools have execute-only privileges for their specific security-definer functions. The identity pool is limited to reviewed User/staff/passkey/session/security-rate-limit relations, and cannot read Accounts or business data. The support projection pool can execute only Operations projection functions plus read the restore checkpoint required by the service readiness gate. It has no direct customer-table access.
 
@@ -85,4 +86,4 @@ Before enabling this console outside local Docker:
 - complete owner workflow review, physical-passkey review and assistive-technology review; and
 - document monitoring, backup and credential rotation for that environment.
 
-Stage remains pinned to RC.9 until a separate release authorization. This document does not authorize GHCR, Hostinger, LKE, Stage or production mutation.
+The owner authorized Stage analytics, traffic logging and the secure modular admin console on 2026-09-04 and explicitly retained the passkey requirement. This supersedes the former RC.9 Stage hold. Production/LKE remains outside that authorization. See the current release handoff for deployment evidence and any outstanding physical-passkey acceptance.

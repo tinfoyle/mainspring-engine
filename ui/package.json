@@ -16,6 +16,7 @@
     "browser:app": "playwright test --config playwright.config.ts",
     "browser:identity": "playwright test --config playwright.identity.config.ts",
     "browser:operations": "playwright test --config playwright.operations.config.ts",
+    "browser:operations-ui": "playwright test --config playwright.operations-ui.config.ts",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "lint": "eslint .",

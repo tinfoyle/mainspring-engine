@@ -17,7 +17,7 @@ beforeEach(() => {
 describe("operations console", () => {
   it("shows role-appropriate staff navigation and guardrails", async () => {
     const wrapper = mount(App, { attachTo: document.body }); await flushPromises();
-    expect(wrapper.get("h1").text()).toBe("What needs attention?");
+    expect(wrapper.get("h1").text()).toBe("Admin overview");
     expect(wrapper.get("nav").text()).toContain("Customer lookup");
     expect(wrapper.get("nav").text()).toContain("Analytics");
     expect(wrapper.text()).toContain("No broad customer directory or fuzzy search.");

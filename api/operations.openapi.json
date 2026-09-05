@@ -7,6 +7,7 @@
   },
   "servers": [{"url": "https://ops.infiniteocean.net"}],
   "paths": {
+    "/api/operations/v1/traffic/reports": {"post":{"operationId":"operationsTrafficReport","x-spyglass-service":"operations-api","security":[{"operationsCookie":[]}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/OperationsTrafficRequest"}}}},"responses":{"200":{"description":"Audited administrator-only traffic and redacted request logs","content":{"application/json":{"schema":{"$ref":"#/components/schemas/OperationsTrafficReport"}}}},"default":{"$ref":"#/components/responses/Problem"}}}},
     "/api/operations/v1/passkey-login/challenges": {
       "post": {"operationId": "operationsBeginPasskeyLogin", "x-spyglass-service": "operations-api", "security": [], "responses": {"201": {"$ref": "#/components/responses/PasskeyCeremonyCreated"}, "default": {"$ref": "#/components/responses/Problem"}}}
     },
@@ -118,6 +119,12 @@
       "Problem": {"description": "Staff request failed without internal detail", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/OperationsProblem"}}}}
     },
     "schemas": {
+      "OperationsTrafficRequest": {"type":"object","additionalProperties":false,"required":["from","to","ticket","reason"],"properties":{"from":{"type":"string","format":"date-time"},"to":{"type":"string","format":"date-time"},"ticket":{"type":"string","minLength":3,"maxLength":80},"reason":{"type":"string","minLength":8,"maxLength":500}}},
+      "OperationsTrafficEntry": {"type":"object","additionalProperties":false,"required":["time","ip","host","method","status","duration_ms"],"properties":{"time":{"type":"string","format":"date-time"},"ip":{"type":"string"},"host":{"type":"string"},"method":{"type":"string"},"status":{"type":"integer","minimum":0},"duration_ms":{"type":"number","minimum":0}}},
+      "OperationsTrafficIP": {"type":"object","additionalProperties":false,"required":["ip","requests","first_seen","last_seen"],"properties":{"ip":{"type":"string"},"requests":{"type":"integer","minimum":0},"first_seen":{"type":"string","format":"date-time"},"last_seen":{"type":"string","format":"date-time"}}},
+      "OperationsTrafficCount": {"type":"object","additionalProperties":false,"required":["label","requests"],"properties":{"label":{"type":"string"},"requests":{"type":"integer","minimum":0}}},
+      "OperationsTrafficReport": {"type":"object","additionalProperties":false,"required":["from","to","generated_at","available_from","available_to","requests","unique_ips","server_errors","files_read","invalid_records","truncated","ip_list_truncated","ips","hosts","statuses","days","logs"],"properties":{"from":{"type":"string","format":"date-time"},"to":{"type":"string","format":"date-time"},"generated_at":{"type":"string","format":"date-time"},"available_from":{"anyOf":[{"type":"string","format":"date-time"},{"type":"null"}]},"available_to":{"anyOf":[{"type":"string","format":"date-time"},{"type":"null"}]},"requests":{"type":"integer","minimum":0},"unique_ips":{"type":"integer","minimum":0},"server_errors":{"type":"integer","minimum":0},"files_read":{"type":"integer","minimum":0},"invalid_records":{"type":"integer","minimum":0},"truncated":{"type":"boolean"},"ip_list_truncated":{"type":"boolean"},"ips":{"type":"array","items":{"$ref":"#/components/schemas/OperationsTrafficIP"}},"hosts":{"type":"array","items":{"$ref":"#/components/schemas/OperationsTrafficCount"}},"statuses":{"type":"array","items":{"$ref":"#/components/schemas/OperationsTrafficCount"}},"days":{"type":"array","items":{"$ref":"#/components/schemas/OperationsTrafficCount"}},"logs":{"type":"array","items":{"$ref":"#/components/schemas/OperationsTrafficEntry"}}}},
+
       "OperationsUUID": {"type": "string", "format": "uuid"},
       "OperationsTimestamp": {"type": "string", "format": "date-time"},
       "OperationsStaffRole": {"type": "string", "enum": ["operations_administrator", "support", "billing", "analytics", "privacy", "affiliate"]},

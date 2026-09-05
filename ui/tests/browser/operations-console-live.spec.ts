@@ -97,14 +97,14 @@ test("staff passkey, exact support view, analytics, and mobile shell complete lo
     await page.getByRole("button", { name: "Sign in with passkey" }).click();
     const loginAlert = page.getByRole("alert");
     await expect.poll(async () => ({
-      authenticated: await page.getByRole("heading", { level: 1, name: "What needs attention?" }).isVisible(),
+      authenticated: await page.getByRole("heading", { level: 1, name: "Admin overview" }).isVisible(),
       error: await loginAlert.count() ? await loginAlert.textContent() : null
     }), { timeout: 15_000, message: "Operations passkey login should authenticate or expose its safe error" }).toEqual({ authenticated: true, error: null });
-    await expect(page.getByRole("heading", { level: 1, name: "What needs attention?" })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole("heading", { level: 1, name: "Admin overview" })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText("No broad customer directory or fuzzy search.")).toBeVisible();
     await expectAccessible(page);
 
-    await page.getByRole("button", { name: "Customer lookup" }).click();
+    await page.getByRole("navigation").getByRole("button", { name: "Customer lookup" }).click();
     await page.getByLabel("Exact value").fill(customer.email);
     await page.getByLabel("Support ticket").fill("SUP-LOCAL-1");
     await page.getByLabel("Reason").fill("Customer requested a local billing access review.");
@@ -131,14 +131,14 @@ test("staff passkey, exact support view, analytics, and mobile shell complete lo
     await expect(page.getByText("Read-only support view", { exact: true })).toBeHidden();
 
     await page.getByRole("button", { name: "Analytics" }).click();
-    await page.getByLabel("Review ticket").fill("AN-LOCAL-1");
+    await page.getByLabel("Review reference").fill("AN-LOCAL-1");
     await page.getByLabel("Reason").fill("Review aggregate local onboarding behavior.");
     const reportButton = page.getByRole("button", { name: "Run report" });
     await expect(reportButton).toBeEnabled();
     await expect(reportButton).toHaveAttribute("type", "submit");
     await reportButton.click();
     await expect.poll(async () => ({
-      loaded: await page.getByText(/aggregate rows/).isVisible(),
+      loaded: await page.getByText(/Browser counts are distinct within each row/).isVisible(),
       error: await page.getByRole("alert").count() ? await page.getByRole("alert").textContent() : null
     }), { timeout: 15_000, message: "Aggregate analytics report should load or expose its safe error" }).toEqual({ loaded: true, error: null });
 

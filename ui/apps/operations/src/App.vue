@@ -2,13 +2,13 @@
 import {
   APIProblem, beginOperationsPasskeyLogin, completeOperationsPasskeyLogin,
   createOperationsSupportGrant, logoutOperations, openOperationsSupportView,
-  operationsAnalyticsReport, operationsLookup, operationsSession,
+  operationsLookup, operationsSession,
   operationsBillingFailures, operationsReplayBillingEvent, operationsRefreshBillingSubscription,
   operationsOpenPrivacyRights, operationsInspectPrivacyRight, operationsStartPrivacyReview, operationsResolvePrivacyRight,
   operationsInspectAffiliate, operationsInspectAffiliateRisk, operationsTransitionAffiliate,
   revokeOperationsSupportGrant,
   type OperationsAffiliateEnrollment, type OperationsAffiliateRiskEnvelope,
-  type OperationsAnalyticsReport, type OperationsLookupKind,
+  type OperationsLookupKind,
   type OperationsLookupResult, type OperationsSession,
   type OperationsBillingFailuresReport, type OperationsPrivacyQueueItem, type OperationsPrivacyRequest,
   type OperationsSupportViewEnvelope
@@ -17,7 +17,7 @@ import { IoButton, IoLogo } from "@spyglass/design-system";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { getOperationsAssertion } from "./webauthn";
 
-type Screen = "overview" | "lookup" | "analytics" | "billing" | "privacy" | "affiliate";
+import { availableModules, type ModuleID as Screen } from "./modules/registry";
 const screen = ref<Screen>("overview");
 const session = ref<OperationsSession>();
 const loadingSession = ref(true);
@@ -31,10 +31,6 @@ const ticket = ref("");
 const reason = ref("");
 const lookupResults = ref<ReadonlyArray<OperationsLookupResult>>([]);
 const supportView = ref<OperationsSupportViewEnvelope>();
-const analytics = ref<OperationsAnalyticsReport>();
-const analyticsDays = ref(7);
-const analyticsDimension = ref("route_name");
-const analyticsMinimum = ref(20);
 const billingMode = ref<"test" | "live">("test");
 const billingTarget = ref("");
 const billing = ref<OperationsBillingFailuresReport>();
@@ -49,11 +45,8 @@ const affiliate = ref<OperationsAffiliateEnrollment>();
 const affiliateRisk = ref<OperationsAffiliateRiskEnvelope>();
 
 const roles = computed(() => session.value?.staff.roles ?? []);
-const canSupport = computed(() => roles.value.some((role) => role === "support" || role === "operations_administrator"));
-const canAnalytics = computed(() => roles.value.some((role) => role === "analytics" || role === "operations_administrator"));
-const canBilling = computed(() => roles.value.some((role) => role === "billing" || role === "operations_administrator"));
-const canPrivacy = computed(() => roles.value.some((role) => role === "privacy" || role === "operations_administrator"));
-const canAffiliate = computed(() => roles.value.some((role) => role === "affiliate" || role === "operations_administrator"));
+const modules = computed(() => availableModules(roles.value));
+const activeModule = computed(() => modules.value.find(module => module.id === screen.value));
 const grantActive = computed(() => supportView.value?.view.grant.state === "active");
 const navigationUnavailable = computed(() => !isDesktop.value && !menuOpen.value);
 
@@ -65,8 +58,8 @@ function message(value: unknown): string {
 
 async function loadSession(): Promise<void> {
   loadingSession.value = true;
-  try { session.value = await operationsSession(); }
-  catch (value) { if (!(value instanceof APIProblem && value.status === 401)) error.value = message(value); }
+  try { session.value = await operationsSession(); restoreModule(); }
+  catch (value) { session.value = undefined; if (!(value instanceof APIProblem && value.status === 401)) error.value = message(value); }
   finally { loadingSession.value = false; }
 }
 
@@ -76,6 +69,7 @@ async function signIn(): Promise<void> {
     const ceremony = await beginOperationsPasskeyLogin();
     const credential = await getOperationsAssertion(ceremony);
     session.value = await completeOperationsPasskeyLogin(ceremony.ceremony_id, credential, "operations-console");
+    restoreModule();
   } catch (value) { error.value = message(value); }
   finally { busy.value = false; }
 }
@@ -91,7 +85,13 @@ async function signOut(): Promise<void> {
 }
 
 function navigate(destination: Screen): void {
-  screen.value = destination; menuOpen.value = false; error.value = "";
+  if (!modules.value.some(module => module.id === destination)) return;
+  screen.value = destination; window.location.hash = destination; menuOpen.value = false; error.value = "";
+}
+
+function restoreModule(): void {
+  const destination = window.location.hash.slice(1);
+  screen.value = modules.value.find(module => module.id === destination)?.id ?? "overview";
 }
 
 async function findAccount(): Promise<void> {
@@ -131,20 +131,6 @@ async function closeSupportView(): Promise<void> {
   busy.value = true; error.value = "";
   try { await revokeGrant(); supportView.value = undefined; }
   catch (value) { error.value = message(value); }
-  finally { busy.value = false; }
-}
-
-async function loadAnalytics(): Promise<void> {
-  busy.value = true; error.value = "";
-  try {
-    const to = new Date();
-    const from = new Date(to.getTime() - analyticsDays.value * 86_400_000);
-    analytics.value = await operationsAnalyticsReport({
-      from: from.toISOString(), to: to.toISOString(), bucket: "day",
-      dimension: analyticsDimension.value, minimum_cohort: analyticsMinimum.value,
-      ticket: ticket.value.trim(), reason: reason.value.trim()
-    });
-  } catch (value) { error.value = message(value); }
   finally { busy.value = false; }
 }
 
@@ -230,8 +216,8 @@ function formatDate(value?: string | null): string {
 }
 
 function trackViewport(): void { isDesktop.value = window.innerWidth >= 1024; }
-onMounted(() => { window.addEventListener("resize", trackViewport); void loadSession(); });
-onBeforeUnmount(() => window.removeEventListener("resize", trackViewport));
+onMounted(() => { window.addEventListener("resize", trackViewport); window.addEventListener("hashchange", restoreModule); void loadSession(); });
+onBeforeUnmount(() => { window.removeEventListener("resize", trackViewport); window.removeEventListener("hashchange", restoreModule); });
 </script>
 
 <template>
@@ -255,16 +241,11 @@ onBeforeUnmount(() => window.removeEventListener("resize", trackViewport));
     <aside id="operations-navigation" class="sidebar" :class="{ 'sidebar--open': menuOpen }" :inert="navigationUnavailable" :aria-hidden="navigationUnavailable || undefined">
       <IoLogo />
       <nav aria-label="Operations navigation">
-        <button type="button" :aria-current="screen === 'overview' ? 'page' : undefined" @click="navigate('overview')">Overview</button>
-        <button v-if="canSupport" type="button" :aria-current="screen === 'lookup' ? 'page' : undefined" @click="navigate('lookup')">Customer lookup</button>
-        <button v-if="canAnalytics" type="button" :aria-current="screen === 'analytics' ? 'page' : undefined" @click="navigate('analytics')">Analytics</button>
-        <button v-if="canBilling" type="button" :aria-current="screen === 'billing' ? 'page' : undefined" @click="navigate('billing')">Billing issues</button>
-        <button v-if="canPrivacy" type="button" :aria-current="screen === 'privacy' ? 'page' : undefined" @click="navigate('privacy')">Privacy rights</button>
-        <button v-if="canAffiliate" type="button" :aria-current="screen === 'affiliate' ? 'page' : undefined" @click="navigate('affiliate')">Affiliates</button>
+        <button v-for="module in modules" :key="module.id" type="button" :aria-current="screen === module.id ? 'page' : undefined" @click="navigate(module.id)">{{ module.label }}</button>
       </nav>
       <div class="sidebar-footer">
         <p>{{ session.staff.display_name }}</p>
-        <small>{{ roles.join(" · ") }}</small>
+        <small>{{ roles.map(role => role === 'operations_administrator' ? 'Administrator' : role.charAt(0).toUpperCase() + role.slice(1)).join(" · ") }}</small>
         <button type="button" :disabled="busy" @click="signOut">Sign out</button>
       </div>
     </aside>
@@ -278,20 +259,18 @@ onBeforeUnmount(() => window.removeEventListener("resize", trackViewport));
       <p v-if="error" class="notice notice--error" role="alert">{{ error }}</p>
       <section v-if="screen === 'overview'" aria-labelledby="overview-title">
         <p class="eyebrow">Operations</p>
-        <h1 id="overview-title">What needs attention?</h1>
-        <p class="lede">Look up a specific customer for a support case, or review privacy-bounded product signals. Every access carries your name, ticket, and reason.</p>
+        <h1 id="overview-title">Admin overview</h1>
+        <p class="lede">Choose a tool below. Reports and customer access are recorded under your staff account.</p>
         <div class="action-grid">
-          <button v-if="canSupport" type="button" class="action-card" @click="navigate('lookup')"><strong>Help a customer</strong><span>Exact lookup, a 15-minute grant, and a read-only account view.</span></button>
-          <button v-if="canAnalytics" type="button" class="action-card" @click="navigate('analytics')"><strong>Review analytics</strong><span>Aggregated trends with minimum cohort protection.</span></button>
-          <button v-if="canBilling" type="button" class="action-card" @click="navigate('billing')"><strong>Fix billing queues</strong><span>Inspect classified failures and explicitly replay one event or refresh one subscription.</span></button>
-          <button v-if="canPrivacy" type="button" class="action-card" @click="navigate('privacy')"><strong>Fulfill privacy requests</strong><span>Review the minimized deadline queue and record evidence-bound outcomes.</span></button>
-          <button v-if="canAffiliate" type="button" class="action-card" @click="navigate('affiliate')"><strong>Review an Affiliate</strong><span>Inspect one exact enrollment and make a version-fenced lifecycle decision.</span></button>
+          <button v-for="module in modules.filter(item => item.id !== 'overview')" :key="module.id" type="button" class="action-card" @click="navigate(module.id)"><strong>{{ module.label }}</strong><span>{{ module.description }}</span></button>
         </div>
         <section class="guardrail-card" aria-labelledby="guardrails-title">
           <h2 id="guardrails-title">Built-in guardrails</h2>
           <ul><li>No broad customer directory or fuzzy search.</li><li>No customer mutations while viewing an account.</li><li>Every lookup, grant, view, and revocation is recorded.</li></ul>
         </section>
       </section>
+
+      <component :is="activeModule.component" v-else-if="activeModule?.component" :key="screen" />
 
       <section v-else-if="screen === 'lookup'" aria-labelledby="lookup-title">
         <p class="eyebrow">Support</p><h1 id="lookup-title">Find one customer</h1>
@@ -319,17 +298,6 @@ onBeforeUnmount(() => window.removeEventListener("resize", trackViewport));
           </div>
           <article class="history-card"><h3>Support history visible to the customer</h3><p v-if="supportView.view.support_history.length === 0">No prior support access.</p><ol v-else><li v-for="event in supportView.view.support_history" :key="event.id"><strong>{{ event.action }}</strong> by {{ event.staff_display_name }} · {{ event.ticket }}<br /><span>{{ event.reason }} · {{ formatDate(event.occurred_at) }}</span></li></ol></article>
         </section>
-      </section>
-
-      <section v-else-if="screen === 'analytics'" aria-labelledby="analytics-title">
-        <p class="eyebrow">Privacy-bounded</p><h1 id="analytics-title">Product analytics</h1>
-        <p class="lede">Review aggregate behavior without opening customer records. Small cohorts are withheld.</p>
-        <form class="form-card" @submit.prevent="loadAnalytics">
-          <div class="form-row"><label>Window<select v-model.number="analyticsDays"><option :value="7">Last 7 days</option><option :value="30">Last 30 days</option><option :value="90">Last 90 days</option></select></label><label>Group by<select v-model="analyticsDimension"><option value="none">No extra grouping</option><option value="route_name">Page or route</option><option value="device_class">Device class</option><option value="cta_code">Call to action</option><option value="offer_code">Offer</option><option value="campaign_code">Campaign</option><option value="entry_point">Entry point</option><option value="result">Result</option></select></label><label>Minimum cohort<input v-model.number="analyticsMinimum" type="number" min="5" max="100" required /></label></div>
-          <div class="form-row"><label>Review ticket<input v-model="ticket" required autocomplete="off" /></label><label>Reason<input v-model="reason" required autocomplete="off" /></label></div>
-          <IoButton type="submit" :disabled="busy">{{ busy ? "Loading…" : "Run report" }}</IoButton>
-        </form>
-        <div v-if="analytics" class="table-wrap" tabindex="0" aria-label="Scrollable analytics results"><table><caption>{{ analytics.rows.length }} aggregate rows · cohorts smaller than {{ analytics.minimum_cohort }} withheld</caption><thead><tr><th scope="col">Day</th><th scope="col">Event</th><th scope="col">Surface</th><th scope="col">Dimension</th><th scope="col">Events</th><th scope="col">People</th></tr></thead><tbody><tr v-for="row in analytics.rows" :key="`${row.bucket_start}:${row.event_name}:${row.dimension_value}`"><td>{{ formatDate(row.bucket_start) }}</td><td>{{ row.event_name }}</td><td>{{ row.surface }}</td><td>{{ row.dimension_value }}</td><td>{{ row.event_count }}</td><td>{{ row.unique_subjects }}</td></tr></tbody></table></div>
       </section>
 
       <section v-else-if="screen === 'billing'" aria-labelledby="billing-title">

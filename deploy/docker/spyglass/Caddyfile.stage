@@ -14,6 +14,12 @@
 }
 
 (app_routes) {
+	# Related Origin Requests allow an app passkey at the isolated staff origin.
+	# The operations API still validates the exact ops origin and staff role.
+	handle /.well-known/webauthn {
+		header Content-Type application/json
+		respond `{"origins":["https://ops.stage.infiniteocean.net"]}` 200
+	}
 	@cell_api path_regexp cell_api ^/api/v1/accounts/[^/]+/(context|attention(?:/.*)?|knowledge(?:/.*)?|work-items(?:/.*)?|agent-(?:boardrooms|conversations|runs)(?:/.*)?|schedules(?:/.*)?|finance(?:/.*)?|integrations(?:/.*)?|baseline-assessments(?:/.*)?|marketing(?:/.*)?)$
 	handle @cell_api {
 		reverse_proxy app-router:8080
@@ -40,4 +46,14 @@ http://app.stage.infiniteocean.net {
 
 http://mcp.stage.infiniteocean.net {
 	reverse_proxy mcp-gateway:8080
+}
+
+http://ops.stage.infiniteocean.net {
+	@operations_api path /api/operations/*
+	handle @operations_api {
+		reverse_proxy operations-api:8080
+	}
+	handle {
+		reverse_proxy operations-ui:8080
+	}
 }

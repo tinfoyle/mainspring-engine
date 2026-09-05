@@ -7,7 +7,8 @@ import type {
   OperationsPasskeyCeremony, OperationsRevokeSupportGrant, OperationsSession,
   OperationsPrivacyOpenRequest, OperationsPrivacyQueue, OperationsPrivacyRequestEnvelope,
   OperationsPrivacyResolutionRequest, OperationsPrivacyReviewRequest,
-  OperationsSupportGrantEnvelope, OperationsSupportViewEnvelope
+  OperationsSupportGrantEnvelope, OperationsSupportViewEnvelope,
+  OperationsTrafficRequest, OperationsTrafficReport
 } from "./generated/api-types";
 
 const root = "/api/operations/v1";
@@ -48,6 +49,10 @@ export function revokeOperationsSupportGrant(grantID: string, input: OperationsR
 
 export function operationsAnalyticsReport(input: OperationsAnalyticsRequest): Promise<OperationsAnalyticsReport> {
   return requestJSON<OperationsAnalyticsReport>(`${root}/analytics/reports`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function operationsTrafficReport(input: OperationsTrafficRequest): Promise<OperationsTrafficReport> {
+  return requestJSON<OperationsTrafficReport>(`${root}/traffic/reports`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export function operationsBillingFailures(input: OperationsBillingFailuresRequest): Promise<OperationsBillingFailuresReport> {

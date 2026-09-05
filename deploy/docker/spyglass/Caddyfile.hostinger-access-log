@@ -1,0 +1,22 @@
+# Import inside each Spyglass Stage site with a static filename argument.
+# Do not log URLs, headers, credentials, or customer content.
+(spyglass_stage_access) {
+  log {
+    output file /data/spyglass-access/{args[0]}.log {
+      mode 0640
+      roll_size 10MiB
+      roll_keep 7
+      roll_keep_for 168h
+    }
+    format filter {
+      wrap json
+      fields {
+        request>headers delete
+        request>uri delete
+        request>tls delete
+        resp_headers delete
+        user_id delete
+      }
+    }
+  }
+}

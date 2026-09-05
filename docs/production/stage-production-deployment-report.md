@@ -1,8 +1,8 @@
 # Local, stage and production deployment report
 
-## Operations Console deployment hold
+## Operations Console Stage authorization
 
-The Operations Console is locally feature-complete but is not deployed to Stage. Do not add it to Hostinger Stage or LKE until the product owner authorizes that separate surface. A future deployment requires a dedicated Operations subdomain/origin, separate passkey-only cookie boundary, five unique least-authority PostgreSQL credentials, offline staff-role provisioning, environment-specific monitoring/backups and completion of the gates in [Operations Console operations](operations-console-operations.md). Its customer, public and staff origins must remain distinct.
+The product owner authorized Stage traffic visibility, analytics and the separate admin surface on 2026-09-04, explicitly retaining required passkeys. This supersedes the former Stage deployment hold; it does not authorize LKE or production. The candidate uses a dedicated Operations origin, an isolated passkey-only cookie, five unique least-authority PostgreSQL credentials, offline staff roles and a read-only content-minimized log mount. See the [Stage admin guide](stage-admin-guide.md) and [release handoff](stage-release-operator-handoff.md) for usage, deployed artifact and outstanding human acceptance. Customer, public and staff origins remain distinct.
 
 - Plan date: 2026-08-20
 - Stage activation date: 2026-08-21

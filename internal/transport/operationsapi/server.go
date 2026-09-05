@@ -20,6 +20,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/operationsconsole"
 	"github.com/tinfoyle/spyglass-engine/internal/application/passkeys"
 	"github.com/tinfoyle/spyglass-engine/internal/application/privacyrightsadmin"
+	"github.com/tinfoyle/spyglass-engine/internal/application/trafficreport"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/affiliates"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/operations"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/privacy"
@@ -73,6 +74,9 @@ type OperatorServices struct {
 	Billing   BillingOperator
 	Privacy   PrivacyOperator
 	Affiliate AffiliateOperator
+	Traffic   interface {
+		Report(context.Context, ids.UserID, trafficreport.Query, operations.AuditReason) (trafficreport.Report, error)
+	}
 }
 
 type Cookie struct {
@@ -127,6 +131,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/operations/v1/support-grants/{grantID}/views", server.viewAccount)
 	mux.HandleFunc("POST /api/operations/v1/support-grants/{grantID}/revocations", server.revokeGrant)
 	mux.HandleFunc("POST /api/operations/v1/analytics/reports", server.analytics)
+	mux.HandleFunc("POST /api/operations/v1/traffic/reports", server.traffic)
 	mux.HandleFunc("POST /api/operations/v1/billing/failures/reports", server.billingFailures)
 	mux.HandleFunc("POST /api/operations/v1/billing/events/{eventID}/replays", server.replayBillingEvent)
 	mux.HandleFunc("POST /api/operations/v1/billing/subscriptions/{subscriptionID}/refreshes", server.refreshBillingSubscription)

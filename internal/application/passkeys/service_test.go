@@ -411,7 +411,12 @@ func registrationResponse(t *testing.T, publicKey, credentialID []byte, challeng
 
 func signedAssertion(t *testing.T, privateKey *ecdsa.PrivateKey, credentialID, userHandle []byte, challenge string, counter uint32) []byte {
 	t.Helper()
-	clientData := []byte(fmt.Sprintf(`{"type":"webauthn.get","challenge":%q,"origin":"https://app.infiniteocean.net"}`, challenge))
+	return signedAssertionAtOrigin(t, privateKey, credentialID, userHandle, challenge, counter, "https://app.infiniteocean.net")
+}
+
+func signedAssertionAtOrigin(t *testing.T, privateKey *ecdsa.PrivateKey, credentialID, userHandle []byte, challenge string, counter uint32, origin string) []byte {
+	t.Helper()
+	clientData := []byte(fmt.Sprintf(`{"type":"webauthn.get","challenge":%q,"origin":%q}`, challenge, origin))
 	rpHash := sha256.Sum256([]byte("app.infiniteocean.net"))
 	authenticatorData := make([]byte, 37)
 	copy(authenticatorData, rpHash[:])
@@ -439,6 +444,30 @@ func signedAssertion(t *testing.T, privateKey *ecdsa.PrivateKey, credentialID, u
 		t.Fatal(err)
 	}
 	return raw
+}
+
+func TestRelatedOperationsOriginKeepsAppRPAndRejectsOtherOrigins(t *testing.T) {
+	for _, origin := range []string{"https://ops.infiniteocean.net", "https://app.infiniteocean.net", "https://untrusted.infiniteocean.net"} {
+		t.Run(origin, func(t *testing.T) {
+			fixture := newFixture(t)
+			service, err := passkeys.NewService(fixture.repository, fixture.sessions, allowGuard{}, &sequence{}, fixture.clock, passkeys.Config{RelyingPartyID: "app.infiniteocean.net", Origins: []string{"https://ops.infiniteocean.net"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			begun, err := service.BeginLogin(context.Background(), [32]byte{1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			response := signedAssertionAtOrigin(t, fixture.privateKey, fixture.credentialID, fixture.handle, fixture.repository.ceremonies[begun.CeremonyID].Data.Challenge, 8, origin)
+			_, err = service.CompleteLogin(context.Background(), passkeys.LoginCommand{CeremonyID: begun.CeremonyID, Response: response, ClientLabel: "Related origin test"})
+			if origin == "https://ops.infiniteocean.net" && err != nil {
+				t.Fatalf("related origin rejected: %v", err)
+			}
+			if origin != "https://ops.infiniteocean.net" && !errors.Is(err, passkeys.ErrInvalidCredential) {
+				t.Fatalf("unapproved origin accepted: %v", err)
+			}
+		})
+	}
 }
 
 type repository struct {

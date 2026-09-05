@@ -153,6 +153,7 @@ GRANT INSERT ON user_security_events TO spyglass_operations_identity;
 GRANT SELECT, INSERT, UPDATE ON network_actor_rate_limits, operations_sessions TO spyglass_operations_identity;
 
 GRANT EXECUTE ON FUNCTION spyglass_operations_current_staff(uuid),
+  spyglass_operations_authorize_traffic_report(uuid,uuid,timestamptz,timestamptz,text,text,text,timestamptz),
   spyglass_operations_lookup(uuid,uuid,text,text,text,text,text),
   spyglass_operations_record_session_event(uuid,uuid,uuid,text,text,timestamptz),
   spyglass_operations_create_support_grant(uuid,uuid,uuid,uuid,uuid,text,text,text,timestamptz,timestamptz),

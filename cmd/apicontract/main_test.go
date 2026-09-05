@@ -231,8 +231,8 @@ func TestOperationsContractIsSeparatePasskeyOnlyAndTyped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(routes) != 19 {
-		t.Fatalf("operations route count=%d, want 19", len(routes))
+	if len(routes) != 20 {
+		t.Fatalf("operations route count=%d, want 20", len(routes))
 	}
 	for _, route := range routes {
 		if route.Service != "operations-api" || route.Contract != "typed" {

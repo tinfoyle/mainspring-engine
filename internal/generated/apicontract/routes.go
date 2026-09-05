@@ -242,4 +242,5 @@ var Routes = [...]Route{
 	{Service: "operations-api", Method: "POST", Path: "/api/operations/v1/support-grants", OperationID: "operationsCreateSupportGrant", Authentication: "operationsCookie", Contract: "typed"},
 	{Service: "operations-api", Method: "POST", Path: "/api/operations/v1/support-grants/{grantID}/revocations", OperationID: "operationsRevokeSupportGrant", Authentication: "operationsCookie", Contract: "typed"},
 	{Service: "operations-api", Method: "POST", Path: "/api/operations/v1/support-grants/{grantID}/views", OperationID: "operationsOpenSupportView", Authentication: "operationsCookie", Contract: "typed"},
+	{Service: "operations-api", Method: "POST", Path: "/api/operations/v1/traffic/reports", OperationID: "operationsTrafficReport", Authentication: "operationsCookie", Contract: "typed"},
 }

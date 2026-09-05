@@ -38,6 +38,7 @@ usePublicSeo({
     <p>When an authorized user asks an AI feature to work with Customer Content, the relevant instructions and content may be sent to the model provider selected by the service configuration. We use that information to produce the requested result, enforce limits, meter AI Token usage and investigate failures. Model and provider choices may change as service configurations evolve. Do not submit information you are not authorized to use. Important legal, financial, employment, safety or regulatory decisions require qualified human review.</p>
 
     <h2>Analytics and storage choices</h2>
+    <p>Necessary traffic logs record the connecting IP address, site, request time, method, response code and duration so we can detect abuse and service failures. These logs are separate from optional analytics. The Stage access logs exclude URLs, query strings, headers and request bodies, and only authorized administrators can view them.</p>
     <p>Necessary cookies and similar storage keep the Services secure, remember privacy choices and make signup and checkout work. Optional public-site analytics stays off until you accept it. Marketing tracking is not currently used.</p>
     <p>Public analytics events do not contain your name, email, user or team ID, payment details, prompts, answers, documents, evidence, task content, full URLs, query strings or referring pages. You may accept or reject optional analytics without changing your access, and change your choice here or inside the application.</p>
 
