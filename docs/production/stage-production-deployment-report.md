@@ -12,7 +12,20 @@ The product owner authorized Stage traffic visibility, analytics and the separat
 - Environment sequence: `ubunturojo` Docker -> Hostinger Docker stage -> vanilla Linode Kubernetes Engine production
 - Production rule: **all application construction in Phase 3 must be complete before release**
 
-## Current connected Stage checkpoint (2026-09-04)
+## Current connected Stage checkpoint (2026-09-05)
+
+RC.46 deploys the secure modular staff console at `ops.stage.infiniteocean.net`,
+audited administrator-only traffic/IP reports, cohort-protected analytics and
+protected host access logging. The active manifest/checkout is
+`fdbf6bd16140ffdc2ad46d494fe2897092dd3c7d`, with four matched images from source
+`81383e20e275c5eda65c37a6a0308aa0c6a9e423`. All 50 health checks pass across 51
+running containers; database versions are `69/86/86`. Live log, consent, analytics,
+withdrawal, erasure and unauthorized-access checks passed. Owner passkey enrollment
+and successful authenticated admin acceptance are pending. See the
+[verification record](stage-admin-verification-2026-09-05.md) and
+[admin guide](stage-admin-guide.md).
+
+## Previous connected Stage checkpoint (2026-09-04)
 
 RC.45 follows the [Stage functional audit and plain-language UI review](stage-functional-audit-2026-09-04.md) with a clearer pricing page, from source revision `3bcb3bdf2dd60665296134312a2bf8604292cf42` and tracked manifest/checkout revision `cc88f07522ef644dc3a65127f219b2e1d900bc8e`. The application, public UI and private UI are pinned by digest in `deploy/releases/0.3.0-rc.45.env`, carry BuildKit SBOM/provenance attestations, and passed the publisher's high/critical vulnerability and secret scans with zero findings. Repairs cover saved schedule runs, no-tool agents and summary selection, Marketing content download and human approval, Finance supporting notes, Knowledge fact navigation, and clearer customer-facing copy. Protected configuration verified before and during deployment. All 48 healthchecked workloads are healthy among 49 running containers; PostgreSQL ledgers are at global migration 68 and cell migrations 86/86. Public and login origins return `200`, and all three live image identities equal the manifest digests.
 
@@ -213,6 +226,9 @@ The implementation must provide these documented operations through Compose and/
 ## Hostinger Docker staging
 
 ### Verified VPS baseline and active state
+
+Current state is RC.46 as described above and in the release handoff. The following
+deployment narrative records the earlier state through RC.45.
 
 The 2026-08-20 read-only inventory reached the configured host from `ubunturojo`: x86-64, 2 vCPU, 7.7 GiB RAM, 96 GiB ext4 with about 89 GiB available, Docker 29.1.3 and Compose 2.40.3. The deployment user is in the Docker group and has non-interactive sudo. Existing Infinite Ocean Caddy and Stalwart containers own ports 80/443 and the mail ports. Spyglass therefore joins the existing `infiniteocean_public` Docker network through its internal stage edge; it does not bind those ports or replace the existing project. Details and commands are in [Hostinger stage](environments/hostinger-stage.md).
 

@@ -82,7 +82,7 @@ manifest from the release handoff. The wrapper passes the protected migration
 credential only to an ephemeral operator container; it never prints it.
 
 ```bash
-release_file="$PWD/deploy/releases/0.3.0-rc.N.env"
+release_file="$PWD/deploy/releases/0.3.0-rc.46.env"
 stage_env=/opt/spyglass-stage/secrets/2026-08-31-01/stage.env
 sudo bash deploy/docker/spyglass/stage-operations-staff.sh "$release_file" "$stage_env" \
   show --email=staff@example.com
@@ -99,6 +99,9 @@ active ordinary account with an enrolled passkey. Revoking the final role
 suspends staff access and revokes its sessions. Role changes are audited. See
 [Operations Console operations](operations-console-operations.md) for other
 module boundaries and incident response.
+
+For a first-time staff member, `show` reports “the User is not operations staff.”
+That is expected until an owner assigns the first role; it is not a service fault.
 
 ## Collection, deployment and maintenance
 
@@ -131,6 +134,21 @@ log. Check that the API can read the mount as UID/GID 65532, that missing logs
 show an error, and that an unauthenticated report request is denied. Check the
 latest available timestamp when investigating a quiet report. Service readiness
 alone does not prove that the external edge is writing new records.
+
+From the current repository in UbuntuRojo, run the self-contained verification
+helpers over the existing SSH connection. These commands do not copy secrets.
+The analytics certificate creates five anonymous test browsers, checks consent,
+public/private/conversion reports and withdrawal, then erases only those test
+subjects and confirms zero remaining test events. The traffic check sends
+synthetic probes and checks all four files, redaction, forwarding-header spoof
+rejection, API denials and readability as the API's non-root user.
+
+```bash
+ssh -F /mnt/c/Users/Tinfo/.ssh/config -o BatchMode=yes infiniteocean \
+  sudo python3 - --stage < deploy/docker/spyglass/verify-stage-traffic.py
+ssh -F /mnt/c/Users/Tinfo/.ssh/config -o BatchMode=yes infiniteocean \
+  sudo python3 - --stage < deploy/docker/spyglass/certify-stage-analytics.py
+```
 
 There is no remote log archive or alerting service added by this release. Logs
 survive application redeployment in the host Caddy data directory; include that
