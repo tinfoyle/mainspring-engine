@@ -1,6 +1,6 @@
 # UbuntuRojo and Stage release handoff
 
-Status: current as of Spyglass `0.3.0-rc.51` on 2026-09-05.
+Status: current as of Spyglass `0.3.0-rc.55` on 2026-09-05.
 
 This is the short operator path for working on Spyglass locally and moving a
 review candidate to the Hostinger Stage VPS. It is not a production/LKE
@@ -41,12 +41,23 @@ Stage uses four HTTPS names:
 - `https://mcp.stage.infiniteocean.net`
 - `https://ops.stage.infiniteocean.net` (Google plus authenticator staff console)
 
-The active release is `0.3.0-rc.51`. Its four images were built from source commit
-`d3545848240ba69d1111fc9c43196a9146240cea`; the reviewed manifest and active
-VPS checkout are commit `160875d1dddc57497539f9aeaeb556510dedd145`.
-`/opt/spyglass-stage/current` resolves to that immutable checkout. The database
-ledgers are global `71` and cell A/B `86/86`. Stage has 51 long-running
-containers; all 50 health checks pass and the internal edge is the exception.
+The active release is `0.3.0-rc.55`. Its four images were built from source commit
+`db934f2b83acf011e6b4c9d84a693910bd5e82e9`; the reviewed image manifest is commit
+`e6f96e5a06306df164ba078921bec2d51df66a43`. The active VPS checkout is
+`d88559744834f63fcb56683cb49df0e4ee9c9d0c`, which adds deployment preflight
+checks for the report-worker mount permissions. `/opt/spyglass-stage/current`
+resolves to that checkout. Database ledgers are global `72` and cell A/B `87/87`.
+Stage has 53 long-running containers; all 52 health checks pass. The internal
+edge has no container health check.
+
+RC52–55 connect MCP schedule and agent tools to fresh source capture and
+verified self-email, repair browser OAuth consent, remove the runner's premature
+15-second model-call timeout, and start the report workers in Stage. The
+Plymouth test completed and one report arrived in the owner's Gmail inbox.
+The test schedule is paused. All four retailers blocked readable price data;
+this proves report execution and delivery, not dependable price coverage.
+See [the live MCP test](stage-mcp-mulch-test-2026-09-05.md) and
+[recurring report setup](recurring-reports.md).
 
 The automatic dispatch introduced in RC.41 remains active for eligible
 agent-owned Work. The agent either

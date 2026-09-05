@@ -23,7 +23,7 @@ The queue waits for a fully successful agent run. Failed, partially failed or ca
 
 ## Operations
 
-Docker integration connector workers enable `SPYGLASS_REPORT_EMAIL_ENABLED=true` and receive `SPYGLASS_SMTP_ADDRESS`, `SPYGLASS_SMTP_SERVER_NAME`, optional username/password/root CA, sender address/name and `SPYGLASS_APP_ORIGIN` from the existing protected environment. Stage deployment must enable the integration-connectors profile; its connector credential directory needs a valid index.json (an empty version-1 credentials list is sufficient for self-email reports) and the existing source cursor key. Verification requires both workers and their outbound network. For Kubernetes, provision SMTP settings in the worker Secret and permit outbound SMTP to the configured endpoint. App API workloads also require outbound public HTTPS for scheduled source captures; the fetcher still validates DNS, pinned addresses and every redirect. Do not log environment values or report bodies.
+Docker integration connector workers enable `SPYGLASS_REPORT_EMAIL_ENABLED=true` and receive `SPYGLASS_SMTP_ADDRESS`, `SPYGLASS_SMTP_SERVER_NAME`, optional username/password/root CA, sender address/name and `SPYGLASS_APP_ORIGIN` from the existing protected environment. Stage deployment must enable the integration-connectors profile; its connector credential directory needs a valid index.json (an empty version-1 credentials list is sufficient for self-email reports) and the existing source cursor key. Both mount directories must be mode 750 with the Stage secrets group; the 32-byte key and index.json must be mode 640 with that group. Verification requires both workers and their outbound network. For Kubernetes, provision SMTP settings in the worker Secret and permit outbound SMTP to the configured endpoint. App API workloads also require outbound public HTTPS for scheduled source captures; the fetcher still validates DNS, pinned addresses and every redirect. Do not log environment values or report bodies.
 
 Global migration 72 and cell migration 87 create the recipient projection and durable delivery queue/functions. Role installation grants the connector worker only the required functions; customer access uses the existing account routing and row isolation. The report table participates in account export, erasure counting and the namespace write fence.
 
@@ -33,7 +33,7 @@ The MCP workflow uses team/agent discovery → schedule create → trigger → h
 
 Use a landscaping company in Plymouth, NC, compare Lowe’s, Home Depot, Walmart and Tractor Supply. Default test time is 8:00 a.m. America/New_York. Compare common bagged wood mulch while keeping types and sizes distinct; mark unverified local prices and stock. Send only to the requesting owner’s verified address. Pause the test schedule when verification finishes unless the owner asks to keep it running.
 
-Live evidence is recorded separately after deployment. Passing mocked provider tests alone does not establish usable prices from a real retailer.
+[Live Stage evidence](stage-mcp-mulch-test-2026-09-05.md) confirms one completed agent report and Gmail inbox delivery. All four retailers blocked readable pricing, so dependable price coverage remains unverified. The test schedule is paused. Passing mocked provider tests alone does not establish usable prices from a real retailer.
 
 ## Local verification, 2026-09-05
 
