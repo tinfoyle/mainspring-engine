@@ -185,11 +185,11 @@ test("landing consent gates analytics and preserves the signup handoff", async (
 
 test("pricing remains usable after rejection and carries only the opaque offer", async ({ page }) => {
   await page.goto("http://127.0.0.1:4174/pricing");
-  await expect(page.getByRole("heading", { level: 1, name: /\$50 a month/ })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 2, name: /\$50\.00/ })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 2, name: /\$250\.00/ })).toBeVisible();
-  await expect(page.getByText(/help you bring in your business information and get Spyglass set up/)).toBeVisible();
-  await expect(page.getByRole("link", { name: "Add setup help at checkout" })).toHaveAttribute("href", "http://127.0.0.1:4173/signup?offer=team-monthly-v2");
+  await expect(page.getByRole("heading", { level: 1, name: "One plan for your whole team." })).toBeVisible();
+  await expect(page.getByText("$50 / month", { exact: true })).toBeVisible();
+  await expect(page.getByText("$250 one time", { exact: true })).toBeVisible();
+  await expect(page.getByText(/help you bring in your business information and set up Spyglass/)).toBeVisible();
+  await expect(page.getByText("Choose setup help at checkout or later in Billing.")).toBeVisible();
   await expect(page.getByRole("link", { name: "Contact Support" })).toHaveCount(0);
   await page.getByRole("button", { name: "Reject non-essential" }).click();
   await expect(page.getByRole("button", { name: "Privacy choices" })).toBeFocused();
@@ -282,7 +282,7 @@ test("public consent history is inspectable and browser erasure reopens equal ch
 test("@text-zoom public acquisition remains usable at 200% text size", async ({ page }) => {
   const routes = [
     { path: "/", heading: "Manage your tasks and AI agents." },
-    { path: "/pricing", heading: /\$50 a month/ },
+    { path: "/pricing", heading: /One plan for your whole team/ },
     ...publicFeatureAndPolicyRoutes
   ] as const;
 
@@ -320,7 +320,7 @@ test("@browser-zoom public acquisition reflows at 400% browser scale", async ({ 
 
   const routes = [
     { path: "/", heading: "Manage your tasks and AI agents." },
-    { path: "/pricing", heading: /\$50 a month/ },
+    { path: "/pricing", heading: /One plan for your whole team/ },
     ...publicFeatureAndPolicyRoutes
   ] as const;
 

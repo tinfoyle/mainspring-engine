@@ -39,7 +39,7 @@ function planFor(offer: CatalogOffer): CatalogPlan | undefined {
 }
 
 function formatPrice(offer: Pick<CatalogOffer, "amount_minor" | "currency">): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: offer.currency }).format(offer.amount_minor / 100);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: offer.currency, minimumFractionDigits: offer.amount_minor % 100 === 0 ? 0 : 2 }).format(offer.amount_minor / 100);
 }
 
 function formatPackageName(code: string): string {
@@ -78,19 +78,35 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="content-hero section-frame"><p class="eyebrow">Straightforward pricing</p><h1>$50 a month<br />for your whole team.</h1><p>You get the complete product. There is no free tier and no maze of add-ons. Stripe adds any tax required for your location.</p></section>
-  <section class="pricing-grid section-frame" aria-label="Plan comparison">
-    <article v-if="catalogState === 'stale'" class="pricing-unavailable" role="status"><p class="eyebrow">Last confirmed price</p><h2>We are having trouble checking for updates</h2><p>This price was last confirmed in plan version {{ catalog?.version }}, published {{ publishedLabel }}. We check it again before checkout.</p><button class="button button--secondary" type="button" @click="() => refresh()">Check again</button></article>
-    <article v-for="offer in paidOffers" :key="offer.code" class="pricing-card--featured">
-      <p class="eyebrow">{{ planFor(offer)?.name ?? offer.plan_code }}</p>
-      <h2>{{ formatPrice(offer) }}<small>/{{ offer.billing_interval }}</small></h2>
-      <p>Everything your team needs to keep work organized, use AI agents and stay on top of the business.</p>
-      <p><strong>{{ catalog?.ai_token_renewal_grant.quantity.toLocaleString() }} AI Tokens included with each successful renewal.</strong></p>
-      <ul class="plan-packages"><li v-for="(mode, packageCode) in planFor(offer)?.packages" :key="packageCode"><span>{{ formatPackageName(String(packageCode)) }}</span><small>{{ formatPackageMode(String(mode)) }}</small></li></ul>
-      <a class="button button--primary" :href="`${appOrigin}/signup?offer=${encodeURIComponent(offer.code)}`" @click="chooseOffer($event, offer)">Create your team</a>
-    </article>
-    <article v-if="catalog?.commissioning_offer && launchOffer"><p class="eyebrow">Want help setting it up?</p><h2>{{ formatPrice(catalog.commissioning_offer) }}<small> one time</small></h2><p>We can help you bring in your business information and get Spyglass set up for your team. Add this during your first checkout or buy it later from Billing. It is optional and does not change your monthly plan.</p><a class="button button--secondary" :href="`${appOrigin}/signup?offer=${encodeURIComponent(launchOffer.code)}`" @click="chooseOffer($event, launchOffer)">Add setup help at checkout</a></article>
-    <article v-if="catalogError" class="pricing-unavailable" role="status"><p class="eyebrow">Price check unavailable</p><h2>Checkout is paused for now</h2><p>We cannot confirm the current price, so we will not send you to checkout. No payment has been attempted.</p><button class="button button--secondary" type="button" @click="() => refresh()">Try again</button></article>
+  <section class="content-hero pricing-hero section-frame">
+    <p class="eyebrow">Pricing</p>
+    <h1>One plan for your whole team.</h1>
+    <p>Manage tasks, work with AI agents and keep your business information together.</p>
   </section>
-  <section class="pricing-trust section-frame"><h2>What happens next?</h2><ol><li><strong>Create your login and team.</strong><span>You will not be charged yet.</span></li><li><strong>Check the details.</strong><span>Review the $50 monthly price, included AI Tokens, optional setup help and any referral code.</span></li><li><strong>Pay securely through Stripe.</strong><span>Stripe calculates any required tax. Your team gets access after payment is confirmed.</span></li></ol></section>
+  <section class="pricing-grid section-frame" aria-label="Plans and optional setup">
+    <article v-if="catalogState === 'stale'" class="pricing-unavailable" role="status"><h2>Showing the last confirmed price</h2><p>Last checked {{ publishedLabel }}. We will confirm the price again before checkout.</p><button class="button button--secondary" type="button" @click="() => refresh()">Check again</button></article>
+    <article v-for="offer in paidOffers" :key="offer.code" class="pricing-plan">
+      <div class="pricing-plan__purchase">
+        <h2>{{ planFor(offer)?.name ?? offer.plan_code }}</h2>
+        <p class="pricing-amount">{{ formatPrice(offer) }}<span> / {{ offer.billing_interval }}</span></p>
+        <p>One subscription for your team.</p>
+        <a class="button button--primary" :href="`${appOrigin}/signup?offer=${encodeURIComponent(offer.code)}`" @click="chooseOffer($event, offer)">Create your team</a>
+        <p class="pricing-note">Review your order before paying.<br />Any applicable tax is added at checkout.</p>
+      </div>
+      <div class="pricing-plan__included">
+        <h3>What’s included</h3>
+        <ul class="plan-packages"><li v-for="(mode, packageCode) in planFor(offer)?.packages" :key="packageCode"><span>{{ formatPackageName(String(packageCode)) }}</span><small v-if="mode !== 'enabled'">{{ formatPackageMode(String(mode)) }}</small></li></ul>
+        <div class="pricing-ai">
+          <h3>{{ catalog?.ai_token_renewal_grant.quantity.toLocaleString() }} AI Tokens per renewal</h3>
+          <p>AI Tokens pay for your agents’ work. The amount used depends on the task and agent settings.</p>
+          <p v-for="bundle in catalog?.ai_token_bundles" :key="bundle.code">Need more? Buy {{ bundle.quantity.toLocaleString() }} AI Tokens for {{ formatPrice(bundle) }} from Billing.</p>
+        </div>
+      </div>
+    </article>
+    <article v-if="catalog?.commissioning_offer && launchOffer" class="pricing-setup">
+      <div><p class="eyebrow">Optional</p><h2>Help getting started</h2><p>We can help you bring in your business information and set up Spyglass for your team.</p></div>
+      <div><p class="pricing-amount">{{ formatPrice(catalog.commissioning_offer) }}<span> one time</span></p><p>Choose setup help at checkout or later in Billing.</p></div>
+    </article>
+    <article v-if="catalogError || catalogState === 'unavailable'" class="pricing-unavailable" role="status"><h2>We cannot load prices right now</h2><p>Please try again to see the current plan and continue to signup.</p><button class="button button--secondary" type="button" @click="() => refresh()">Try again</button></article>
+  </section>
 </template>
