@@ -55,6 +55,26 @@ test "$(stat -c %a "$google_login_file")" = 640 || { echo "Google login client m
 test "$(stat -c %g "$google_login_file")" = "$secrets_gid" || { echo "Google login client group is incorrect" >&2; exit 1; }
 test "$(wc -l < "$google_login_file")" = 1 && grep -Eq '^[^[:space:]:]+:[^[:space:]:]+$' "$google_login_file" || { echo "Google login client has invalid content" >&2; exit 1; }
 
+# Check worker mounts before pulling images or restarting services.
+source_directory="$secret_dir/integration-source"
+credential_directory="$(value SPYGLASS_INTEGRATION_CREDENTIALS_DIRECTORY)"
+for directory in "$source_directory" "$credential_directory"; do
+  test "${directory#/}" != "$directory" && test -d "$directory" && test ! -L "$directory" || { echo "Integration worker directory is missing or unsafe" >&2; exit 1; }
+  test "$(stat -c %a "$directory")" = 750 && test "$(stat -c %g "$directory")" = "$secrets_gid" || { echo "Integration worker directory must be mode 750 with the Stage secrets group" >&2; exit 1; }
+done
+for material in "$source_directory/cursor.key" "$credential_directory/index.json"; do
+  test -f "$material" && test ! -L "$material" || { echo "Integration worker material is missing or unsafe" >&2; exit 1; }
+  test "$(stat -c %a "$material")" = 640 && test "$(stat -c %g "$material")" = "$secrets_gid" || { echo "Integration worker material must be mode 640 with the Stage secrets group" >&2; exit 1; }
+done
+test "$(stat -c %s "$source_directory/cursor.key")" = 32 || { echo "Integration cursor key must be exactly 32 bytes" >&2; exit 1; }
+python3 - "$credential_directory/index.json" <<'PYINDEX'
+import json, sys
+with open(sys.argv[1], encoding="utf-8") as source:
+    index = json.load(source)
+if index.get("version") != 1 or not isinstance(index.get("credentials"), list):
+    raise SystemExit("Integration credential index requires version 1 and an explicit credentials list")
+PYINDEX
+
 declare -A dns uri usage
 dns[admission-api]=admission-api
 dns[app-router]=''
