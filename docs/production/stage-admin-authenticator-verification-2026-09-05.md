@@ -28,11 +28,30 @@ independent authenticator code as the admin authentication route.
 
 ## Deployment and owner acceptance
 
-Deployment results are recorded after the immutable candidate is installed.
-The owner must scan the setup QR code in their own Android authenticator and
-enter a current code in the admin page. No owner credential is generated or
-confirmed by a test harness. Successful owner authenticator login remains a
-human acceptance step until that setup is complete.
+RC.48 is deployed. Source revision is
+`0b4e098f8ade791029bb9f22883bbf37afbf3361`; the manifest and active immutable
+checkout are `cfc62274ce49446a909f804349d2bd7d773d1839`.
+
+- 51 running containers, 50 healthy checks, zero unhealthy.
+- Global migration 70, cell A/B remain 86/86.
+- Live traffic checks: all four sites append redacted logs, spoofed forwarding
+  headers are ignored, anonymous admin reports return 401, cross-origin
+  requests return 403, and the customer host does not expose admin routes.
+- Live analytics certificate passed for public, private and conversion
+  surfaces, consent rejection, withdrawal and synthetic-subject cleanup.
+- The approved owner Google identity received the administrator role through
+  the audited offline command. Live sign-in with that Google identity reaches
+  the QR setup page automatically. Google verification and enrollment-start
+  audit events exist; no owner admin session or confirmed authenticator exists.
+- Live database privileges allow the identity lookup columns and deny
+  secret_hash. Protected Stage environment values were unchanged. Temporary
+  registry credentials were removed after deployment.
+- The disposable local PostgreSQL container was stopped after testing.
+
+The owner must scan the QR code in their Android authenticator and enter a
+current code in the admin page. No test harness enrolled the owner's device.
+Successful owner authenticator login and authenticated live dashboard
+acceptance remain human steps until that setup is complete.
 
 See [the admin guide](stage-admin-guide.md) for enrollment, everyday login,
 recovery and staff role commands.

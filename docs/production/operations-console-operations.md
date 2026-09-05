@@ -26,7 +26,7 @@ The resulting view is read-only and always displays a persistent support-access 
 | `affiliate` | exact enrollment inspection, content-free risk signals and version-fenced reactivate/suspend/close |
 | `operations_administrator` | all console actions, including traffic IPs and access logs; does not grant database, customer or deployment authority |
 
-Every console action requires a ticket and reason. The API records the immutable staff User ID as `operations/<user-id>` when invoking an existing operator boundary. The billing, privacy and Affiliate pools have execute-only privileges for their specific security-definer functions. The identity pool is limited to reviewed User/staff/passkey/session/security-rate-limit relations, and cannot read Accounts or business data. The support projection pool can execute only Operations projection functions plus read the restore checkpoint required by the service readiness gate. It has no direct customer-table access.
+Every console action requires a ticket and reason. The API records the immutable staff User ID as `operations/<user-id>` when invoking an existing operator boundary. The billing, privacy and Affiliate pools have execute-only privileges for their specific security-definer functions. The identity pool is limited to reviewed User/staff/authenticator/session/security-rate-limit relations and three Google identity columns, and cannot read Accounts or business data. The support projection pool can execute only Operations projection functions plus read the restore checkpoint required by the service readiness gate. It has no direct customer-table access.
 
 The console intentionally excludes Affiliate settlement/check issuance, billing credits, legal-hold or retention decisions, money adjustment, privacy evidence creation, and Account erasure execution. Those remain separately governed procedures. New actions must be added one at a time with a named role, exact API contract, narrow database function, immutable evidence and denial tests.
 
@@ -64,7 +64,16 @@ docker compose --project-name spyglass --env-file env/local.env \
 
 The local role installer creates five distinct login roles: `spyglass_operations_identity`, `spyglass_operations_projection`, `spyglass_operations_billing`, `spyglass_operations_privacy` and `spyglass_operations_affiliate`. Values in `env/local.env` are local-only and must never be reused in Stage or production.
 
-The disposable browser certificate creates two ordinary Users, enrolls a virtual passkey, pauses for offline staff assignment, then exercises support, analytics, billing, privacy, Affiliate, mobile and accessibility behavior. See `ui/tests/browser/operations-console-live.spec.ts`. Physical authenticator and assistive-technology checks remain human release gates.
+For the current authenticator path, run the PostgreSQL authentication integration
+test and `npm --prefix ui run browser:operations-ui -- authenticator.spec.ts reports.spec.ts`.
+These cover real database authorization and browser enrollment/recovery/report
+behavior, respectively. The browser report fixtures are synthetic; the
+Google-to-setup journey is additionally verified live.
+
+`ui/tests/browser/operations-console-live.spec.ts` is the historical passkey
+certificate and is not a current authenticator acceptance test. The owner's
+real Android enrollment remains a human step. See the RC.48 verification record.
+
 
 ## Privacy, retention and incident response
 
@@ -86,10 +95,10 @@ Before enabling this console outside local Docker:
 - complete owner workflow review, physical authenticator-app setup review and assistive-technology review; and
 - document monitoring, backup and credential rotation for that environment.
 
-The owner authorized Stage analytics, traffic logging and the secure modular admin console on 2026-09-04 and explicitly retained the passkey requirement. This supersedes the former RC.9 Stage hold. Production/LKE remains outside that authorization. See the current release handoff for deployment evidence and any outstanding physical-passkey acceptance.
+The owner authorized Stage analytics, traffic logging and the secure modular admin console on 2026-09-04, then authorized Google plus an authenticator on 2026-09-05. This supersedes the former RC.9 Stage hold and the former passkey-only requirement. Production/LKE remains outside that authorization. See the current release handoff for deployment evidence and Android enrollment status.
 
 
-## Authenticator implementation (RC.47)
+## Authenticator implementation (RC.48)
 
 The owner authorized replacing the Stage passkey requirement with Google plus
 an authenticator on 2026-09-05. This supersedes earlier passkey-only Stage gates.

@@ -198,7 +198,7 @@ place. CSV exports and backups need their own access and expiry controls.
    Navigation and the overview derive from this registry.
 2. Define its exact request/response in `api/operations.openapi.json`, regenerate
    using `go run ./cmd/apicontract -write`, and add the typed API helper.
-3. Add an operations API handler with same-origin, passkey-session and current
+3. Add an operations API handler with same-origin, Google-plus-authenticator session and current
    staff-role checks. Menu visibility is not authorization.
 4. Give the service only the database functions or read-only resources it needs.
    Recheck current authority at the data boundary, and record an immutable audit

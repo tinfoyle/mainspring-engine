@@ -1,6 +1,6 @@
 # UbuntuRojo and Stage release handoff
 
-Status: current as of Spyglass `0.3.0-rc.46` on 2026-09-05.
+Status: current as of Spyglass `0.3.0-rc.48` on 2026-09-05.
 
 This is the short operator path for working on Spyglass locally and moving a
 review candidate to the Hostinger Stage VPS. It is not a production/LKE
@@ -39,13 +39,13 @@ Stage uses four HTTPS names:
 - `https://stage.infiniteocean.net`
 - `https://app.stage.infiniteocean.net`
 - `https://mcp.stage.infiniteocean.net`
-- `https://ops.stage.infiniteocean.net` (passkey-only staff console)
+- `https://ops.stage.infiniteocean.net` (Google plus authenticator staff console)
 
-The active release is `0.3.0-rc.46`. Its four images were built from source commit
-`81383e20e275c5eda65c37a6a0308aa0c6a9e423`; the reviewed manifest and active
-VPS checkout are commit `fdbf6bd16140ffdc2ad46d494fe2897092dd3c7d`.
+The active release is `0.3.0-rc.48`. Its four images were built from source commit
+`0b4e098f8ade791029bb9f22883bbf37afbf3361`; the reviewed manifest and active
+VPS checkout are commit `cfc62274ce49446a909f804349d2bd7d773d1839`.
 `/opt/spyglass-stage/current` resolves to that immutable checkout. The database
-ledgers are global `69` and cell A/B `86/86`. Stage has 51 long-running
+ledgers are global `70` and cell A/B `86/86`. Stage has 51 long-running
 containers; all 50 health checks pass and the internal edge is the exception.
 
 The automatic dispatch introduced in RC.41 remains active for eligible
@@ -69,10 +69,27 @@ screens, audited administrator-only IP reports, and protected edge access logs.
 See the [Stage admin guide](stage-admin-guide.md) and
 [verification record](stage-admin-verification-2026-09-05.md). The live consent,
 ingestion, cohort-reporting, withdrawal and erasure certificate passed on all
-three analytics surfaces. Live denial and related-origin passkey checks passed;
-the owner still has zero passkeys and zero staff roles. Successful owner admin
-sign-in and authenticated live report acceptance remain pending physical
-enrollment and offline role assignment. No authentication requirement was bypassed.
+three analytics surfaces. RC.46's passkey checks are historical; RC.48 replaces
+that admin login route with Google plus an independent authenticator code.
+
+RC.48 uses the existing Google provider callback and a browser-bound encrypted
+handoff. The live Google journey reaches the owner's authenticator setup page.
+The exact Google-connected owner has an active operations_administrator role;
+zero owner admin sessions and zero confirmed authenticators remain until the
+owner scans the QR code and confirms a code on their Android phone. Google
+alone cannot enter the dashboard. The identity database role can read only
+Google identity identifier columns, not customer password hashes.
+
+Firefox, desktop Chromium and phone-layout checks passed for enrollment,
+recovery, code failures, accessibility and the native handoff. Full Go and
+PostgreSQL suites passed, with focused regressions for the final handoff and
+column-permission corrections. All 50 Stage health checks pass; live traffic
+redaction/denial and consented analytics/cleanup certificates passed again.
+See the [authenticator verification record](stage-admin-authenticator-verification-2026-09-05.md).
+
+Rollback to RC.46 would remove authenticator admin login and lock out staff
+without a passkey. Preserve the new authentication route when selecting a
+rollback artifact; retained tables alone do not provide compatibility.
 
 Cell migration 86 permits narrowly scoped human Marketing approvals without a model invocation. Once those rows exist, RC.41 is not a compatible rollback target. Any rollback must retain this origin and its Marketing decision authorization; selecting an older checkout alone is insufficient.
 
