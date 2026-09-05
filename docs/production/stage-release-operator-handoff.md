@@ -1,6 +1,6 @@
 # UbuntuRojo and Stage release handoff
 
-Status: current as of Spyglass `0.3.0-rc.41` on 2026-09-04.
+Status: current as of Spyglass `0.3.0-rc.44` on 2026-09-04.
 
 This is the short operator path for working on Spyglass locally and moving a
 review candidate to the Hostinger Stage VPS. It is not a production/LKE
@@ -40,14 +40,15 @@ Stage uses three public names:
 - `https://app.stage.infiniteocean.net`
 - `https://mcp.stage.infiniteocean.net`
 
-The active release is `0.3.0-rc.41`. Its images were built from source commit
-`9e8cd343af2696c35006c1a363338014b66aa3a0`; the reviewed manifest and active
-VPS checkout are commit `8619a6f3735e3f706bc7ecebe18dc5d38063bd6e`.
+The active release is `0.3.0-rc.44`. Its images were built from source commit
+`171992fe96389367e0bd07f0f8edbc2593a7f9e0`; the reviewed manifest and active
+VPS checkout are commit `ab964530a32240239e2b773d30617ccf00294d3d`.
 `/opt/spyglass-stage/current` resolves to that immutable checkout. The database
-ledgers are global `68` and cell A/B `85/85`. Stage has 49 long-running
+ledgers are global `68` and cell A/B `86/86`. Stage has 49 long-running
 containers; 48 have health checks and the internal edge is the exception.
 
-RC.41 automatically dispatches eligible Persona-owned Work. The agent either
+The automatic dispatch introduced in RC.41 remains active for eligible
+agent-owned Work. The agent either
 completes it or creates a specific information request in Your Turn. Capacity
 deferrals do not consume retries. A genuine execution failure is attempted
 three times and then becomes an explicit Your Turn recovery question. Work
@@ -57,6 +58,10 @@ The current reviewed fixture has two agent-owned items waiting for human input:
 the pricing review needs token-cost facts, and the launch-readiness review needs
 a narrower first outcome after three model failures. That is intentional
 waiting, not an idle agent queue.
+
+RC.44 completes the [functional audit and plain-language UI review](stage-functional-audit-2026-09-04.md). It repairs saved schedule runs, no-tool agent creation and summary selection, Marketing file review and human approval, Finance supporting notes and archive guidance, and Knowledge fact navigation. Live synthetic workflows passed after deployment; the public phone layout and customer-facing copy were also corrected.
+
+Cell migration 86 permits narrowly scoped human Marketing approvals without a model invocation. Once those rows exist, RC.41 is not a compatible rollback target. Any rollback must retain this origin and its Marketing decision authorization; selecting an older checkout alone is insufficient.
 
 ## Local change and test loop
 

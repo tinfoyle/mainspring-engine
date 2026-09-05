@@ -1,6 +1,6 @@
 # Stage functional audit and plain-language UI review
 
-Status: in progress. Starting release: 0.3.0-rc.41.
+Status: completed on 2026-09-04. Starting release: 0.3.0-rc.41; final deployed release: 0.3.0-rc.44.
 
 The owner authorized a functional review of Stage, fixes for reproduced failures,
 and replacement/removal of unhelpful customer-facing copy. Browser testing uses
@@ -48,7 +48,7 @@ check passed. Desktop browser coverage passed 42 checks (two project-specific
 skips); the 360-pixel phone project passed 43 checks (one project-specific skip),
 including focused reruns after fixing footer overflow and the landing-page
 buttons overlapping the consent prompt. All four compressed asset budgets passed.
-The deployed live retest will be recorded below.
+The deployed live retests and final validation are recorded below.
 
 Supporting notes use the existing owner-statement evidence model. Their short
 text is retained as the evidence source reference, with a hash of the statement;
@@ -91,4 +91,57 @@ RC.41 cannot decode approval rows without an invocation ID.
 - The synthetic integration was revoked successfully. No provider credentials
   were bound. The existing business setup and its approved Work remain intact.
 
-The follow-up is awaiting publication and the final live approval retest.
+## Final RC.44 live acceptance
+
+RC.44 is deployed from source `171992fe96389367e0bd07f0f8edbc2593a7f9e0`.
+The tracked manifest and active VPS checkout are
+`ab964530a32240239e2b773d30617ccf00294d3d`; exact image identities are in
+[`0.3.0-rc.44.env`](../../deploy/releases/0.3.0-rc.44.env). RC.43 was published
+but not activated; the final candidate also removes the last public footer slogan.
+
+| Retest | Final observation |
+| --- | --- |
+| Marketing approval | Approved the original repaired Your Turn request. The request cleared, release advanced to Approved v3, and campaign became Active v2. Pause, complete and archive then succeeded, ending at Archived v5. No external publication occurred. |
+| Agent summary selection | Changed the summary agent in both directions; the checklist retained only eligible participants and included the summary in the 2,000-token estimate. A fresh two-agent run completed successfully; both calculation and summary returned 8 × 7 = 56. |
+| Schedule | The old failed history opens correctly; a fresh resumed Run now succeeded with 2+2=4. The schedule is paused at v4, preventing future scheduled execution. |
+| Finance | Posted the original $12.34 draft with a note, reversed it to zero, confirmed a zero statement comparison, and closed the period. Archived both posting accounts and then the ledger, retaining its history. |
+| Marketing file review | The exact-version file action produced a browser download. Server tests verify ownership, stored byte length and full content hash before delivery. |
+| Knowledge | Opened an accepted fact and read its saved value and citations. Readable titles replace internal prefixes and generated question hashes. |
+| Test integration | Revocation succeeded. The connection remains revoked and unbound. |
+| Public phone layout | Rechecked the deployed page at 360 pixels: document width and content width both measured 345 pixels (the remaining space is the scrollbar), with no horizontal overflow. The footer slogan is absent. |
+| Deployment | Live image identities match all three RC.44 manifest digests. There are 49 running containers, 48 healthy workloads and zero unhealthy workloads. Public and login origins return HTTP 200. Database ledgers are global 68 and cell 86/86. |
+
+The final private application suite passed all 109 tests. The Go packages and
+database migration suite passed after the follow-up fixes. A local WSL/Docker
+interruption stopped the disposable PostgreSQL container during one full-suite
+attempt; after restoring that test container, the database suite passed. This
+was a local test infrastructure failure, not a Stage database failure. All ten
+follow-up desktop/phone browser checks passed across focused reruns after their
+old-copy assertions were updated. Final builds and compressed asset budgets
+passed. Each of the three RC.44 images passed high/critical vulnerability and
+secret scans with zero findings and carries SBOM/provenance attestations.
+
+The copy review removed motivational slogans and redundant headings, replaced
+terms such as Baseline, Persona and synthesis manager with Business setup,
+agent and summary agent, and made errors and prerequisites actionable. Necessary
+supporting information remains available; stored business content was not rewritten.
+
+## Retained test records and limits
+
+- Human test ticket #0004 and agent test ticket #0005 are completed.
+- Audit ledger AUD0904 and campaign `0249f827-441d-4611-8abf-9743cdb7aee9`
+  are archived; financial test entries net to zero.
+- Schedule `760cffc1-c7c5-4d21-986d-613d6f45e847` is paused at v4.
+- Audit agent team `3fa61870-1b3d-4db5-8cd5-81cf7047a9b6` retains its
+  successful synthetic conversations. It has no external tools.
+- The test integration is revoked. Existing business questions, facts and the
+  prior business setup remain intact apart from the explicitly synthetic answer.
+
+This audit does not claim every provider-dependent or destructive mechanism was
+executed. Actual payment/checkout, external-provider binding and delivery,
+email/SMS-code receipt and redemption, passkey changes, invitations, account
+closure/erasure and a full external MCP-client authorization/tool/refresh/revoke
+certificate remain untested here. The export request correctly required recent
+identity confirmation; artifact creation/download was not exercised. Affiliate
+enrollment/settlement remains unconfigured. These limits are distinct from the
+reproduced workflow defects fixed above. No production or LKE deployment occurred.
