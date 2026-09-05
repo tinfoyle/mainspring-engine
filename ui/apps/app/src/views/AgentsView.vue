@@ -75,6 +75,7 @@ const conversationID = computed(() => typeof route.params.conversationID === "st
 const room = computed(() => rooms.value.find((value) => value.id === roomID.value));
 const activePersonas = computed(() => personas.value.filter((value) => value.state === "active"));
 const selectablePersonas = computed(() => activePersonas.value.filter((value) => mode.value !== "manager_led" || value.id !== room.value?.manager_persona_id));
+const summaryAvailable = computed(() => Boolean(room.value?.manager_persona_id && activePersonas.value.some((value) => value.id !== room.value?.manager_persona_id)));
 const terminalRun = computed(() => activeRun.value && ["succeeded", "partially_failed", "failed", "canceled"].includes(activeRun.value.state));
 const recoverableRun = computed(() => activeRun.value && ["partially_failed", "failed"].includes(activeRun.value.state) && activeRun.value.resolutions.length === 0);
 const hasRoomDraft = computed(() => createOpen.value && Boolean(roomDraft.name.trim() || roomDraft.purpose.trim()));
@@ -87,27 +88,31 @@ const hasRunDraft = computed(() => {
 });
 const hasRecoveryDraft = computed(() => Boolean(recoverableRun.value && (recoveryAction.value !== "retry_failed" || recoveryNote.value.trim())));
 const hasUnsavedAgentWork = computed(() => hasRoomDraft.value || hasManagerDraft.value || hasRunDraft.value || hasRecoveryDraft.value || personaDirty.value);
-const selectedTokenEstimate = computed(() => selectedPersonaIDs.value.reduce((total, id) => {
-  const persona = personas.value.find((value) => value.id === id);
-  const rate = publicCatalog.value?.ai_complexity_rates.find((value) => value.complexity === personaComplexity(persona));
-  return total + (rate?.estimated_maximum ?? 0);
-}, 0));
+const selectedTokenEstimate = computed(() => {
+  const ids = new Set(selectedPersonaIDs.value);
+  if (mode.value === "manager_led" && ids.size && room.value?.manager_persona_id) ids.add(room.value.manager_persona_id);
+  return [...ids].reduce((total, id) => {
+    const persona = personas.value.find((value) => value.id === id);
+    const rate = publicCatalog.value?.ai_complexity_rates.find((value) => value.complexity === personaComplexity(persona));
+      return total + (rate?.estimated_maximum ?? 0);
+  }, 0);
+});
 
 const { allowNextNavigation } = useSafeNavigation({
   dirty: hasUnsavedAgentWork,
   pending: saving,
-  message: "Leave Agents? Your unsubmitted Boardroom or Persona changes will be lost.",
+  message: "Leave Agents? Your unsaved changes will be lost.",
   onBlocked: (blockedReason) => {
     navigationNotice.value = blockedReason === "pending"
       ? "This Agent change is still being saved. Stay on this page until Spyglass confirms the result."
-      : "Navigation canceled. Your Boardroom or Persona changes remain ready for review.";
+      : "Navigation canceled. Your changes are still here.";
   }
 });
 
 function label(value: string): string { return value.replaceAll("_", " ").replace(/^./, (first) => first.toUpperCase()); }
 function initials(value: string): string { return value.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase(); }
 function date(value: string): string { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
-function personaName(message: AgentMessage): string { return personas.value.find((value) => value.persona_version_id === message.persona_version_id)?.name ?? "Boardroom Persona"; }
+function personaName(message: AgentMessage): string { return personas.value.find((value) => value.persona_version_id === message.persona_version_id)?.name ?? "Agent"; }
 function personaComplexity(persona?: AgentPersona): "simple" | "efficient" | "balanced" | "thorough" | "advanced" {
   const value = persona?.policy.complexity;
   return typeof value === "string" && ["simple", "efficient", "balanced", "thorough", "advanced"].includes(value) ? value as "simple" | "efficient" | "balanced" | "thorough" | "advanced" : "balanced";
@@ -128,7 +133,7 @@ async function loadRooms(): Promise<void> {
   const sequence = ++loadSequence;
   loading.value = true; error.value = "";
   try { const values = await listAgentBoardrooms(accountID); if (sequence === loadSequence) rooms.value = values; }
-  catch (cause) { if (sequence === loadSequence) error.value = cause instanceof APIProblem ? cause.message : "Agent Boardrooms are unavailable right now."; }
+  catch (cause) { if (sequence === loadSequence) error.value = cause instanceof APIProblem ? cause.message : "Agent teams are unavailable right now."; }
   finally { if (sequence === loadSequence) loading.value = false; }
 }
 
@@ -140,8 +145,8 @@ async function loadRoom(): Promise<void> {
     const [personaValues, conversationValues] = await Promise.all([listAgentPersonas(accountID, roomID.value), listAgentConversations(accountID, roomID.value)]);
     personas.value = personaValues; conversations.value = conversationValues;
     managerPersonaID.value = room.value?.manager_persona_id ?? "";
-    selectedPersonaIDs.value = personaValues.filter((value) => value.state === "active").map((value) => value.id);
-  } catch (cause) { roomError.value = cause instanceof APIProblem ? cause.message : "This Boardroom is unavailable right now."; }
+    selectedPersonaIDs.value = selectablePersonas.value.map((value) => value.id);
+  } catch (cause) { roomError.value = cause instanceof APIProblem ? cause.message : "This agent team is unavailable right now."; }
   finally { roomLoading.value = false; }
 }
 
@@ -164,8 +169,8 @@ async function createRoom(): Promise<void> {
   try {
     const created = await createAgentBoardroom(accountID, { name: roomDraft.name.trim(), purpose: roomDraft.purpose.trim() });
     Object.assign(roomDraft, { name: "", purpose: "" }); createOpen.value = false;
-    announcement.value = `Boardroom ${created.name} created.`; await loadRooms(); allowNextNavigation(); await router.push(`/app/agents/boardrooms/${created.id}`);
-  } catch (cause) { error.value = cause instanceof APIProblem ? cause.message : "The Boardroom could not be created."; }
+    announcement.value = `Agent team ${created.name} created.`; await loadRooms(); allowNextNavigation(); await router.push(`/app/agents/boardrooms/${created.id}`);
+  } catch (cause) { error.value = cause instanceof APIProblem ? cause.message : "The agent team could not be created."; }
   finally { saving.value = false; }
 }
 
@@ -176,8 +181,8 @@ async function saveManager(): Promise<void> {
   try {
     const updated = await configureAgentManager(accountID, room.value.id, { manager_persona_id: managerPersonaID.value, expected_version: room.value.version });
     rooms.value = rooms.value.map((value) => value.id === updated.id ? updated : value);
-    announcement.value = `${personas.value.find((value) => value.id === managerPersonaID.value)?.name ?? "Persona"} is now the synthesis manager.`;
-  } catch (cause) { roomError.value = cause instanceof APIProblem && cause.status === 409 ? "The Boardroom changed. Refresh it before setting the manager." : cause instanceof APIProblem ? cause.message : "The synthesis manager could not be set."; }
+    announcement.value = `${personas.value.find((value) => value.id === managerPersonaID.value)?.name ?? "This agent"} will now summarize the other agents’ answers.`;
+  } catch (cause) { roomError.value = cause instanceof APIProblem && cause.status === 409 ? "The team changed. Refresh it before choosing the summary agent." : cause instanceof APIProblem ? cause.message : "The summary agent could not be saved."; }
   finally { saving.value = false; }
 }
 
@@ -186,14 +191,14 @@ function closePersona(): void { personaOpen.value = false; editingPersona.value 
 async function publishPersona(input: PublishAgentPersonaRequest): Promise<void> {
   const accountID = session.selectedID; if (!accountID || !configurable.value || !room.value || saving.value) return; saving.value = true; roomError.value = ""; navigationNotice.value = "";
   try { const value = await publishAgentPersona(accountID, room.value.id, input); closePersona(); announcement.value = `${value.name} version ${value.latest_version} published.`; await loadRoom(); }
-  catch (cause) { if (cause instanceof APIProblem && cause.status === 409) { closePersona(); await loadRoom(); roomError.value = "This Persona changed. Review its current immutable version before publishing again."; } else roomError.value = cause instanceof APIProblem ? cause.message : "The Persona version could not be published."; }
+  catch (cause) { if (cause instanceof APIProblem && cause.status === 409) { closePersona(); await loadRoom(); roomError.value = "This agent changed. Review its current version before saving again."; } else roomError.value = cause instanceof APIProblem ? cause.message : "The agent version could not be saved."; }
   finally { saving.value = false; }
 }
 
 async function runBoardroom(): Promise<void> {
   const accountID = session.selectedID;
   if (!accountID || !runnable.value || !room.value || saving.value || selectedPersonaIDs.value.length === 0) return;
-  if (mode.value === "manager_led" && !room.value.manager_persona_id) { roomError.value = "Set a synthesis manager before starting a manager-led run."; return; }
+  if (mode.value === "manager_led" && !room.value.manager_persona_id) { roomError.value = "Choose a summary agent before using this mode."; return; }
   saving.value = true; roomError.value = ""; navigationNotice.value = "";
   const input: { prompt: string; mode: AgentRunMode; persona_ids: ReadonlyArray<string>; subject?: string; conversation_id?: string } = {
     prompt: prompt.value.trim(), mode: mode.value, persona_ids: selectedPersonaIDs.value
@@ -203,7 +208,7 @@ async function runBoardroom(): Promise<void> {
   try {
     const run = await startAgentRun(accountID, room.value.id, input);
     activeRun.value = run; prompt.value = ""; subject.value = "";
-    announcement.value = "The Agent task was accepted and is now governed by its frozen Persona versions and policy.";
+    announcement.value = "Your question was sent to the selected agents.";
     if (conversationID.value !== run.conversation_id) { allowNextNavigation(); await router.push(`/app/agents/boardrooms/${room.value.id}/conversations/${run.conversation_id}`); }
     beginPolling(run);
   } catch (cause) { roomError.value = cause instanceof APIProblem ? cause.message : "The Agent task could not be started."; }
@@ -225,7 +230,7 @@ function beginPolling(run: AgentRun): void {
         await Promise.all([loadConversation(), loadRoom()]); return;
       }
       attempt += 1; pollTimer = window.setTimeout(() => void poll(), 1500);
-    } catch (cause) { roomError.value = cause instanceof APIProblem ? `${cause.message} The durable run can be checked from this conversation.` : "The run could not be refreshed."; }
+    } catch (cause) { roomError.value = cause instanceof APIProblem ? `${cause.message} You can check its progress from this conversation.` : "The run could not be refreshed."; }
   };
   void poll();
 }
@@ -236,7 +241,7 @@ async function resolveRun(): Promise<void> {
   saving.value = true; roomError.value = ""; navigationNotice.value = "";
   try {
     const resolution = await resolveAgentRun(accountID, activeRun.value.id, { action: recoveryAction.value, note: recoveryNote.value.trim() });
-    announcement.value = recoveryAction.value === "retry_failed" ? "Failed Persona turns were queued in a new immutable run." : "The failed run outcome was accepted.";
+    announcement.value = recoveryAction.value === "retry_failed" ? "The failed agents will try again." : "The failed run outcome was accepted.";
     recoveryNote.value = ""; recoveryAction.value = "retry_failed";
     if (resolution.retry_run_id) { const retry = await getAgentRun(accountID, resolution.retry_run_id); activeRun.value = retry; beginPolling(retry); }
     else activeRun.value = await getAgentRun(accountID, activeRun.value.id);
@@ -282,7 +287,7 @@ onBeforeUnmount(() => { pollGeneration += 1; if (pollTimer !== undefined) window
           <form v-if="configurable && activePersonas.length" class="agents-manager" @submit.prevent="saveManager"><label>Summary agent<select v-model="managerPersonaID" required><option v-for="persona in activePersonas" :key="persona.id" :value="persona.id">{{ persona.name }} · v{{ persona.latest_version }}</option></select></label><IoButton type="submit" kind="secondary" :disabled="saving">Save summary agent</IoButton></form>
         </section>
 
-        <form v-if="runnable && activePersonas.length" class="decision-card agents-composer" @submit.prevent="runBoardroom"><h2>{{ conversationID ? `Continue ${conversation?.subject ?? 'conversation'}` : "Start a conversation" }}</h2><label v-if="!conversationID">Subject<input v-model="subject" minlength="2" maxlength="240" required placeholder="Conversation title"></label><label>Your question<textarea v-model="prompt" maxlength="65536" rows="5" required placeholder="What would you like the agents to do?"></textarea></label><label>Run mode<select v-model="mode"><option value="selected">Selected agents</option><option value="manager_led" :disabled="!room.manager_persona_id">Agents, then a summary</option></select></label><fieldset><legend>Choose agents</legend><label v-for="persona in selectablePersonas" :key="persona.id"><input v-model="selectedPersonaIDs" type="checkbox" :value="persona.id"> <span><strong>{{ persona.name }}</strong><small>{{ persona.role }} · {{ label(personaComplexity(persona)) }} · v{{ persona.latest_version }}</small></span></label></fieldset><p v-if="tokenBalance" class="agents-token-estimate"><strong>{{ tokenBalance.available.toLocaleString() }} AI Tokens available</strong><span> · current selected-turn estimate up to {{ selectedTokenEstimate.toLocaleString() }}</span></p><p class="form-note">Actions that need approval will appear in Your Turn.</p><IoButton type="submit" :disabled="saving || selectedPersonaIDs.length === 0">{{ saving ? "Sending…" : "Send" }}</IoButton></form>
+        <form v-if="runnable && activePersonas.length" class="decision-card agents-composer" @submit.prevent="runBoardroom"><h2>{{ conversationID ? `Continue ${conversation?.subject ?? 'conversation'}` : "Start a conversation" }}</h2><label v-if="!conversationID">Subject<input v-model="subject" minlength="2" maxlength="240" required placeholder="Conversation title"></label><label>Your question<textarea v-model="prompt" maxlength="65536" rows="5" required placeholder="What would you like the agents to do?"></textarea></label><label>Run mode<select v-model="mode"><option value="selected">Selected agents</option><option value="manager_led" :disabled="!summaryAvailable">Agents, then a summary</option></select></label><p v-if="!summaryAvailable" class="form-note">To get a summary, add at least two agents and choose one as the summary agent.</p><fieldset><legend>Choose agents</legend><label v-for="persona in selectablePersonas" :key="persona.id"><input v-model="selectedPersonaIDs" type="checkbox" :value="persona.id"> <span><strong>{{ persona.name }}</strong><small>{{ persona.role }} · {{ label(personaComplexity(persona)) }} · v{{ persona.latest_version }}</small></span></label></fieldset><p v-if="tokenBalance" class="agents-token-estimate"><strong>{{ tokenBalance.available.toLocaleString() }} AI Tokens available</strong><span> · current selected-turn estimate up to {{ selectedTokenEstimate.toLocaleString() }}</span></p><p class="form-note">Actions that need approval will appear in Your Turn.</p><IoButton type="submit" :disabled="saving || selectedPersonaIDs.length === 0">{{ saving ? "Sending…" : "Send" }}</IoButton></form>
 
         <section class="agents-conversations"><header><div><h2>Conversations</h2></div><span>{{ conversations.length }}</span></header><div v-if="conversations.length === 0" class="queue-state"><h3>No conversations yet</h3><p>Ask the agents a question to start a conversation.</p></div><ol v-else><li v-for="item in conversations" :key="item.id"><RouterLink :to="`/app/agents/boardrooms/${room.id}/conversations/${item.id}`" class="agents-conversation-card"><strong>{{ item.subject }}</strong><span>{{ item.message_count }} {{ item.message_count === 1 ? "message" : "messages" }} · {{ label(item.state) }}</span><small>{{ date(item.updated_at) }}</small></RouterLink></li></ol></section>
 

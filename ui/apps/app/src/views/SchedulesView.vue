@@ -160,7 +160,7 @@ async function loadBoardroomOptions(): Promise<void> {
     boardrooms.value = await listAgentBoardrooms(accountID);
     if (draft.boardroomID) await loadPersonaOptions(accountID, draft.boardroomID);
   } catch (cause) {
-    optionsError.value = cause instanceof APIProblem ? cause.message : "Boardrooms are unavailable right now.";
+    optionsError.value = cause instanceof APIProblem ? cause.message : "Agent teams are unavailable right now.";
   } finally { optionsLoading.value = false; }
 }
 
@@ -172,7 +172,7 @@ async function loadPersonaOptions(accountID: string, boardroomID: string): Promi
     const availableIDs = new Set(personas.value.map((item) => item.id));
     draft.personaIDs = draft.personaIDs.filter((id) => availableIDs.has(id));
   } catch (cause) {
-    optionsError.value = cause instanceof APIProblem ? cause.message : "Personas are unavailable right now.";
+    optionsError.value = cause instanceof APIProblem ? cause.message : "Agents are unavailable right now.";
   } finally { optionsLoading.value = false; }
 }
 
@@ -282,6 +282,6 @@ watch(() => [session.selectedID, scheduleID.value, available.value], () => void 
       </template>
     </template>
 
-    <div v-if="actionOpen" class="modal-backdrop"><form class="modal-card decision-card" role="dialog" aria-modal="true" aria-labelledby="schedule-action-title" @submit.prevent="submitAction"><h2 id="schedule-action-title">{{ action === 'trigger' ? 'Run this schedule now?' : `${label(action)} this schedule?` }}</h2><p class="form-note">This command applies to version {{ detail?.version }} and is recorded in the durable audit history.</p><label>Reason for this change<textarea v-model="actionReason" minlength="3" maxlength="500" rows="4" required></textarea></label><label v-if="action === 'delete'" class="confirmation"><input v-model="deletionConfirmed" type="checkbox" required><span>I understand this removes the schedule from future execution.</span></label><p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p><p v-if="detailError" class="form-error" role="alert">{{ detailError }}</p><div class="modal-actions"><IoButton type="button" kind="secondary" @click="actionOpen = false">Cancel</IoButton><IoButton type="submit" :disabled="saving || (action === 'delete' && !deletionConfirmed)">{{ saving ? "Saving…" : "Confirm" }}</IoButton></div></form></div>
+    <div v-if="actionOpen" class="modal-backdrop"><form class="modal-card decision-card" role="dialog" aria-modal="true" aria-labelledby="schedule-action-title" @submit.prevent="submitAction"><h2 id="schedule-action-title">{{ action === 'trigger' ? 'Run this schedule now?' : `${label(action)} this schedule?` }}</h2><p class="form-note">This change will be saved in the schedule history.</p><label>Reason for this change<textarea v-model="actionReason" minlength="3" maxlength="500" rows="4" required></textarea></label><label v-if="action === 'delete'" class="confirmation"><input v-model="deletionConfirmed" type="checkbox" required><span>I understand this removes the schedule from future execution.</span></label><p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p><p v-if="detailError" class="form-error" role="alert">{{ detailError }}</p><div class="modal-actions"><IoButton type="button" kind="secondary" @click="actionOpen = false">Cancel</IoButton><IoButton type="submit" :disabled="saving || (action === 'delete' && !deletionConfirmed)">{{ saving ? "Saving…" : "Confirm" }}</IoButton></div></form></div>
   </section>
 </template>

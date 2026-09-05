@@ -1424,7 +1424,7 @@ test("Work and Knowledge preserve governed operating context", async ({ page }) 
     {
       path: "/app/knowledge",
       heading: "Knowledge",
-      evidence: ["Launch release window", "92% confidence", "Organization legal name"]
+      evidence: ["Launch release window", "92% confidence", "Legal name"]
     },
     {
       path: `/app/knowledge/claims/${knowledgeClaim.id}`,
@@ -1978,7 +1978,7 @@ test("package workspaces reload authoritative state after stale writes", async (
     const dialog = page.getByRole("dialog", { name: `Publish ${agentPersona.name} version ${agentPersona.latest_version + 1}` });
     await dialog.getByRole("button", { name: "Save new version" }).click();
     await expect(dialog).toHaveCount(0);
-    await expect(page.getByRole("alert")).toContainText("This Persona changed. Review its current immutable version before publishing again.");
+    await expect(page.getByRole("alert")).toContainText("This agent changed. Review its current version before saving again.");
     await expect(persona.locator("summary")).toContainText(`version ${currentPersona.latest_version}`);
     await expect(persona.getByRole("button", { name: "Save new version" })).toBeEnabled();
     expect(personaLoads).toBeGreaterThanOrEqual(2);
@@ -2082,11 +2082,11 @@ test("package workspaces preserve customer intent through capacity and downstrea
       });
     });
     await page.getByRole("link", { name: "All agent teams" }).click();
-    await expect(dismissed).resolves.toBe("Leave Agents? Your unsubmitted Boardroom or Persona changes will be lost.");
+    await expect(dismissed).resolves.toBe("Leave Agents? Your unsaved changes will be lost.");
     await expect(page).toHaveURL(new RegExp(`/app/agents/boardrooms/${agentRoom.id}$`));
     await expect(page.getByLabel("Subject")).toHaveValue("Capacity-safe launch review");
     await expect(page.getByLabel("Your question")).toHaveValue("Which launch constraint needs attention first?");
-    await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your Boardroom or Persona changes remain" })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your changes are still here." })).toBeVisible();
 
     page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("link", { name: "All agent teams" }).click();

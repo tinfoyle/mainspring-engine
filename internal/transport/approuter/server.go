@@ -187,9 +187,20 @@ func (s *Server) route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var additionalPackageAccesses []routecontext.PackageAccess
+	optionalMarketing := humanApprovalDecisionRoute(r.Method, r.PathValue("resource"))
+	if optionalMarketing {
+		// The cell knows the stored approval's origin. Carry Marketing authority
+		// only when currently granted; other approvals remain usable without it.
+		additionalRequirements = append(additionalRequirements, access.Requirement{Package: catalog.PackageMarketing, Mutation: true})
+	}
 	for _, additional := range additionalRequirements {
 		additionalContext, additionalErr := s.authorizer.Authorize(r.Context(), actor, accountID, additional)
 		if additionalErr != nil {
+			var denied *access.DeniedError
+			if optionalMarketing && additional.Package == catalog.PackageMarketing && errors.As(additionalErr, &denied) &&
+				(denied.Code == access.DenialPackageNotEntitled || denied.Code == access.DenialPackageReadOnly) {
+				continue
+			}
 			s.writeAuthorizationError(w, additionalErr)
 			return
 		}
@@ -635,6 +646,11 @@ func marketingRouteRequirement(method string, parts []string) (access.Requiremen
 		}
 	}
 	return access.Requirement{}, false
+}
+
+func humanApprovalDecisionRoute(method, resource string) bool {
+	parts := strings.Split(resource, "/")
+	return method == http.MethodPost && len(parts) == 4 && parts[0] == "attention" && parts[1] == "approvals" && ids.Validate(parts[2]) == nil && parts[3] == "decisions"
 }
 
 func additionalRouteRequirement(method, resource string) (access.Requirement, bool) {

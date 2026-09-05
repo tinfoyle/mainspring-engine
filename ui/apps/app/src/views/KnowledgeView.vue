@@ -55,6 +55,15 @@ useSafeNavigation({
 });
 
 function label(value: string): string { return value.replaceAll("_", " ").replace(/^./, (first) => first.toUpperCase()); }
+function factTitle(key: string): string {
+  if (/^agent\.owner_question[._]/.test(key)) return "Answer to an agent’s question";
+  const names: Record<string, string> = {
+    "baseline.pain_point": "Main problem", "baseline.revenue_workflow": "How customers pay",
+    "baseline.customer_onboarding": "Getting customers started", "baseline.immediate_concern": "Current priority",
+    "organization.website_url": "Website"
+  };
+  return names[key] ?? label(key.replace(/^(baseline|organization)\./, "").replaceAll(".", " "));
+}
 function scope(value: { readonly kind: string; readonly id?: string }): string { return value.id ? `${label(value.kind)} · ${value.id}` : label(value.kind); }
 function formatValue(value: KnowledgeValue): string { return typeof value === "string" ? value : JSON.stringify(value, null, 2); }
 function date(value: string): string { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value)); }
@@ -112,7 +121,7 @@ watch(() => [session.selectedID, claimID.value, available.value], () => void loa
       <section v-if="detailLoading" class="queue-state" role="status"><h1>Loading information…</h1></section>
       <section v-else-if="detailError && !detail" class="queue-state queue-state--error" role="alert"><h1>Information did not load</h1><p>{{ detailError }}</p><IoButton kind="secondary" @click="loadDetail">Try again</IoButton></section>
       <template v-else-if="detail">
-        <header class="detail-heading"><div><p class="eyebrow">{{ scope(detail.scope) }} information</p><h1>{{ label(detail.key.replaceAll(".", " ")) }}</h1></div><span class="state-badge">{{ label(detail.state) }}</span></header>
+        <header class="detail-heading"><div><p class="eyebrow">{{ scope(detail.scope) }} information</p><h1>{{ factTitle(detail.key) }}</h1></div><span class="state-badge">{{ label(detail.state) }}</span></header>
         <p v-if="detailError" class="queue-inline-status queue-inline-status--error" role="alert">{{ detailError }}</p>
         <div class="detail-layout">
           <article class="detail-card knowledge-detail-card"><h2>Information</h2><pre class="knowledge-value">{{ formatValue(detail.value) }}</pre><dl><div><dt>Confidence</dt><dd>{{ detail.confidence / 10 }}%</dd></div><div><dt>Sensitivity</dt><dd>{{ label(detail.sensitivity) }}</dd></div><div><dt>Version</dt><dd>{{ detail.version }}</dd></div></dl><section class="knowledge-citations"><h2>Citations</h2><ol><li v-for="citation in detail.citations" :key="`${citation.evidence_id}:${citation.locator}`"><strong>{{ label(citation.relation) }} · {{ label(citation.evidence_kind) }}</strong><span>{{ citation.locator }}</span></li></ol></section></article>
@@ -128,8 +137,8 @@ watch(() => [session.selectedID, claimID.value, available.value], () => void loa
       <template v-else>
         <section v-if="session.selected?.owner_enrollment_required" class="queue-state queue-state--warning"><h2>Secure this owner Account first</h2><p>Finish two-factor authentication before deciding claims.</p><a href="/app/security?return_to=%2Fapp%2Fknowledge">Continue security setup</a></section>
         <p v-if="error && (claims.length || facts.length)" class="queue-inline-status queue-inline-status--error">{{ error }} Showing the last saved information.</p>
-        <section class="knowledge-section"><header><div><h2>Needs review</h2></div><span>{{ claims.length }} waiting</span></header><div v-if="loading && claims.length === 0" class="queue-state" role="status">Loading proposed claims…</div><div v-else-if="error && claims.length === 0" class="queue-state queue-state--error" role="alert"><h3>Knowledge did not load</h3><p>{{ error }}</p></div><div v-else-if="claims.length === 0" class="queue-state"><h3>Nothing needs review</h3><p>New suggestions will appear here for you to check.</p></div><ol v-else class="knowledge-list"><li v-for="claim in claims" :key="claim.id"><RouterLink :to="`/app/knowledge/claims/${claim.id}`" class="knowledge-card"><strong>{{ label(claim.key.replaceAll(".", " ")) }}</strong><span>{{ scope(claim.scope) }} · {{ claim.confidence / 10 }}% confidence</span><small>{{ label(claim.sensitivity) }} · version {{ claim.version }}</small></RouterLink></li></ol></section>
-        <section class="knowledge-section"><header><div><h2>Saved information</h2></div><span>{{ facts.length }} current</span></header><div v-if="facts.length === 0 && !loading" class="queue-state"><h3>No saved information yet</h3><p>Confirmed business information will appear here.</p></div><ol v-else class="knowledge-list knowledge-list--facts"><li v-for="fact in facts" :key="fact.id"><RouterLink :to="`/app/knowledge/claims/${fact.current_claim_id}`" class="knowledge-card"><strong>{{ label(fact.key.replaceAll(".", " ")) }}</strong><span>{{ scope(fact.scope) }} · revision {{ fact.revision }}</span><small>{{ label(fact.sensitivity) }} · accepted {{ date(fact.accepted_at) }}</small></RouterLink></li></ol></section>
+        <section class="knowledge-section"><header><div><h2>Needs review</h2></div><span>{{ claims.length }} waiting</span></header><div v-if="loading && claims.length === 0" class="queue-state" role="status">Loading proposed claims…</div><div v-else-if="error && claims.length === 0" class="queue-state queue-state--error" role="alert"><h3>Knowledge did not load</h3><p>{{ error }}</p></div><div v-else-if="claims.length === 0" class="queue-state"><h3>Nothing needs review</h3><p>New suggestions will appear here for you to check.</p></div><ol v-else class="knowledge-list"><li v-for="claim in claims" :key="claim.id"><RouterLink :to="`/app/knowledge/claims/${claim.id}`" class="knowledge-card"><strong>{{ factTitle(claim.key) }}</strong><span>{{ scope(claim.scope) }} · {{ claim.confidence / 10 }}% confidence</span><small>{{ label(claim.sensitivity) }} · version {{ claim.version }}</small></RouterLink></li></ol></section>
+        <section class="knowledge-section"><header><div><h2>Saved information</h2></div><span>{{ facts.length }} current</span></header><div v-if="facts.length === 0 && !loading" class="queue-state"><h3>No saved information yet</h3><p>Confirmed business information will appear here.</p></div><ol v-else class="knowledge-list knowledge-list--facts"><li v-for="fact in facts" :key="fact.id"><RouterLink :to="`/app/knowledge/claims/${fact.current_claim_id}`" class="knowledge-card"><strong>{{ factTitle(fact.key) }}</strong><span>{{ scope(fact.scope) }} · revision {{ fact.revision }}</span><small>{{ label(fact.sensitivity) }} · accepted {{ date(fact.accepted_at) }}</small></RouterLink></li></ol></section>
       </template>
     </template>
   </section>

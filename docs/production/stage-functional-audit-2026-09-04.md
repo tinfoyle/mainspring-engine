@@ -64,3 +64,31 @@ runner action authorization.
 Cell migration 86 permits the narrowly defined human Marketing approval origin.
 After such approvals are created, a rollback must retain support for this origin;
 RC.41 cannot decode approval rows without an invocation ID.
+
+## Live RC.42 retest and follow-up
+
+- The original failed schedule conversation opens and shows the correct result.
+- Two agents with no tools were created successfully. Direct arithmetic and a
+  separate summary-agent run both completed with correct answers.
+- Saving a summary agent exposed a further UI defect: refreshing the roster
+  selected that agent as a regular participant even though it was hidden from
+  the checklist. The follow-up preserves the allowed selection, includes the
+  summary in the token estimate, and explains the two-agent prerequisite.
+- The original Finance draft posted with a supporting note, then reversed to
+  zero. A zero-balance statement comparison was confirmed and the period closed.
+  Both posting accounts and then the ledger were archived. The archive
+  prerequisite previously produced only "invalid query"; the follow-up explains
+  the required order. Default Finance dates now use the browser's local date.
+- The exact Marketing file downloaded successfully, and resubmitting the old
+  release created its missing Your Turn approval. The final decision exposed a
+  router omission: Marketing authority was not carried to the cell. The follow-up
+  carries only currently granted Marketing authority on approval-decision
+  requests; missing/read-only Marketing cannot activate a campaign, while other
+  approvals remain usable. Signed-router tests verify both granted and denied
+  package states using the real cell authorizer.
+- Saved Knowledge opens to its actual value and citations. Internal key prefixes
+  and generated question hashes are replaced with readable titles.
+- The synthetic integration was revoked successfully. No provider credentials
+  were bound. The existing business setup and its approved Work remain intact.
+
+The follow-up is awaiting publication and the final live approval retest.

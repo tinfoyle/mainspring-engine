@@ -58,6 +58,35 @@ beforeEach(() => {
 });
 
 describe("Agents surface", () => {
+  it("keeps the summary agent out of selected turns after saving the team configuration", async () => {
+    const summary = { ...persona, id: "b0000000-0000-4000-8000-00000000000b", name: "Summary" };
+    api.listAgentPersonas.mockResolvedValue([persona, summary]);
+    api.configureAgentManager.mockResolvedValue({ ...room, manager_persona_id: summary.id, version: room.version + 1 });
+    api.startAgentRun.mockResolvedValue(run);
+    const wrapper = await mountAt(`/app/agents/boardrooms/${room.id}`);
+    const composer = wrapper.get(".agents-composer");
+    await composer.get("select").setValue("manager_led");
+    await wrapper.get(".agents-manager select").setValue(summary.id);
+    await wrapper.get(".agents-manager").trigger("submit");
+    await flushPromises();
+    expect(api.configureAgentManager).toHaveBeenCalledWith(account.account_id, room.id, { manager_persona_id: summary.id, expected_version: room.version });
+    expect(composer.findAll('input[type="checkbox"]')).toHaveLength(1);
+    expect(composer.text()).toContain("up to 2,000");
+    await composer.get('input[placeholder="Conversation title"]').setValue("Audit conversation");
+    await composer.get("textarea").setValue("Calculate seven times six.");
+    await composer.trigger("submit");
+    await flushPromises();
+    expect(api.startAgentRun).toHaveBeenCalledWith(account.account_id, room.id, expect.objectContaining({ mode: "manager_led", persona_ids: [persona.id] }));
+    wrapper.unmount();
+  });
+
+  it("explains why a one-agent team cannot summarize other agents", async () => {
+    const wrapper = await mountAt(`/app/agents/boardrooms/${room.id}`);
+    expect(wrapper.get('.agents-composer option[value="manager_led"]').attributes("disabled")).toBeDefined();
+    expect(wrapper.text()).toContain("add at least two agents");
+    wrapper.unmount();
+  });
+
   it("renders durable Boardroom and Persona policy boundaries", async () => {
     const wrapper = await mountAt(`/app/agents/boardrooms/${room.id}`);
     expect(wrapper.text()).toContain("Operating review"); expect(wrapper.text()).toContain("Operations Lead");
