@@ -101,3 +101,43 @@ func TestMissingLogsAndCanceledReadNeverLookLikeZeroTraffic(t *testing.T) {
 		t.Fatalf("canceled: %v", err)
 	}
 }
+
+func TestUserAgentsAreOptionalBoundedText(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now().UTC().Truncate(time.Second)
+	agents := []string{"Mozilla/5.0 Firefox/142.0", "", "<script>alert(1)</script>\r\n\t\u202efake", strings.Repeat("界", 1100)}
+	var data strings.Builder
+	for i, agent := range agents {
+		row := map[string]any{"ts": now.Add(-time.Duration(i+1) * time.Second).Unix(), "request": map[string]any{"remote_ip": "192.0.2.1", "host": "stage.example.com", "method": "GET"}, "status": 200, "duration": 0.01}
+		if agent != "" {
+			row["user_agent"] = agent
+		} // Legacy records omit the field.
+		value, _ := json.Marshal(row)
+		data.Write(value)
+		data.WriteByte('\n')
+	}
+	if err := os.WriteFile(filepath.Join(dir, "public.log"), []byte(data.String()), 0600); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := New(dir, []string{"stage.example.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := reader.Read(context.Background(), trafficreport.Query{From: now.Add(-time.Hour), To: now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Requests != 4 || report.InvalidRecords != 0 || report.Truncated {
+		t.Fatalf("unexpected report: %+v", report)
+	}
+	expected := []string{agents[0], "", "<script>alert(1)</script>fake", strings.Repeat("界", 1023) + "…"}
+	for i, agent := range expected {
+		if report.Logs[i].UserAgent != agent {
+			t.Errorf("user agent %d was not preserved/sanitized correctly", i)
+		}
+	}
+	encoded, err := json.Marshal(report.Logs[1])
+	if err != nil || !strings.Contains(string(encoded), `"user_agent":""`) {
+		t.Fatal("missing user agents must remain explicit in the API")
+	}
+}

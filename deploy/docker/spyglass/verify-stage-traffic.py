@@ -17,6 +17,7 @@ if sys.argv[1:] != ['--stage']:
 
 directory=Path('/opt/infiniteocean/caddy/data/spyglass-access')
 marker='stage-traffic-check-'+uuid.uuid4().hex
+agent='SpyglassTrafficCheck/1.0 '+uuid.uuid4().hex
 started=time.time()
 sites={'public':'stage.infiniteocean.net','app':'app.stage.infiniteocean.net','mcp':'mcp.stage.infiniteocean.net','ops':'ops.stage.infiniteocean.net'}
 assert directory.stat().st_mode & 0o7777 == 0o2750
@@ -25,7 +26,7 @@ assert directory.stat().st_gid == 65532
 def request(url,method='GET',origin=None,probe=False):
     headers={}
     if origin: headers['Origin']=origin
-    if probe: headers.update({'X-Forwarded-For':'203.0.113.99','Cookie':marker,'Authorization':'Bearer '+marker})
+    if probe: headers.update({'X-Forwarded-For':'203.0.113.99','Cookie':marker,'Authorization':'Bearer '+marker,'X-Private-Probe':marker,'User-Agent':agent})
     req=urllib.request.Request(url,method=method,headers=headers,data=b'{}' if method=='POST' else None)
     try:
         with urllib.request.urlopen(req,timeout=20) as response:
@@ -42,7 +43,7 @@ for name,host in sites.items():
     for attempt in range(20):
         lines=path.read_text().splitlines()
         recent=[json.loads(line) for line in lines[-30:] if line]
-        if any(row['ts']>=started and row['request']['host']==host for row in recent): break
+        if any(row['ts']>=started and row['request']['host']==host and row.get('user_agent')==agent for row in recent): break
         time.sleep(.1)
     else: raise AssertionError('New access record missing: '+host)
     assert marker not in '\n'.join(lines)
@@ -51,7 +52,7 @@ for name,host in sites.items():
         assert not {'headers','uri','tls'} & row['request'].keys()
         assert 'resp_headers' not in row
         assert row['request']['remote_ip']!='203.0.113.99'
-    print(name, 'appended=True redaction=True spoofed_forwarding_ignored=True', 'HTTP='+str(status))
+    print(name, 'appended=True user_agent=True redaction=True spoofed_forwarding_ignored=True', 'HTTP='+str(status))
 
 ops='https://ops.stage.infiniteocean.net'
 assert request(ops+'/api/operations/v1/traffic/reports','POST',ops)==401

@@ -25,6 +25,7 @@ type Entry struct {
 	Host       string    `json:"host"`
 	Method     string    `json:"method"`
 	Status     int       `json:"status"`
+	UserAgent  string    `json:"user_agent"`
 	DurationMS float64   `json:"duration_ms"`
 }
 

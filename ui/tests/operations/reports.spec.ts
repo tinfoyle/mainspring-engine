@@ -2,14 +2,15 @@ import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
 test("administrator can read traffic, IPs, logs and consented analytics without overflow", async ({ page }, testInfo) => {
+  const userAgent = "Mozilla/5.0 Firefox/142.0 <script>alert(1)</script> " + "VeryLongBotName".repeat(65);
   const now = new Date().toISOString();
   await page.route("**/api/operations/v1/**", async route => {
     const path = new URL(route.request().url()).pathname;
-    const body = path.endsWith("/session") ? { authentication_method: "passkey", expires_at: now, staff: { user_id: "10000000-0000-4000-8000-000000000001", display_name: "Test Administrator", state: "active", roles: ["operations_administrator"] } } : path.endsWith("/traffic/reports") ? {
+    const body = path.endsWith("/session") ? { authentication_method: "google_totp", expires_at: now, staff: { user_id: "10000000-0000-4000-8000-000000000001", display_name: "Test Administrator", state: "active", roles: ["operations_administrator"] } } : path.endsWith("/traffic/reports") ? {
       from: now, to: now, generated_at: now, available_from: now, available_to: now, requests: 12, unique_ips: 1, server_errors: 1, files_read: 4, invalid_records: 0, truncated: false, ip_list_truncated: false,
       ips: [{ ip: "2001:db8:aaaa:bbbb:cccc:dddd:eeee:ffff", requests: 12, first_seen: now, last_seen: now }],
       hosts: [{ label: "app.stage.infiniteocean.net", requests: 12 }], statuses: [{ label: "200", requests: 11 }, { label: "503", requests: 1 }], days: [{ label: now.slice(0, 10), requests: 12 }],
-      logs: [{ time: now, ip: "2001:db8:aaaa:bbbb:cccc:dddd:eeee:ffff", host: "app.stage.infiniteocean.net", method: "GET", status: 503, duration_ms: 41 }]
+      logs: [{ time: now, ip: "2001:db8:aaaa:bbbb:cccc:dddd:eeee:ffff", host: "app.stage.infiniteocean.net", method: "GET", status: 503, duration_ms: 41, user_agent: userAgent }, { time: now, ip: "192.0.2.1", host: "stage.infiniteocean.net", method: "GET", status: 200, duration_ms: 1, user_agent: "" }]
     } : { from: now, to: now, bucket: "day", dimension: "none", minimum_cohort: 5, rows: [] };
     await route.fulfill({ json: body });
   });
@@ -24,6 +25,15 @@ test("administrator can read traffic, IPs, logs and consented analytics without 
     expect(accessibility.violations).toEqual([]);
     if (view === "Summary") await page.screenshot({ path: testInfo.outputPath("traffic-summary.png"), fullPage: true });
   }
+  await expect(page.getByRole("columnheader", { name: "User agent", exact: true })).toBeVisible();
+  await expect(page.locator(".user-agent > span").first()).toHaveText(userAgent.slice(0, 120) + "…");
+  await page.getByText("Show full user agent", { exact: true }).click();
+  await expect(page.locator(".user-agent p")).toBeVisible();
+  await expect(page.locator(".user-agent p")).toHaveText(userAgent);
+  await page.getByText("Show full user agent", { exact: true }).click();
+  await expect(page.locator(".user-agent").last()).toHaveText("Not recorded");
+  await expect(page.locator(".user-agent script")).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("traffic-user-agents.png"), fullPage: true });
   if (await page.getByRole("button", { name: "Menu", exact: true }).isVisible()) await page.getByRole("button", { name: "Menu", exact: true }).click();
   await page.getByRole("button", { name: "Analytics", exact: true }).click();
   await page.getByRole("button", { name: "Run report", exact: true }).click();

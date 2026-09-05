@@ -2538,6 +2538,7 @@ export interface OperationsTrafficEntry {
   readonly "method": string;
   readonly "status": number;
   readonly "time": string;
+  readonly "user_agent": string;
 }
 
 export interface OperationsTrafficIP {

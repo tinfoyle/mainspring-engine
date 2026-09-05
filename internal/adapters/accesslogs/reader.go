@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/trafficreport"
 )
@@ -45,6 +46,7 @@ func New(directory string, hosts []string) (*Reader, error) {
 }
 
 type record struct {
+	UserAgent string  `json:"user_agent"`
 	Timestamp float64 `json:"ts"`
 	Request   struct {
 		RemoteIP string `json:"remote_ip"`
@@ -178,7 +180,7 @@ func (r *Reader) Read(ctx context.Context, query trafficreport.Query) (trafficre
 			default:
 				method = "OTHER"
 			}
-			result.Logs = append(result.Logs, trafficreport.Entry{Time: stamp, IP: ip, Host: row.Request.Host, Method: method, Status: row.Status, DurationMS: math.Round(row.Duration*100000) / 100})
+			result.Logs = append(result.Logs, trafficreport.Entry{Time: stamp, IP: ip, Host: row.Request.Host, Method: method, UserAgent: cleanUserAgent(row.UserAgent), Status: row.Status, DurationMS: math.Round(row.Duration*100000) / 100})
 			if len(result.Logs) >= 400 {
 				trimLogs(&result)
 			}
@@ -224,6 +226,22 @@ func (r *Reader) Read(ctx context.Context, query trafficreport.Query) (trafficre
 	result.Days = counts(days)
 	trimLogs(&result)
 	return result, nil
+}
+
+// User agents are client-supplied text, never trusted identity. Keep display
+// bounded and strip control/format characters that can disguise log contents.
+func cleanUserAgent(value string) string {
+	value = strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, value))
+	runes := []rune(value)
+	if len(runes) > 1024 {
+		return string(runes[:1023]) + "…"
+	}
+	return value
 }
 
 func trimLogs(report *trafficreport.Report) {

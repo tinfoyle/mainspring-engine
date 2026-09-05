@@ -72,7 +72,8 @@ request is recorded in the immutable staff audit trail before files are read.
   warning; the summary counts all addresses processed by the scan.
 - **Request logs** shows the latest 200 requests in the selected period. An IP
   filter also applies here. Columns show time, IP, site, method, response code
-  and duration. These are access logs, not raw application debug output.
+  duration and user agent. Long user agents can be expanded with **Show full user
+  agent**. These are access logs, not raw application debug output.
 
 An IP address is not a person. Shared networks combine people; changing networks
 can give one person multiple IPs. The source is the connecting address at the
@@ -128,7 +129,8 @@ sudo bash deploy/docker/spyglass/stage-operations-staff.sh "$release_file" "$sta
 ```
 
 Use the smallest role appropriate to the person's task. Assignment requires an
-active ordinary account with a connected Google identity. Enrollment is enforced\nat first admin sign-in before a staff session can be created. Revoking the final role
+active ordinary account with a connected Google identity. Enrollment is enforced
+at first admin sign-in before a staff session can be created. Revoking the final role
 suspends staff access and revokes its sessions. Role changes are audited. See
 [Operations Console operations](operations-console-operations.md) for other
 module boundaries and incident response.
@@ -149,8 +151,14 @@ Logs live at `/opt/infiniteocean/caddy/data/spyglass-access`. The directory is
 root-owned, group 65532, mode 2750; files are mode 0640. It is mounted read-only
 at `/var/log/spyglass/access` in the non-root operations API. No other Caddy data,
 Docker socket, application secret directory or arbitrary file browser is exposed.
-URLs, query strings, all request/response headers, TLS details and request bodies
-are excluded. The API returns a fixed allowlist of fields and Stage host names.
+The User-Agent header is recorded as `user_agent` so Request logs can show the
+browser or bot reported by the visitor. It is client-supplied text, not verified
+identity. Other request headers, all response headers, URLs, query strings, TLS
+details and request bodies are excluded. Old entries and requests without a user
+agent display “Not recorded”; this field cannot be reconstructed for old logs.
+Long user agents show a short preview; select **Show full user agent** to expand.
+The report strips control characters and limits user agents to 1,024 characters.
+The API returns a fixed allowlist of fields and Stage host names.
 
 Files roll at 10 MiB, keeping at most seven rotated files per host with a
 168-hour rotated-file age setting. Age cleanup occurs on rotation; an active
@@ -162,7 +170,7 @@ produce a warning. Retained logs can be shorter than the selected period under
 heavy traffic. A concurrent rotation may also produce a partial report; retry.
 
 After every release, verify all four host requests append a record, the IP is
-the connecting address, and a synthetic query/header marker is absent from the
+the connecting address, the synthetic user agent is present, and a synthetic query/header marker is absent from the
 log. Check that the API can read the mount as UID/GID 65532, that missing logs
 show an error, and that an unauthenticated report request is denied. Check the
 latest available timestamp when investigating a quiet report. Service readiness

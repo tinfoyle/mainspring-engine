@@ -62,9 +62,15 @@ function downloadIPs() {
         <div class="report-filter"><label>Filter by IP<input v-model="ipFilter" type="search" autocomplete="off" placeholder="Enter all or part of an IP" /></label><IoButton v-if="tab === 'ips'" kind="secondary" @click="downloadIPs">Download displayed IPs</IoButton></div>
         <p v-if="report.ip_list_truncated && tab === 'ips'" class="notice notice--warning">Showing the 1,000 busiest IPs. The summary includes all IPs counted in this scan.</p>
         <div v-if="tab === 'ips'" class="table-wrap" tabindex="0" aria-label="Scrollable IP addresses"><table><caption>{{ ips.length }} IP addresses displayed</caption><thead><tr><th scope="col">IP address</th><th scope="col">Requests</th><th scope="col">First seen</th><th scope="col">Last seen</th></tr></thead><tbody><tr v-for="row in ips" :key="row.ip"><td>{{ row.ip }}</td><td>{{ row.requests }}</td><td>{{ date(row.first_seen) }}</td><td>{{ date(row.last_seen) }}</td></tr></tbody></table></div>
-        <div v-else class="table-wrap" tabindex="0" aria-label="Scrollable request logs"><table><caption>Most recent requests, up to 200. URLs, headers and request bodies are excluded.</caption><thead><tr><th scope="col">Time</th><th scope="col">IP</th><th scope="col">Site</th><th scope="col">Method</th><th scope="col">Status</th><th scope="col">Time (ms)</th></tr></thead><tbody><tr v-for="(row, index) in logs" :key="index"><td>{{ date(row.time) }}</td><td>{{ row.ip }}</td><td>{{ row.host }}</td><td>{{ row.method }}</td><td>{{ row.status }}</td><td>{{ row.duration_ms }}</td></tr></tbody></table></div>
+        <div v-else class="table-wrap" tabindex="0" aria-label="Scrollable request logs"><table><caption>Most recent requests, up to 200. User agent identifies the browser or bot as reported by the visitor.</caption><thead><tr><th scope="col">Time</th><th scope="col">IP</th><th scope="col">Site</th><th scope="col">Method</th><th scope="col">Status</th><th scope="col">Time (ms)</th><th scope="col">User agent</th></tr></thead><tbody><tr v-for="(row, index) in logs" :key="index"><td>{{ date(row.time) }}</td><td>{{ row.ip }}</td><td>{{ row.host }}</td><td>{{ row.method }}</td><td>{{ row.status }}</td><td>{{ row.duration_ms }}</td><td class="user-agent"><template v-if="row.user_agent"><span>{{ row.user_agent.length > 120 ? row.user_agent.slice(0, 120) + "…" : row.user_agent }}</span><details v-if="row.user_agent.length > 120"><summary>Show full user agent</summary><p>{{ row.user_agent }}</p></details></template><span v-else>Not recorded</span></td></tr></tbody></table></div>
       </template>
     </template>
     <p v-else-if="!busy && !error" class="empty-state">Choose a period and load traffic. Reports use retained logs; visits before logging was enabled cannot be recovered.</p>
   </section>
 </template>
+
+<style scoped>
+.user-agent { min-width: 16rem; max-width: 28rem; white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
+.user-agent summary { margin-top: .5rem; cursor: pointer; color: var(--io-ocean-800); }
+.user-agent p { margin-bottom: 0; }
+</style>

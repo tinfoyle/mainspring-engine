@@ -1,6 +1,7 @@
 # Import inside each Spyglass Stage site with a static filename argument.
-# Do not log URLs, headers, credentials, or customer content.
+# Only the User-Agent header is retained; other headers and URLs are excluded.
 (spyglass_stage_access) {
+  log_append user_agent {http.request.header.User-Agent}
   log {
     output file /data/spyglass-access/{args[0]}.log {
       mode 0640

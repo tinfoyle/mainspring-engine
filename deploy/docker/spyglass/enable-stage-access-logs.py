@@ -14,26 +14,48 @@ SITES = {'stage.infiniteocean.net': 'public', 'app.stage.infiniteocean.net': 'ap
          'mcp.stage.infiniteocean.net': 'mcp'}
 
 
-def install():
-    if os.geteuid() != 0:
-        raise SystemExit('Run with sudo on the Stage VPS.')
-    snippet = Path(__file__).with_name('Caddyfile.hostinger-access-log').read_text()
-    original = CONFIG.read_text()
+def updated_config(original, snippet):
+    """Upgrade only the recognized logging snippet, preserving all site blocks."""
     if '(spyglass_stage_access)' in original:
         for host, name in SITES.items():
             if not re.search(re.escape(host) + r'\s*\{\s*import spyglass_stage_access ' + name, original):
-                raise SystemExit('Existing Stage logging does not match the expected configuration.')
-        print('Stage access logging is already installed.')
-        return
+                raise ValueError('Existing Stage logging does not match the expected configuration.')
+        if 'ops.stage.infiniteocean.net' in original and not re.search(
+                r'ops\.stage\.infiniteocean\.net\s*\{\s*import spyglass_stage_access ops', original):
+            raise ValueError('Existing admin host is missing its logging import.')
+        pattern = r'(?m)^\(spyglass_stage_access\) \{\n.*?^\}'
+        matches = list(re.finditer(pattern, original, re.S))
+        desired = re.search(pattern, snippet, re.S)
+        if len(matches) != 1 or desired is None:
+            raise ValueError('Expected exactly one recognized logging snippet.')
+        old = desired.group().replace('  log_append user_agent {http.request.header.User-Agent}\n', '')
+        current = matches[0]
+        if current.group() not in (old, desired.group()):
+            raise ValueError('Logging snippet has local changes; inspect before upgrading.')
+        return original[:current.start()] + desired.group() + original[current.end():]
     updated = original
     for host, name in SITES.items():
         updated, count = re.subn(r'(?m)^' + re.escape(host) + r'\s*\{\s*\n',
                                  host + ' {\n  import spyglass_stage_access ' + name + '\n', updated)
         if count != 1:
-            raise SystemExit('Expected exactly one existing site: ' + host)
+            raise ValueError('Expected exactly one existing site: ' + host)
     # Keep the global options block first, if one exists.
     first_site = re.search(r'(?m)^stage\.infiniteocean\.net\s*\{', updated)
-    updated = updated[:first_site.start()] + snippet + '\n' + updated[first_site.start():]
+    return updated[:first_site.start()] + snippet + '\n' + updated[first_site.start():]
+
+
+def install():
+    if os.geteuid() != 0:
+        raise SystemExit('Run with sudo on the Stage VPS.')
+    snippet = Path(__file__).with_name('Caddyfile.hostinger-access-log').read_text()
+    original = CONFIG.read_text()
+    try:
+        updated = updated_config(original, snippet)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+    if updated == original:
+        print('Stage access logging including user agents is already installed.')
+        return
     log_dir = DATA / 'spyglass-access'
     log_dir.mkdir(exist_ok=True)
     os.chown(log_dir, 0, 65532)
