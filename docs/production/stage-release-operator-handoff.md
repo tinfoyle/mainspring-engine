@@ -1,6 +1,6 @@
 # UbuntuRojo and Stage release handoff
 
-Status: current as of Spyglass `0.3.0-rc.49` on 2026-09-05.
+Status: current as of Spyglass `0.3.0-rc.50` on 2026-09-05.
 
 This is the short operator path for working on Spyglass locally and moving a
 review candidate to the Hostinger Stage VPS. It is not a production/LKE
@@ -41,11 +41,11 @@ Stage uses four HTTPS names:
 - `https://mcp.stage.infiniteocean.net`
 - `https://ops.stage.infiniteocean.net` (Google plus authenticator staff console)
 
-The active release is `0.3.0-rc.49`. Its four images were built from source commit
-`3ea72ffdf5eb6d10994ca8ac9120769ef524ed64`; the reviewed manifest and active
-VPS checkout are commit `8225c3e526d28fbc9af34ffb4034116114a2dc2d`.
+The active release is `0.3.0-rc.50`. Its four images were built from source commit
+`4601b5587d7df6bf3e1f38208b0181f9acd3fb3d`; the reviewed manifest and active
+VPS checkout are commit `a3c04bd8dd7f103567627325bdc3ef4360a9fe15`.
 `/opt/spyglass-stage/current` resolves to that immutable checkout. The database
-ledgers are global `70` and cell A/B `86/86`. Stage has 51 long-running
+ledgers are global `71` and cell A/B `86/86`. Stage has 51 long-running
 containers; all 50 health checks pass and the internal edge is the exception.
 
 The automatic dispatch introduced in RC.41 remains active for eligible
@@ -91,6 +91,14 @@ Collection began at 2026-09-05 19:53:01 UTC; old records show Not recorded.
 Long values have an expandable preview. All four host collection/redaction
 checks passed, all 50 health checks pass, and the published UI bundle contains
 the new field. See the [user-agent verification record](stage-traffic-user-agents-verification-2026-09-05.md).
+
+RC.50 adds the administrator-only **Users & teams** directory with totals,
+25/50/100-row pages, active membership counts and links into exact customer
+lookup. Global migration 71 adds the audited projection and ordering indexes;
+the runtime role has no direct customer-table access. Live checks read two users
+and two teams across one-row pages, confirmed per-page audits and public API
+denials, and verified the deployed UI bundle. All 50 health checks pass.
+See the [directory verification record](stage-admin-directory-verification-2026-09-05.md).
 
 The RC.49 deployment had a publication-token exposure in private task output.
 The exposed token was revoked and the owner supplied a replacement in UbuntuRojo
