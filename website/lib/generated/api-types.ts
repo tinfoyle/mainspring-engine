@@ -2917,11 +2917,13 @@ export interface Schedule {
 export interface ScheduleAgentRunTemplate {
   readonly "baseline_assessment_ids": ReadonlyArray<string> | null;
   readonly "boardroom_id": string;
+  readonly "email_self"?: boolean;
   readonly "knowledge_document_ids": ReadonlyArray<string> | null;
   readonly "knowledge_fact_ids": ReadonlyArray<string> | null;
   readonly "mode": "selected" | "manager_led";
   readonly "persona_ids": ReadonlyArray<string>;
   readonly "prompt": string;
+  readonly "source_urls"?: ReadonlyArray<string>;
   readonly "subject": string;
   readonly "work_item_ids": ReadonlyArray<string> | null;
 }
@@ -2929,6 +2931,22 @@ export interface ScheduleAgentRunTemplate {
 export type ScheduleFrequency = "daily" | "weekly";
 
 export type ScheduleGapPolicy = "skip" | "next_valid";
+
+export interface ScheduleHistoryItem {
+  readonly "boardroom_id": string;
+  readonly "conversation_id": string;
+  readonly "email_error": string;
+  readonly "email_state": string;
+  readonly "id": string;
+  readonly "occurred_at": string;
+  readonly "outcome": string;
+  readonly "run_id": string;
+  readonly "run_state": string;
+}
+
+export interface ScheduleHistoryPage {
+  readonly "items": ReadonlyArray<ScheduleHistoryItem>;
+}
 
 export type ScheduleMissedRunPolicy = "skip" | "catch_up_one";
 
@@ -3634,6 +3652,8 @@ export interface ApiSchemas {
   readonly ScheduleAgentRunTemplate: ScheduleAgentRunTemplate;
   readonly ScheduleFrequency: ScheduleFrequency;
   readonly ScheduleGapPolicy: ScheduleGapPolicy;
+  readonly ScheduleHistoryItem: ScheduleHistoryItem;
+  readonly ScheduleHistoryPage: ScheduleHistoryPage;
   readonly ScheduleMissedRunPolicy: ScheduleMissedRunPolicy;
   readonly ScheduleOverlapPolicy: ScheduleOverlapPolicy;
   readonly SchedulePage: SchedulePage;

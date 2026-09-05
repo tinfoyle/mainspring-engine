@@ -16,6 +16,10 @@ func ToolRequirement(name string) (access.Requirement, bool) {
 	}
 
 	switch name {
+	case "spyglass_schedule_history", "spyglass_schedule_list", "spyglass_schedule_get", "spyglass_agent_team_list", "spyglass_agent_list", "spyglass_agent_run_get", "spyglass_agent_messages":
+		return read(catalog.PackageAgents), true
+	case "spyglass_schedule_create", "spyglass_schedule_revise", "spyglass_schedule_pause", "spyglass_schedule_resume", "spyglass_schedule_delete", "spyglass_schedule_trigger", "spyglass_agent_run_start":
+		return write(catalog.PackageAgents), true
 	case "spyglass_attention_information_list", "spyglass_attention_information_get",
 		"spyglass_attention_review_list", "spyglass_attention_review_get":
 		return read(catalog.PackageWork), true

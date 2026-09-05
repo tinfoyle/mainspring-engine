@@ -336,7 +336,13 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	cellOptions := []cellapi.Option{cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService), cellapi.WithActionRecovery(actionRecoveryService), cellapi.WithKnowledge(knowledgeService), cellapi.WithKnowledgeDocuments(documents), cellapi.WithBaseline(baselineService), cellapi.WithFinance(financeService), cellapi.WithFinanceCommands(financeService), cellapi.WithMarketing(marketingService), cellapi.WithMarketingCommands(marketingCommands), cellapi.WithMarketingContent(marketingAdmission), cellapi.WithIntegrations(integrationsService), cellapi.WithIntegrationCommands(integrationsService), cellapi.WithScheduling(scheduleService), cellapi.WithScheduleExecution(scheduleExecution, config.CellID)}
+	reportReader, err := webresearchadapter.New(webresearchadapter.Config{Resolver: config.WebResearchResolver, Dialer: config.WebResearchDialer, RootCAs: config.WebResearchRootCAs, Timeout: 15 * time.Second, UserAgent: "InfiniteOcean-Spyglass/1.0"})
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	preparedSchedules := &scheduleSourceExecutor{OccurrenceExecutor: scheduleExecution, reader: reportReader}
+	cellOptions := []cellapi.Option{cellapi.WithWorkQueries(workQueries), cellapi.WithWorkCommands(workCommands), cellapi.WithAgents(agentService), cellapi.WithAttention(attentionService), cellapi.WithActionRecovery(actionRecoveryService), cellapi.WithKnowledge(knowledgeService), cellapi.WithKnowledgeDocuments(documents), cellapi.WithBaseline(baselineService), cellapi.WithFinance(financeService), cellapi.WithFinanceCommands(financeService), cellapi.WithMarketing(marketingService), cellapi.WithMarketingCommands(marketingCommands), cellapi.WithMarketingContent(marketingAdmission), cellapi.WithIntegrations(integrationsService), cellapi.WithIntegrationCommands(integrationsService), cellapi.WithScheduling(scheduleService), cellapi.WithScheduleExecution(preparedSchedules, config.CellID)}
 	if authorizationService != nil {
 		cellOptions = append(cellOptions, cellapi.WithIntegrationAuthorization(authorizationService))
 	}
@@ -348,7 +354,7 @@ func New(ctx context.Context, config Config, logger *slog.Logger, clock routecon
 		pool.Close()
 		return nil, err
 	}
-	mcpOptions := []mcpapi.Option{mcpapi.WithActionRecovery(actionRecoveryService), mcpapi.WithKnowledge(knowledgeService), mcpapi.WithKnowledgeDocuments(documents), mcpapi.WithBaseline(baselineService), mcpapi.WithFinance(financeService), mcpapi.WithMarketing(marketingCommands), mcpapi.WithIntegrations(integrationsService)}
+	mcpOptions := []mcpapi.Option{mcpapi.WithScheduling(scheduleService), mcpapi.WithAgents(agentService), mcpapi.WithActionRecovery(actionRecoveryService), mcpapi.WithKnowledge(knowledgeService), mcpapi.WithKnowledgeDocuments(documents), mcpapi.WithBaseline(baselineService), mcpapi.WithFinance(financeService), mcpapi.WithMarketing(marketingCommands), mcpapi.WithIntegrations(integrationsService)}
 	if authorizationService != nil {
 		mcpOptions = append(mcpOptions, mcpapi.WithIntegrationAuthorization(authorizationService))
 	}

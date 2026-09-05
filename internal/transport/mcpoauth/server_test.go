@@ -116,6 +116,13 @@ func TestAuthorizationMetadataConsentAndTokenExchange(t *testing.T) {
 	}
 	handler := server.Handler(nil)
 
+	nativeResponse := httptest.NewRecorder()
+	handler.ServeHTTP(nativeResponse, httptest.NewRequest(http.MethodGet, testIssuer+"/oauth/clients/codex.json", nil))
+	var native clientMetadataDocument
+	if nativeResponse.Code != 200 || json.Unmarshal(nativeResponse.Body.Bytes(), &native) != nil || native.ClientID != testIssuer+"/oauth/clients/codex.json" || len(native.RedirectURIs) != 1 || native.RedirectURIs[0] != "http://127.0.0.1:8787/callback" || native.TokenEndpointAuthMethod != "none" {
+		t.Fatalf("invalid native client metadata: %s", nativeResponse.Body.String())
+	}
+
 	metadataRequest := httptest.NewRequest(http.MethodGet, testIssuer+"/.well-known/oauth-authorization-server", nil)
 	metadataResponse := httptest.NewRecorder()
 	handler.ServeHTTP(metadataResponse, metadataRequest)

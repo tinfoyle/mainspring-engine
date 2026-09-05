@@ -38,6 +38,8 @@ spec:
             - {name: SPYGLASS_GOOGLE_DRIVE_OAUTH_CLIENT_FILE, value: /var/run/secrets/spyglass/integration-source/google-oauth-client.json}
             - {name: SPYGLASS_GOOGLE_DRIVE_PAGE_SIZE, value: "2"}
             - {name: SPYGLASS_GOOGLE_DRIVE_SYNC_TIMEOUT, value: "90s"}
+            - {name: SPYGLASS_REPORT_EMAIL_ENABLED, value: "true"}
+            # SPYGLASS_SMTP_* and SPYGLASS_APP_ORIGIN come from the worker Secret.
             - {name: SPYGLASS_SMTP_CONNECTOR_TIMEOUT, value: "30s"}
             - {name: SPYGLASS_WEB_PUBLISH_CONNECTOR_TIMEOUT, value: "30s"}
             - {name: SPYGLASS_INTEGRATION_CONNECTOR_POLL_INTERVAL, value: "1s"}

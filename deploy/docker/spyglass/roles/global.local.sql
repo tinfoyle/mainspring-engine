@@ -336,3 +336,5 @@ REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM spyglass_account_pr
 REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM spyglass_account_provisioning_worker;
 GRANT SELECT, UPDATE ON account_cell_provision_queue TO spyglass_account_provisioning_worker;
 GRANT SELECT ON account_erasure_restore_ledger TO spyglass_account_provisioning_worker;
+
+GRANT EXECUTE ON FUNCTION public.spyglass_schedule_report_recipient(uuid,uuid,text) TO spyglass_integration_connector_worker;

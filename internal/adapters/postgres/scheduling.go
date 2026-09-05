@@ -141,6 +141,9 @@ func (r *ScheduleRepository) Update(ctx context.Context, value domain.Schedule, 
 			}
 			return scheduleapp.ErrConflict
 		}
+		if (mutation.Kind == "updated" && value.Template.EmailSelf || mutation.Kind == "resumed" && current.Template.EmailSelf) && current.CreatedBy != mutation.ActorUserID {
+			return scheduleapp.ErrInvalid
+		}
 		var intended domain.Schedule
 		switch mutation.Kind {
 		case "updated":
@@ -203,6 +206,9 @@ func (r *ScheduleRepository) EnqueueTrigger(ctx context.Context, request schedul
 		current, err := loadSchedule(ctx, tx, request.AccountID, request.ScheduleID, true)
 		if err != nil {
 			return err
+		}
+		if current.Template.EmailSelf && current.CreatedBy != request.RequestedBy {
+			return scheduleapp.ErrInvalid
 		}
 		if current.State != domain.StateActive || current.Version != request.ScheduleVersion {
 			return scheduleapp.ErrConflict

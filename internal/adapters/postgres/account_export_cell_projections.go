@@ -99,6 +99,8 @@ func AccountExportCellProjectionTables(tx pgx.Tx) map[string][]AccountExportProj
 			projectionTable(tx, "spyglass", "marketing_release_plans", "account_id", []string{"account_id", "id"}, []string{"account_id", "id", "campaign_id", "campaign_version", "name", "state", "approval_id", "version", "created_by_kind", "created_by_id", "origin", "run_id", "invocation_id", "submitted_by_user_id", "approved_by_user_id", "created_at", "updated_at"}, nil),
 		},
 		"schedules": {
+			projectionTable(tx, "spyglass", "schedule_report_deliveries", "account_id", []string{"account_id", "id"},
+				[]string{"account_id", "id", "schedule_id", "run_id", "recipient_user_id", "definition", "state", "attempt_count", "error_code", "created_at", "updated_at"}, []string{"lease_id", "lease_expires_at", "next_attempt_at"}),
 			projectionTable(tx, "spyglass", "schedule_events", "account_id", []string{"account_id", "id"},
 				[]string{"account_id", "id", "schedule_id", "event_type", "from_version", "to_version", "actor_kind", "actor_id", "reason", "correlation_id", "redacted_payload", "occurred_at"}, nil),
 			projectionTable(tx, "spyglass", "schedule_occurrences", "account_id", []string{"account_id", "id"},

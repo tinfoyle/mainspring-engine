@@ -119,6 +119,9 @@ func (service *Service) Revise(ctx context.Context, command ReviseCommand) (doma
 		return domain.Schedule{}, err
 	}
 	now := service.clock.Now().UTC()
+	if command.Template.EmailSelf && current.CreatedBy != command.Actor.UserID {
+		return domain.Schedule{}, ErrInvalid
+	}
 	if current.State == domain.StateDeleted {
 		return domain.Schedule{}, ErrNotFound
 	}
@@ -169,6 +172,13 @@ func (service *Service) TriggerNow(ctx context.Context, command TransitionComman
 	if ids.Validate(string(command.ScheduleID)) != nil || ids.Validate(command.RequestID) != nil || command.ExpectedVersion == 0 {
 		return Trigger{}, false, ErrInvalid
 	}
+	current, err := service.store.Get(ctx, command.AccountID, command.ScheduleID)
+	if err != nil {
+		return Trigger{}, false, err
+	}
+	if current.Template.EmailSelf && current.CreatedBy != command.Actor.UserID {
+		return Trigger{}, false, ErrInvalid
+	}
 	now := service.clock.Now().UTC()
 	request := TriggerRequest{ID: command.RequestID, AccountID: command.AccountID, ScheduleID: command.ScheduleID,
 		ScheduleVersion: command.ExpectedVersion, RequestedBy: command.Actor.UserID, RequestedAt: now}
@@ -184,6 +194,9 @@ func (service *Service) transition(ctx context.Context, command TransitionComman
 		return domain.Schedule{}, err
 	}
 	now := service.clock.Now().UTC()
+	if kind == "resumed" && current.Template.EmailSelf && current.CreatedBy != command.Actor.UserID {
+		return domain.Schedule{}, ErrInvalid
+	}
 	desiredState := map[string]domain.State{"paused": domain.StatePaused, "resumed": domain.StateActive, "deleted": domain.StateDeleted}[kind]
 	if current.Version == command.ExpectedVersion+1 {
 		if desiredState == "" || current.State != desiredState {
@@ -262,7 +275,7 @@ func sameTemplate(left, right domain.AgentRunTemplate) bool {
 	return left.BoardroomID == normalized.BoardroomID && left.Mode == normalized.Mode && left.Subject == normalized.Subject && left.Prompt == normalized.Prompt &&
 		sameIDs(left.PersonaIDs, normalized.PersonaIDs) && sameIDs(left.WorkItemIDs, normalized.WorkItemIDs) &&
 		sameIDs(left.KnowledgeFactIDs, normalized.KnowledgeFactIDs) && sameIDs(left.KnowledgeDocumentIDs, normalized.KnowledgeDocumentIDs) &&
-		sameIDs(left.BaselineAssessmentIDs, normalized.BaselineAssessmentIDs)
+		sameIDs(left.BaselineAssessmentIDs, normalized.BaselineAssessmentIDs) && left.EmailSelf == normalized.EmailSelf && sameIDs(left.SourceURLs, normalized.SourceURLs)
 }
 
 func sameIDs[T ~string](left, right []T) bool {

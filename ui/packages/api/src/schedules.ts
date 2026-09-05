@@ -3,6 +3,7 @@ import type {
   ReviseScheduleRequest,
   Schedule,
   SchedulePage,
+  ScheduleHistoryPage,
   ScheduleTrigger,
   TransitionScheduleRequest
 } from "./generated/api-types";
@@ -71,4 +72,8 @@ export function deleteSchedule(accountID: string, schedule: Schedule, reason: st
 export function triggerSchedule(accountID: string, schedule: Schedule, reason: string): Promise<ScheduleTrigger> {
   const input: TransitionScheduleRequest = { expected_version: schedule.version, reason };
   return command("POST", `${base(accountID)}/${encodeURIComponent(schedule.id)}/triggers`, input);
+}
+
+export function getScheduleHistory(accountID: string, scheduleID: string): Promise<ScheduleHistoryPage> {
+ return requestJSON<ScheduleHistoryPage>(`${base(accountID)}/${encodeURIComponent(scheduleID)}/history`);
 }

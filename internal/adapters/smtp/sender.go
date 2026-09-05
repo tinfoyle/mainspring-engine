@@ -27,7 +27,9 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/multifactor"
 	"github.com/tinfoyle/spyglass-engine/internal/application/recovery"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/application/scheduledreports"
 	"github.com/tinfoyle/spyglass-engine/internal/application/subscriptionlifecycle"
+	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 )
 
 type Config struct {
@@ -242,7 +244,20 @@ func ownershipTransferContent(origin string, message accountmembers.OwnershipTra
 	return subject, plain, htmlBody, nil
 }
 
+func (s *Sender) SendReport(ctx context.Context, message scheduledreports.Message) error {
+	if ids.Validate(message.ID) != nil || ids.Validate(string(message.BoardroomID)) != nil || ids.Validate(string(message.ConversationID)) != nil || ids.Validate(string(message.ScheduleID)) != nil || len(message.Body) > 200000 {
+		return errors.New("invalid scheduled report")
+	}
+	link := s.origin + "/app/agents/boardrooms/" + string(message.BoardroomID) + "/conversations/" + string(message.ConversationID)
+	schedule := s.origin + "/app/schedules/" + string(message.ScheduleID)
+	plain := message.Body + "\r\n\r\nView this report: " + link + "\r\nChange or pause this schedule: " + schedule + "\r\n"
+	htmlBody := "<div style=\"white-space:pre-wrap\">" + html.EscapeString(message.Body) + "</div><p><a href=\"" + html.EscapeString(link) + "\">View report</a> · <a href=\"" + html.EscapeString(schedule) + "\">Change or pause schedule</a></p>"
+	return s.deliver(ctx, message.To, message.Subject, plain, htmlBody, message.ID)
+}
 func (s *Sender) send(ctx context.Context, to, subject, plain, htmlBody string) error {
+	return s.deliver(ctx, to, subject, plain, htmlBody, "")
+}
+func (s *Sender) deliver(ctx context.Context, to, subject, plain, htmlBody, reportID string) error {
 	parsedTo, err := mail.ParseAddress(to)
 	if err != nil || parsedTo.Address != to {
 		return errors.New("notification recipient is invalid")
@@ -250,7 +265,7 @@ func (s *Sender) send(ctx context.Context, to, subject, plain, htmlBody string) 
 	if strings.ContainsAny(subject, "\r\n") {
 		return errors.New("notification subject is invalid")
 	}
-	body, err := messageBody(s.from, mail.Address{Address: to}, subject, plain, htmlBody)
+	body, err := messageBody(s.from, mail.Address{Address: to}, subject, plain, htmlBody, reportID)
 	if err != nil {
 		return err
 	}
@@ -292,18 +307,27 @@ func (s *Sender) send(ctx context.Context, to, subject, plain, htmlBody string) 
 	}
 	if _, err = w.Write([]byte(body)); err != nil {
 		_ = w.Close()
+		if reportID != "" {
+			return scheduledreports.ErrUnknown
+		}
 		return fmt.Errorf("SMTP write: %w", err)
 	}
 	if err = w.Close(); err != nil {
+		if reportID != "" {
+			return scheduledreports.ErrUnknown
+		}
 		return fmt.Errorf("SMTP finish: %w", err)
 	}
 	if err = client.Quit(); err != nil {
+		if reportID != "" {
+			return nil
+		}
 		return fmt.Errorf("SMTP quit: %w", err)
 	}
 	return nil
 }
 
-func messageBody(from, to mail.Address, subject, plain, htmlBody string) (string, error) {
+func messageBody(from, to mail.Address, subject, plain, htmlBody string, stableID ...string) (string, error) {
 	var random [12]byte
 	if _, err := rand.Read(random[:]); err != nil {
 		return "", errors.New("notification message identity unavailable")
@@ -313,6 +337,12 @@ func messageBody(from, to mail.Address, subject, plain, htmlBody string) (string
 		return "", errors.New("notification sender domain unavailable")
 	}
 	identity := hex.EncodeToString(random[:])
+	if len(stableID) > 0 && stableID[0] != "" {
+		if ids.Validate(stableID[0]) != nil {
+			return "", errors.New("invalid report message identity")
+		}
+		identity = "report-" + stableID[0]
+	}
 	boundary := "spyglass_" + identity
 	messageID := "<spyglass-" + identity + "@" + from.Address[separator+1:] + ">"
 	headers := []string{"From: " + from.String(), "To: " + to.String(), "Subject: " + mime.QEncoding.Encode("utf-8", subject), "Date: " + time.Now().UTC().Format(time.RFC1123Z), "Message-ID: " + messageID, "MIME-Version: 1.0", `Content-Type: multipart/alternative; boundary="` + boundary + `"`}

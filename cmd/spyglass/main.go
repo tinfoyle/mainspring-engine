@@ -37,6 +37,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/mountedcredentials"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/runnerbrokerhttp"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/s3objects"
+	"github.com/tinfoyle/spyglass-engine/internal/adapters/smtp"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/smtpconnector"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/stripe"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/webpublishconnector"
@@ -3252,10 +3253,18 @@ func runIntegrationConnectorWorker(ctx context.Context, logger *slog.Logger) err
 			return err
 		}
 	}
-	worker, err := integrationconnectorworker.New(startup, integrationconnectorworker.Config{
-		GlobalDatabaseURL: globalDatabaseURL, CellDatabaseURL: cellDatabaseURL, CellID: ids.CellID(cellID),
-		MaxGlobalConns: globalConns, MaxCellConns: cellConns, PollInterval: poll, Lease: lease,
-	}, broker, contents, definitions, healthDefinitions, integrationconnectorworker.SourceDependencies{
+	var reportSender *smtp.Sender
+	if os.Getenv("SPYGLASS_REPORT_EMAIL_ENABLED") == "true" {
+		reportSender, err = smtp.New(smtp.Config{Address: os.Getenv("SPYGLASS_SMTP_ADDRESS"), ServerName: os.Getenv("SPYGLASS_SMTP_SERVER_NAME"), Username: os.Getenv("SPYGLASS_SMTP_USERNAME"), Password: os.Getenv("SPYGLASS_SMTP_PASSWORD"), FromAddress: os.Getenv("SPYGLASS_SMTP_FROM_ADDRESS"), FromName: envOr("SPYGLASS_SMTP_FROM_NAME", "Infinite Ocean"), AppOrigin: os.Getenv("SPYGLASS_APP_ORIGIN"), RootCAFile: os.Getenv("SPYGLASS_SMTP_ROOT_CA_FILE")})
+		if err != nil {
+			return err
+		}
+	}
+	connectorConfig := integrationconnectorworker.Config{GlobalDatabaseURL: globalDatabaseURL, CellDatabaseURL: cellDatabaseURL, CellID: ids.CellID(cellID), MaxGlobalConns: globalConns, MaxCellConns: cellConns, PollInterval: poll, Lease: lease}
+	if reportSender != nil {
+		connectorConfig.ReportSender = reportSender
+	}
+	worker, err := integrationconnectorworker.New(startup, connectorConfig, broker, contents, definitions, healthDefinitions, integrationconnectorworker.SourceDependencies{
 		Provider: sourceProvider, Cursors: cursorCipher, Objects: sourceObjects, Timeout: driveSyncTimeout,
 	}, logger)
 	if err != nil {

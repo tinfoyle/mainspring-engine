@@ -51,7 +51,7 @@ func TestPostgresCellErasureIsExactIdempotentAndContentFree(t *testing.T) {
 	for _, table := range []string{"prototype_migration_runs", "prototype_migration_receipts", "prototype_migration_events"} {
 		coveredTables[table] = true
 	}
-	for _, table := range []string{"schedules", "schedule_events", "schedule_dispatch_queue", "schedule_occurrences", "schedule_triggers", "schedule_trigger_queue", "schedule_queue_operator_events"} {
+	for _, table := range []string{"schedules", "schedule_events", "schedule_dispatch_queue", "schedule_occurrences", "schedule_triggers", "schedule_trigger_queue", "schedule_queue_operator_events", "schedule_report_deliveries"} {
 		coveredTables[table] = true
 	}
 	for _, table := range []string{"finance_ledgers", "finance_ledger_close_evidence", "finance_accounts", "finance_entry_number_counters", "finance_entries", "finance_entry_lines", "finance_entry_evidence", "finance_reconciliations", "finance_reconciliation_evidence", "finance_events"} {

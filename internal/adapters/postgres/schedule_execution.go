@@ -164,7 +164,7 @@ func (r *ScheduleExecutionRepository) Dispatch(ctx context.Context, command sche
 		draft := agentapp.StartRunDraft{
 			Actor: access.Actor{UserID: current.CreatedBy}, AccountID: current.AccountID, BoardroomID: current.Template.BoardroomID,
 			RunID: command.RunID, ConversationID: command.ConversationID, CreateConversation: true, UserMessageID: command.UserMessageID,
-			Subject: command.Subject, Prompt: current.Template.Prompt, Mode: agentapp.RunMode(current.Template.Mode), PersonaIDs: append([]ids.PersonaID(nil), current.Template.PersonaIDs...),
+			Subject: command.Subject, Prompt: current.Template.Prompt + scheduleapp.SourceContext(ctx), Mode: agentapp.RunMode(current.Template.Mode), PersonaIDs: append([]ids.PersonaID(nil), current.Template.PersonaIDs...),
 			Context:            agentapp.ContextSelection{WorkItemIDs: append([]ids.WorkItemID(nil), current.Template.WorkItemIDs...), KnowledgeFactIDs: append([]ids.KnowledgeFactID(nil), current.Template.KnowledgeFactIDs...), KnowledgeDocumentIDs: append([]ids.KnowledgeDocumentID(nil), current.Template.KnowledgeDocumentIDs...), BaselineAssessmentIDs: append([]ids.BaselineAssessmentID(nil), current.Template.BaselineAssessmentIDs...)},
 			EntitlementVersion: command.Authorization.EntitlementVersion, MaximumConcurrentRun: command.Authorization.MaximumConcurrentRun,
 			CanReadRestricted: command.Authorization.CanReadRestricted, CreatedAt: command.At, RequestExpiresAt: command.RequestExpiresAt,

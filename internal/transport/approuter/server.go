@@ -393,6 +393,9 @@ func routeRequirement(method, resource string) (access.Requirement, bool) {
 		return access.Requirement{Package: catalog.PackageAgents, Mutation: method == http.MethodPut || method == http.MethodDelete}, method == http.MethodGet || method == http.MethodPut || method == http.MethodDelete
 	}
 	if len(parts) == 3 && parts[0] == "schedules" && ids.Validate(parts[1]) == nil {
+		if parts[2] == "history" {
+			return access.Requirement{Package: catalog.PackageAgents}, method == http.MethodGet
+		}
 		switch parts[2] {
 		case "pauses", "resumptions", "triggers":
 			return access.Requirement{Package: catalog.PackageAgents, Mutation: true}, method == http.MethodPost

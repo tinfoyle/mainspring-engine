@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	agentapp "github.com/tinfoyle/spyglass-engine/internal/application/agents"
+	scheduleapp "github.com/tinfoyle/spyglass-engine/internal/application/scheduling"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/routecontext"
@@ -33,6 +35,8 @@ type Config struct {
 }
 
 type Server struct {
+	scheduling               *scheduleapp.Service
+	agents                   *agentapp.Service
 	authority                Authority
 	attention                AttentionService
 	actions                  ActionRecoveryService
@@ -144,6 +148,25 @@ func WithWebResearch(service WebResearchService) Option {
 	}
 }
 
+func WithScheduling(service *scheduleapp.Service) Option {
+	return func(s *Server) error {
+		if service == nil {
+			return errors.New("MCP schedule service is required")
+		}
+		s.scheduling = service
+		return nil
+	}
+}
+func WithAgents(service *agentapp.Service) Option {
+	return func(s *Server) error {
+		if service == nil {
+			return errors.New("MCP agent service is required")
+		}
+		s.agents = service
+		return nil
+	}
+}
+
 type principalContextKey struct{}
 
 func New(authority Authority, attention AttentionService, logger *slog.Logger, config Config, options ...Option) (*Server, error) {
@@ -205,6 +228,12 @@ func (s *Server) protocolServer(actor access.Actor) *mcp.Server {
 		Instructions: "Use only the Account-bound Spyglass tools exposed for the authenticated principal. Read summaries before sensitive detail, preserve operation IDs and expected versions across retries, never treat Finance drafts as posted records or payment execution, and never treat Marketing drafts or activation as external delivery.",
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}}, SchemaCache: s.schemaCache,
 	})
+	if s.scheduling != nil {
+		s.registerSchedules(server, actor)
+	}
+	if s.agents != nil {
+		s.registerAgents(server, actor)
+	}
 	s.registerInformation(server, actor)
 	s.registerReviews(server, actor)
 	s.registerApprovals(server, actor)

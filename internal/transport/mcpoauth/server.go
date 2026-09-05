@@ -73,6 +73,7 @@ func (s *Server) Handler(fallback http.Handler) http.Handler {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/oauth-authorization-server", s.metadata)
+	mux.HandleFunc("GET /oauth/clients/codex.json", s.codexClientMetadata)
 	mux.HandleFunc("GET /oauth/authorize", s.authorize)
 	mux.HandleFunc("POST /oauth/authorize", s.decide)
 	mux.HandleFunc("POST /oauth/token", s.token)
@@ -343,3 +344,14 @@ func validOrigin(raw string) bool {
 
 const consentPage = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Authorize MCP client</title><style>
 body{margin:0;background:#f2f5f1;color:#14241d;font:16px system-ui,sans-serif}.card{width:min(520px,calc(100% - 40px));margin:10vh auto;border:1px solid #d6dfd8;border-radius:18px;background:white;padding:32px;box-sizing:border-box}h1{font:500 2rem Georgia,serif;margin:.3rem 0 1rem}.label{color:#176a4b;font-size:.7rem;font-weight:800;letter-spacing:.12em}.detail{padding:14px;border-radius:10px;background:#eef5f0;overflow-wrap:anywhere}form{display:flex;gap:10px;margin-top:24px}button{flex:1;border:1px solid #176a4b;border-radius:10px;padding:13px;font-weight:750;background:white;color:#176a4b}button.primary{background:#176a4b;color:white}</style></head><body><main class="card"><p class="label">SPYGLASS MCP ACCESS</p><h1>Connect {{.ClientName}}?</h1><p>This client is requesting access to act as your signed-in Infinite Ocean identity.</p><div class="detail"><strong>Resource</strong><br>{{.Resource}}<br><br><strong>Permission</strong><br>{{.Scope}}</div><form method="post" action="/oauth/authorize"><input type="hidden" name="pending_id" value="{{.PendingID}}"><button type="submit" name="decision" value="deny">Deny</button><button class="primary" type="submit" name="decision" value="approve">Authorize</button></form></main></body></html>`
+
+// The public native client uses an exact loopback callback plus mandatory PKCE.
+// This metadata grants no access; every login still requires user consent.
+func (s *Server) codexClientMetadata(w http.ResponseWriter, _ *http.Request) {
+	s.writeJSON(w, http.StatusOK, clientMetadataDocument{
+		ClientID: s.config.Issuer + "/oauth/clients/codex.json", ClientName: "Spyglass desktop MCP client",
+		RedirectURIs: []string{"http://127.0.0.1:8787/callback"},
+		GrantTypes:   []string{"authorization_code", "refresh_token"}, ResponseTypes: []string{"code"},
+		TokenEndpointAuthMethod: "none",
+	})
+}

@@ -471,6 +471,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/schedules", s.scheduleList)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/schedules", s.scheduleCreate)
 	mux.HandleFunc("GET /api/v1/accounts/{accountID}/schedules/{scheduleID}", s.scheduleGet)
+	mux.HandleFunc("GET /api/v1/accounts/{accountID}/schedules/{scheduleID}/history", s.scheduleHistory)
 	mux.HandleFunc("PUT /api/v1/accounts/{accountID}/schedules/{scheduleID}", s.scheduleRevise)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/schedules/{scheduleID}/pauses", s.schedulePause)
 	mux.HandleFunc("POST /api/v1/accounts/{accountID}/schedules/{scheduleID}/resumptions", s.scheduleResume)

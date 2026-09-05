@@ -181,6 +181,8 @@ func providerCredential(value []byte) (string, error) {
 	return credential, nil
 }
 
+// PageText extracts visible text from a bounded public web capture.
+func PageText(mediaType string, content []byte) (string, string) { return pageText(mediaType, content) }
 func pageText(mediaType string, content []byte) (string, string) {
 	if mediaType == "text/plain" {
 		return "", strings.TrimSpace(string(content))

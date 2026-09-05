@@ -126,3 +126,20 @@ func TestServiceEnqueuesTriggerWithoutMutatingDefinition(t *testing.T) {
 		t.Fatalf("trigger=%+v created=%v stored=%+v mutation=%+v err=%v", trigger, created, store.value, store.mutation, err)
 	}
 }
+
+func TestOtherMemberCannotActivateOrTriggerEmailToCreator(t *testing.T) {
+	owner := ids.UserID("11000000-0000-4000-8000-000000000001")
+	other := access.Actor{UserID: "11000000-0000-4000-8000-000000000002"}
+	store := &scheduleServiceStore{value: domain.Schedule{ID: "31000000-0000-4000-8000-000000000001", AccountID: "21000000-0000-4000-8000-000000000001", CreatedBy: owner, Version: 1, State: domain.StatePaused, Template: domain.AgentRunTemplate{EmailSelf: true}}}
+	service, _ := New(&scheduleServiceAuthorizer{}, store, &scheduleServiceClock{now: time.Now()})
+	cmd := TransitionCommand{Actor: other, AccountID: store.value.AccountID, ScheduleID: store.value.ID, RequestID: "61000000-0000-4000-8000-000000000001", ExpectedVersion: 1, Reason: "Test permission"}
+	if _, err := service.Resume(context.Background(), cmd); err != ErrInvalid {
+		t.Fatalf("resume err=%v", err)
+	}
+	if _, _, err := service.TriggerNow(context.Background(), cmd); err != ErrInvalid {
+		t.Fatalf("trigger err=%v", err)
+	}
+	if store.mutation.Kind != "" {
+		t.Fatal("unauthorized schedule mutation")
+	}
+}

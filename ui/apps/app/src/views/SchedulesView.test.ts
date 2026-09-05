@@ -9,7 +9,7 @@ import { expectNoAxeViolations } from "../test/accessibility";
 import SchedulesView from "./SchedulesView.vue";
 
 const api = vi.hoisted(() => ({
-  listSchedules: vi.fn(), getSchedule: vi.fn(), createSchedule: vi.fn(), reviseSchedule: vi.fn(),
+  listSchedules: vi.fn(), getSchedule: vi.fn(), getScheduleHistory: vi.fn(), createSchedule: vi.fn(), reviseSchedule: vi.fn(),
   pauseSchedule: vi.fn(), resumeSchedule: vi.fn(), deleteSchedule: vi.fn(), triggerSchedule: vi.fn(),
   listAgentBoardrooms: vi.fn(), listAgentPersonas: vi.fn()
 }));
@@ -50,6 +50,7 @@ beforeEach(() => {
   for (const mock of Object.values(api)) mock.mockReset();
   api.listSchedules.mockResolvedValue({ items: [schedule] });
   api.getSchedule.mockResolvedValue(schedule);
+  api.getScheduleHistory.mockResolvedValue({ items: [] });
   api.listAgentBoardrooms.mockResolvedValue([boardroom]);
   api.listAgentPersonas.mockResolvedValue([persona]);
   const session = useSessionStore();
@@ -57,6 +58,14 @@ beforeEach(() => {
 });
 
 describe("Schedules surface", () => {
+  it("shows an uncertain email outcome without calling it delivered", async () => {
+    api.getScheduleHistory.mockResolvedValue({ items: [{ id: "run", occurred_at: schedule.updated_at, outcome: "dispatched", run_state: "succeeded", email_state: "unknown", email_error: "delivery_outcome_unknown", conversation_id: "conversation", boardroom_id: boardroom.id }] });
+    const wrapper = await mountAt(`/app/schedules/${schedule.id}`);
+    expect(wrapper.text()).toContain("Delivery uncertain");
+    expect(wrapper.text()).toContain("Open report");
+    expect(wrapper.text()).not.toContain("Mail server accepted");
+  });
+
   it("renders a mobile-first schedule list with durable detail links", async () => {
     const wrapper = await mountAt("/app/schedules");
     expect(api.listSchedules).toHaveBeenCalledWith(account.account_id, undefined);

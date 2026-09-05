@@ -137,6 +137,7 @@ var Routes = [...]Route{
 	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/marketing/releases/{releaseID}", OperationID: "marketingReleaseGet", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/schedules", OperationID: "scheduleList", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/schedules/{scheduleID}", OperationID: "scheduleGet", Authentication: "sessionCookie", Contract: "typed"},
+	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/schedules/{scheduleID}/history", OperationID: "scheduleHistory", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/work-items", OperationID: "workList", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/work-items/summary", OperationID: "workSummary", Authentication: "sessionCookie", Contract: "typed"},
 	{Service: "cell-api", Method: "GET", Path: "/api/v1/accounts/{accountID}/work-items/{itemID}", OperationID: "workItem", Authentication: "sessionCookie", Contract: "typed"},

@@ -7,7 +7,7 @@ type Draft = {
   weekdays: number[]; gapPolicy: ScheduleGapPolicy; overlapPolicy: ScheduleOverlapPolicy;
   missedRunPolicy: ScheduleMissedRunPolicy; boardroomID: string; mode: "selected" | "manager_led";
   personaIDs: string[]; subject: string; prompt: string; workItemIDs: string; factIDs: string;
-  documentIDs: string; assessmentIDs: string; reason: string;
+  documentIDs: string; assessmentIDs: string; reason: string; emailSelf: boolean; sourceURLs: string;
 };
 
 const props = defineProps<{
@@ -41,6 +41,8 @@ watch(fields, (value) => {
   <label>Agent team<select v-model="fields.boardroomID" required><option value="">Choose an agent team</option><option v-for="boardroom in boardrooms" :key="boardroom.id" :value="boardroom.id" :disabled="boardroom.state !== 'active'">{{ boardroom.name }}{{ boardroom.state === "active" ? "" : " (archived)" }}</option></select></label>
   <fieldset class="schedule-personas"><legend>Agents</legend><p v-if="optionsLoading" class="form-note">Loading agents…</p><p v-else-if="optionsError" class="form-error" role="alert">{{ optionsError }}</p><p v-else-if="!fields.boardroomID" class="form-note">Choose an agent team to see its agents.</p><p v-else-if="personas.length === 0" class="form-note">This team has no agents yet.</p><label v-for="(persona, index) in personas" v-else :key="persona.id"><input v-model="fields.personaIDs" type="checkbox" :value="persona.id" :disabled="persona.state !== 'active'" :required="fields.personaIDs.length === 0 && index === 0"> <span><strong>{{ persona.name }}</strong><small>{{ persona.role }} · version {{ persona.latest_version }}{{ persona.state === "active" ? "" : ` · ${persona.state}` }}</small></span></label></fieldset>
   <label>Run mode<select v-model="fields.mode"><option value="selected">Selected agents</option><option value="manager_led">Agents, then a summary</option></select></label><label>Subject<input v-model="fields.subject" minlength="2" maxlength="240" required></label><label>Prompt<textarea v-model="fields.prompt" maxlength="65536" rows="6" required></textarea></label>
+  <label>Web pages to check<textarea v-model="fields.sourceURLs" rows="4" placeholder="https://example.com/product"></textarea><small>One public HTTPS link per line, up to six. Each run checks these pages again. Some stores require a selected location or block automated checks; the report will identify missing prices.</small></label>
+  <label class="confirmation"><input v-model="fields.emailSelf" type="checkbox"><span>Email me the completed report</span></label><p v-if="fields.emailSelf" class="form-note">Reports go to the verified email of the person who created this schedule. Pause the schedule to stop future reports.</p>
   <details class="schedule-options"><summary>Optional Account context</summary><label>Work item IDs<textarea v-model="fields.workItemIDs" rows="2"></textarea></label><label>Knowledge fact IDs<textarea v-model="fields.factIDs" rows="2"></textarea></label><label>Knowledge document IDs<textarea v-model="fields.documentIDs" rows="2"></textarea></label><label>Baseline assessment IDs<textarea v-model="fields.assessmentIDs" rows="2"></textarea></label></details>
   <label>Reason for this change<textarea v-model="fields.reason" minlength="3" maxlength="500" rows="3" required></textarea></label>
 </template>

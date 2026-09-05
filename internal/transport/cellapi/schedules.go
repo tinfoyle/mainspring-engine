@@ -1,6 +1,7 @@
 package cellapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -290,3 +291,27 @@ func (s *Server) writeSchedulingError(w http.ResponseWriter, operation string, e
 }
 
 var _ SchedulingService = (*schedulingapp.Service)(nil)
+
+func (s *Server) scheduleHistory(w http.ResponseWriter, r *http.Request) {
+	claims, actor, account, _, ok := s.scheduleRequest(w, r, false)
+	if !ok {
+		return
+	}
+	id, ok := scheduleTarget(w, r)
+	if !ok {
+		return
+	}
+	service, ok := s.scheduling.(interface {
+		History(context.Context, schedulingapp.GetQuery) (schedulingapp.HistoryPage, error)
+	})
+	if !ok {
+		writeProblem(w, 503, "schedules_unavailable", "Schedule history is unavailable")
+		return
+	}
+	page, err := service.History(routecontext.WithClaims(r.Context(), claims), schedulingapp.GetQuery{Actor: actor, AccountID: account, ScheduleID: id})
+	if err != nil {
+		s.writeSchedulingError(w, "history", err)
+		return
+	}
+	writeJSON(w, 200, page)
+}

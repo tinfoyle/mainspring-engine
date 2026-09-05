@@ -28,7 +28,7 @@ func TestAPIMCPGuideMatchesGeneratedInventories(t *testing.T) {
 			}
 		}
 	}
-	if operations != 219 || !strings.Contains(guide, "HTTP contract: `api/spyglass.openapi.json` (219 operations)") {
+	if operations != 220 || !strings.Contains(guide, "HTTP contract: `api/spyglass.openapi.json` (220 operations)") {
 		t.Fatalf("HTTP operation inventory=%d or guide count is stale", operations)
 	}
 
@@ -39,8 +39,8 @@ func TestAPIMCPGuideMatchesGeneratedInventories(t *testing.T) {
 	for _, name := range toolPattern.FindAllString(toolSources, -1) {
 		tools[name] = struct{}{}
 	}
-	if len(tools) != 94 {
-		t.Fatalf("published MCP tool inventory=%d want=94", len(tools))
+	if len(tools) != 108 {
+		t.Fatalf("published MCP tool inventory=%d want=108", len(tools))
 	}
 	for name := range tools {
 		if !strings.Contains(guide, "`"+name+"`") {

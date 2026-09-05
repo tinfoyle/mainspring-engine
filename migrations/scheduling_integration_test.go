@@ -219,7 +219,7 @@ func TestScheduleExecutionAtomicallyCreatesRunAndAdvancesDefinition(t *testing.T
 		ID: scheduleID, AccountID: accountID, Name: "Scheduled operating review", Timezone: "America/New_York",
 		Recurrence:      scheduledomain.Recurrence{Frequency: scheduledomain.FrequencyDaily, LocalHour: 9, GapPolicy: scheduledomain.GapSkip, OverlapPolicy: scheduledomain.OverlapFirst},
 		MissedRunPolicy: scheduledomain.MissedCatchUpOne,
-		Template:        scheduledomain.AgentRunTemplate{BoardroomID: boardroomID, Mode: "selected", PersonaIDs: []ids.PersonaID{personaID}, Subject: "Operating review", Prompt: "Review the scheduled operating priorities."},
+		Template:        scheduledomain.AgentRunTemplate{BoardroomID: boardroomID, Mode: "selected", PersonaIDs: []ids.PersonaID{personaID}, Subject: "Operating review", Prompt: "Review the scheduled operating priorities.", EmailSelf: true},
 		CreatedBy:       userID, CreatedAt: createdAt,
 	})
 	if err != nil {
@@ -324,8 +324,63 @@ func TestScheduleExecutionAtomicallyCreatesRunAndAdvancesDefinition(t *testing.T
 		accountID, triggerID, scheduleID).Scan(&triggerQueue, &triggerEvents); err != nil || triggerQueue != 0 || triggerEvents != 2 {
 		t.Fatalf("trigger queue=%d events=%d err=%v", triggerQueue, triggerEvents, err)
 	}
-}
 
+	// Complete the first run with fixture output, then exercise the durable email queue.
+	if _, err := owner.Exec(ctx, `UPDATE spyglass.agent_runs SET state='succeeded',completed_at=$3 WHERE account_id=$1 AND id=$2`, accountID, runID, triggerAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.agent_messages(account_id,id,conversation_id,run_id,invocation_id,sequence,role,persona_version_id,body,structured_result,result_digest,created_at)
+ SELECT account_id,'96000000-0000-4000-8000-000000000001', $3,run_id,id,2,'persona',persona_version_id,'Fresh mulch report: $4 per 2 cubic feet.','{}',decode(repeat('00',32),'hex'),$4
+ FROM spyglass.agent_invocations WHERE account_id=$1 AND run_id=$2 LIMIT 1`, accountID, runID, conversationID, triggerAt); err != nil {
+		t.Fatal(err)
+	}
+	delivery := postgresadapter.NewScheduleReportRepository(owner, owner, "cell-test")
+	claim, found, err := delivery.Claim(ctx, "97000000-0000-4000-8000-000000000001", triggerAt)
+	if err != nil || !found || claim.ID != occurrenceID || claim.UserID != userID {
+		t.Fatalf("claim=%+v found=%v err=%v", claim, found, err)
+	}
+	if _, found, err := delivery.Claim(ctx, "97000000-0000-4000-8000-000000000002", triggerAt); err != nil || found {
+		t.Fatalf("duplicate claim found=%v err=%v", found, err)
+	}
+	wrong := claim
+	wrong.LeaseID = "97000000-0000-4000-8000-000000000099"
+	if _, ready, err := delivery.Begin(ctx, wrong, triggerAt); err != nil || ready {
+		t.Fatalf("wrong lease ready=%v err=%v", ready, err)
+	}
+	message, ready, err := delivery.Begin(ctx, claim, triggerAt)
+	if err != nil || !ready || message.Body != "Fresh mulch report: $4 per 2 cubic feet." || message.BoardroomID != boardroomID {
+		t.Fatalf("message=%+v ready=%v err=%v", message, ready, err)
+	}
+	// A worker crash after beginning SMTP must become unknown, never be resent.
+	if _, found, err := delivery.Claim(ctx, "97000000-0000-4000-8000-000000000003", triggerAt.Add(3*time.Minute)); err != nil || found {
+		t.Fatalf("uncertain re-claim found=%v err=%v", found, err)
+	}
+	history, err := definitions.History(ctx, accountID, scheduleID)
+	if err != nil || len(history.Items) != 2 {
+		t.Fatalf("history=%+v err=%v", history, err)
+	}
+	for _, item := range history.Items {
+		if item.ID == occurrenceID && item.EmailState != "unknown" {
+			t.Fatalf("ambiguous delivery=%+v", item)
+		}
+	}
+	otherHistory, err := definitions.History(ctx, "13000000-0000-4000-8000-000000000099", scheduleID)
+	if err != nil || len(otherHistory.Items) != 0 {
+		t.Fatalf("cross-account history=%+v err=%v", otherHistory, err)
+	}
+	// Pausing cancels the second report while its agent run is still pending.
+	paused, err := afterTrigger.Pause(afterTrigger.Version, triggerAt.Add(4*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := definitions.Update(ctx, paused, afterTrigger.Version, scheduleapp.Mutation{EventID: "98000000-0000-4000-8000-000000000001", Kind: "paused", ActorUserID: userID, Reason: "Finish report test", CorrelationID: "report-test", At: paused.UpdatedAt}); err != nil {
+		t.Fatal(err)
+	}
+	var state string
+	if err := owner.QueryRow(ctx, `SELECT state FROM spyglass.schedule_report_deliveries WHERE account_id=$1 AND id=$2`, accountID, triggerOccurrenceID).Scan(&state); err != nil || state != "cancelled" {
+		t.Fatalf("paused delivery=%s err=%v", state, err)
+	}
+}
 func TestScheduleDefinitionsQueueLeasesAndLeastPrivilege(t *testing.T) {
 	adminURL := os.Getenv("SPYGLASS_POSTGRES_TEST_URL")
 	if adminURL == "" {

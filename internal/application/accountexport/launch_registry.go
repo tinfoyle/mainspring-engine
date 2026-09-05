@@ -86,7 +86,7 @@ func LaunchRegistry() (*Registry, error) {
 	include("spyglass", "marketing", "marketing_asset_revisions", "marketing_assets", "marketing_campaign_channels", "marketing_campaigns", "marketing_events", "marketing_release_assets", "marketing_release_channels", "marketing_release_plans")
 	include("spyglass", "migration", "prototype_migration_events", "prototype_migration_receipts", "prototype_migration_runs")
 	exclude("spyglass", Operational, "Route receipts and cleanup leases are short-lived anti-replay and routing controls.", "route_context_receipt_cleanup_queue", "route_context_receipts")
-	include("spyglass", "schedules", "schedule_events", "schedule_occurrences", "schedule_triggers", "schedules")
+	include("spyglass", "schedules", "schedule_events", "schedule_occurrences", "schedule_triggers", "schedule_report_deliveries", "schedules")
 	exclude("spyglass", Operational, "Schedule dispatch, trigger, and operator queues are transient execution controls.", "schedule_dispatch_queue", "schedule_queue_operator_events", "schedule_trigger_queue")
 	include("spyglass", "work", "work_agent_executions", "work_item_events", "work_items")
 	exclude("spyglass", Operational, "Work execution and capacity queues plus operator interventions are internal processing controls.", "work_agent_execution_queue", "work_capacity_release_operator_events", "work_capacity_release_queue")

@@ -4,6 +4,8 @@ import {
   createSchedule,
   deleteSchedule,
   getSchedule,
+  getScheduleHistory,
+  type ScheduleHistoryItem,
   listAgentBoardrooms,
   listAgentPersonas,
   listSchedules,
@@ -33,7 +35,7 @@ type ScheduleDraft = {
   weekdays: number[]; gapPolicy: ScheduleGapPolicy; overlapPolicy: ScheduleOverlapPolicy;
   missedRunPolicy: ScheduleMissedRunPolicy; boardroomID: string; mode: "selected" | "manager_led";
   personaIDs: string[]; subject: string; prompt: string; workItemIDs: string; factIDs: string;
-  documentIDs: string; assessmentIDs: string; reason: string;
+  documentIDs: string; assessmentIDs: string; reason: string; emailSelf: boolean; sourceURLs: string;
 };
 
 const session = useSessionStore();
@@ -42,6 +44,8 @@ const router = useRouter();
 const schedules = ref<ReadonlyArray<Schedule>>([]);
 const nextCursor = ref("");
 const detail = ref<Schedule>();
+const history = ref<ReadonlyArray<ScheduleHistoryItem>>([]);
+const historyError = ref("");
 const boardrooms = ref<ReadonlyArray<AgentBoardroom>>([]);
 const personas = ref<ReadonlyArray<AgentPersona>>([]);
 const optionsLoading = ref(false);
@@ -66,7 +70,7 @@ const emptyDraft = (): ScheduleDraft => ({
   name: "", timezone: defaultTimezone, frequency: "weekly", localHour: 9, localMinute: 0, weekdays: [1],
   gapPolicy: "next_valid", overlapPolicy: "first", missedRunPolicy: "catch_up_one", boardroomID: "",
   mode: "selected", personaIDs: [], subject: "", prompt: "", workItemIDs: "", factIDs: "",
-  documentIDs: "", assessmentIDs: "", reason: ""
+  documentIDs: "", assessmentIDs: "", reason: "", emailSelf: false, sourceURLs: ""
 });
 const draft = reactive<ScheduleDraft>(emptyDraft());
 
@@ -133,13 +137,15 @@ function request(): CreateScheduleRequest {
       boardroom_id: draft.boardroomID.trim(), mode: draft.mode, persona_ids: [...new Set(draft.personaIDs)],
       subject: draft.subject.trim(), prompt: draft.prompt.trim(), work_item_ids: splitIDs(draft.workItemIDs),
       knowledge_fact_ids: splitIDs(draft.factIDs), knowledge_document_ids: splitIDs(draft.documentIDs),
-      baseline_assessment_ids: splitIDs(draft.assessmentIDs)
+      baseline_assessment_ids: splitIDs(draft.assessmentIDs),
+      email_self: draft.emailSelf, source_urls: draft.sourceURLs.split(/\r?\n/).map(v => v.trim()).filter(Boolean)
     },
     reason: draft.reason.trim()
   };
 }
 function fillDraft(value: Schedule): void {
   Object.assign(draft, {
+    emailSelf: value.template.email_self ?? false, sourceURLs: value.template.source_urls?.join("\n") ?? "",
     name: value.name, timezone: value.timezone, frequency: value.recurrence.frequency,
     localHour: value.recurrence.local_hour, localMinute: value.recurrence.local_minute,
     weekdays: [...(value.recurrence.weekdays ?? [])], gapPolicy: value.recurrence.gap_policy,
@@ -188,11 +194,22 @@ async function refresh(append = false): Promise<void> {
   } catch (cause) { if (sequence === listSequence) error.value = cause instanceof APIProblem ? cause.message : "Schedules are unavailable right now."; }
   finally { if (sequence === listSequence) loading.value = false; }
 }
+async function loadHistory(): Promise<void> {
+ const accountID = session.selectedID, target = scheduleID.value;
+ historyError.value = "";
+ if (!accountID || !target) { history.value = []; return; }
+ try { const page = await getScheduleHistory(accountID, target); if (accountID === session.selectedID && target === scheduleID.value) history.value = page.items; }
+ catch { if (accountID === session.selectedID && target === scheduleID.value) historyError.value = "Run history could not be loaded."; }
+}
+function emailLabel(state: string): string {
+ return ({ not_requested: "Email not requested", queued: "Waiting to email", claimed: "Preparing email", sending: "Sending email", sent: "Mail server accepted", unknown: "Delivery uncertain — check your inbox", failed: "Email failed", cancelled: "Email cancelled" } as Record<string, string>)[state] ?? label(state);
+}
 async function loadDetail(): Promise<void> {
   const accountID = session.selectedID;
   if (!accountID || !scheduleID.value || !available.value) { detail.value = undefined; return; }
+  history.value = []; historyError.value = "";
   const sequence = ++detailSequence; detailLoading.value = true; detailError.value = ""; editorOpen.value = false;
-  try { const value = await getSchedule(accountID, scheduleID.value); if (sequence === detailSequence) detail.value = value; }
+  try { const value = await getSchedule(accountID, scheduleID.value); if (sequence === detailSequence) { detail.value = value; void loadHistory(); } }
   catch (cause) { if (sequence === detailSequence) detailError.value = cause instanceof APIProblem ? cause.message : "This schedule is unavailable right now."; }
   finally { if (sequence === detailSequence) detailLoading.value = false; }
 }
@@ -262,14 +279,15 @@ watch(() => [session.selectedID, scheduleID.value, available.value], () => void 
         <p v-if="detailError && !editorOpen && !actionOpen" class="queue-inline-status queue-inline-status--error" role="alert">{{ detailError }}</p>
         <form v-if="editorOpen" class="schedule-editor decision-card" @submit.prevent="submitDefinition"><h2>Edit schedule</h2><ScheduleFields :model="draft" :boardrooms="boardrooms" :personas="personas" :options-loading="optionsLoading" :options-error="optionsError" @update="Object.assign(draft, $event)" /><p v-if="detailError" class="form-error" role="alert">{{ detailError }}</p><div class="modal-actions"><IoButton type="button" kind="secondary" @click="editorOpen = false">Cancel</IoButton><IoButton type="submit" :disabled="saving || optionsLoading || Boolean(optionsError) || !definitionReady">{{ saving ? "Saving…" : "Save schedule" }}</IoButton></div></form>
         <div v-else class="detail-layout">
-          <article class="detail-card schedule-detail"><h2>When it runs</h2><dl><div><dt>Recurrence</dt><dd>{{ time(detail) }}</dd></div><div><dt>Timezone</dt><dd>{{ detail.timezone }}</dd></div><div><dt>Next run</dt><dd>{{ date(detail.next_run_at) }}</dd></div><div><dt>Daylight-saving gap</dt><dd>{{ label(detail.recurrence.gap_policy) }}</dd></div><div><dt>Repeated local time</dt><dd>{{ label(detail.recurrence.overlap_policy) }}</dd></div><div><dt>Missed run</dt><dd>{{ label(detail.missed_run_policy) }}</dd></div><div><dt>Version</dt><dd>{{ detail.version }}</dd></div></dl><details><summary>Task details</summary><dl><div><dt>Subject</dt><dd>{{ detail.template.subject }}</dd></div><div><dt>Mode</dt><dd>{{ label(detail.template.mode) }}</dd></div><div><dt>Agent team</dt><dd>{{ boardroomName(detail.template.boardroom_id) }}</dd></div><div><dt>Agents</dt><dd>{{ personaNames(detail.template.persona_ids) }}</dd></div></dl><p>{{ detail.template.prompt }}</p></details></article>
+          <article class="detail-card schedule-detail"><h2>When it runs</h2><dl><div><dt>Recurrence</dt><dd>{{ time(detail) }}</dd></div><div><dt>Timezone</dt><dd>{{ detail.timezone }}</dd></div><div><dt>Next run</dt><dd>{{ date(detail.next_run_at) }}</dd></div><div><dt>Daylight-saving gap</dt><dd>{{ label(detail.recurrence.gap_policy) }}</dd></div><div><dt>Repeated local time</dt><dd>{{ label(detail.recurrence.overlap_policy) }}</dd></div><div><dt>Missed run</dt><dd>{{ label(detail.missed_run_policy) }}</dd></div><div><dt>Version</dt><dd>{{ detail.version }}</dd></div></dl><details><summary>Task details</summary><dl><div><dt>Email reports</dt><dd>{{ detail.template.email_self ? "Enabled for the schedule creator" : "Off" }}</dd></div><div><dt>Subject</dt><dd>{{ detail.template.subject }}</dd></div><div><dt>Mode</dt><dd>{{ label(detail.template.mode) }}</dd></div><div><dt>Agent team</dt><dd>{{ boardroomName(detail.template.boardroom_id) }}</dd></div><div><dt>Agents</dt><dd>{{ personaNames(detail.template.persona_ids) }}</dd></div></dl><p>{{ detail.template.prompt }}</p></details></article>
           <aside class="decision-card"><h2>Schedule controls</h2><p v-if="!writable" class="form-note">Your current package or role provides read-only access.</p><template v-else-if="detail.state !== 'deleted'"><IoButton kind="secondary" @click="beginEdit">Edit definition</IoButton><IoButton v-if="detail.state === 'active'" kind="secondary" @click="beginAction('trigger')">Run now</IoButton><IoButton v-if="detail.state === 'active'" kind="secondary" @click="beginAction('pause')">Pause</IoButton><IoButton v-if="detail.state === 'paused'" kind="secondary" @click="beginAction('resume')">Resume</IoButton><IoButton kind="secondary" @click="beginAction('delete')">Delete schedule</IoButton></template><p v-else class="form-note">Deleted schedules remain in the durable audit record and cannot be changed.</p></aside>
         </div>
+        <article v-if="!editorOpen" class="detail-card"><h2>Recent runs</h2><IoButton kind="secondary" @click="loadHistory">Refresh run history</IoButton><p v-if="historyError" role="alert">{{ historyError }}</p><p v-else-if="history.length === 0">No runs recorded yet. Use Run now to test this schedule.</p><ol v-else><li v-for="run in history" :key="run.id"><p>{{ date(run.occurred_at) }} · {{ label(run.run_state || run.outcome) }} · {{ emailLabel(run.email_state) }}</p><RouterLink v-if="run.conversation_id" :to="`/app/agents/boardrooms/${run.boardroom_id}/conversations/${run.conversation_id}`">Open report</RouterLink><p v-if="run.email_error"><small>{{ label(run.email_error) }}</small></p></li></ol><small v-if="history.length">Showing up to 50 recent runs. Mail server acceptance does not confirm inbox delivery.</small></article>
       </template>
     </template>
 
     <template v-else>
-      <header class="page-heading page-heading--action"><div><h1>Schedules</h1><p>Schedule recurring conversations with your agents.</p></div><IoButton v-if="writable" @click="editorOpen = !editorOpen">{{ editorOpen ? "Close" : "New schedule" }}</IoButton></header>
+      <header class="page-heading page-heading--action"><div><h1>Schedules</h1><p>Run recurring agent tasks and get reports by email.</p></div><IoButton v-if="writable" @click="editorOpen = !editorOpen">{{ editorOpen ? "Close" : "New schedule" }}</IoButton></header>
       <section v-if="!session.selectedID" class="queue-state"><h2>Select an Account</h2><p>Schedules always belong to one Account.</p></section>
       <section v-else-if="!available" class="queue-state"><h2>Schedules are not enabled</h2><p>Schedules are part of the Agents package for this Account.</p><a href="/app#billing">Review Account plans</a></section>
       <template v-else>

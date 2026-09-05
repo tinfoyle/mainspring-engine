@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	agentapp "github.com/tinfoyle/spyglass-engine/internal/application/agents"
 	attentionapp "github.com/tinfoyle/spyglass-engine/internal/application/attention"
+	scheduleapp "github.com/tinfoyle/spyglass-engine/internal/application/scheduling"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	attentiondomain "github.com/tinfoyle/spyglass-engine/internal/modules/attention"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
@@ -304,3 +306,40 @@ func (s *attentionStub) ListApprovals(ctx context.Context, actor access.Actor, a
 }
 
 var _ AttentionService = (*attentionStub)(nil)
+
+func TestRecurringReportMCPToolsPublishValidSchemas(t *testing.T) {
+	server := newMCPServer(t, &testAuthority{}, &attentionStub{})
+	server.scheduling = &scheduleapp.Service{}
+	server.agents = &agentapp.Service{}
+	endpoint := httptest.NewServer(server.Handler())
+	defer endpoint.Close()
+	client := mcp.NewClient(&mcp.Implementation{Name: "schedule-test", Version: "1"}, nil)
+	session, err := client.Connect(context.Background(), &mcp.StreamableClientTransport{Endpoint: endpoint.URL, DisableStandaloneSSE: true, HTTPClient: &http.Client{Transport: bearerRoundTripper{base: http.DefaultTransport}}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	result, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Tools) != 29 {
+		t.Fatalf("tool count=%d", len(result.Tools))
+	}
+	for _, tool := range result.Tools {
+		if _, ok := ToolRequirement(tool.Name); !ok {
+			t.Fatalf("unroutable tool %s", tool.Name)
+		}
+		if tool.InputSchema == nil || tool.OutputSchema == nil {
+			t.Fatalf("untyped tool %s", tool.Name)
+		}
+		if tool.Name == "spyglass_schedule_create" {
+			schema, _ := json.Marshal(tool.InputSchema)
+			for _, field := range []string{"email_self", "source_urls", "operation_id"} {
+				if !strings.Contains(string(schema), field) {
+					t.Fatalf("missing %s", field)
+				}
+			}
+		}
+	}
+}

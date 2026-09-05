@@ -133,6 +133,7 @@ export const apiRoutes = [
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/marketing/releases/{releaseID}", operationId: "marketingReleaseGet", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/schedules", operationId: "scheduleList", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/schedules/{scheduleID}", operationId: "scheduleGet", authentication: "sessionCookie", contract: "typed" },
+  { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/schedules/{scheduleID}/history", operationId: "scheduleHistory", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/work-items", operationId: "workList", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/work-items/summary", operationId: "workSummary", authentication: "sessionCookie", contract: "typed" },
   { service: "cell-api", method: "GET", path: "/api/v1/accounts/{accountID}/work-items/{itemID}", operationId: "workItem", authentication: "sessionCookie", contract: "typed" },

@@ -306,3 +306,8 @@ REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public, spyglass FROM spyglass_
 REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public, spyglass FROM spyglass_account_provisioning_worker;
 GRANT SELECT ON spyglass.account_erasure_restore_ledger TO spyglass_account_provisioning_worker;
 GRANT SELECT, INSERT, UPDATE ON spyglass.account_namespaces TO spyglass_account_provisioning_worker;
+
+GRANT SELECT ON spyglass.schedule_report_deliveries TO spyglass_app_api;
+GRANT EXECUTE ON FUNCTION public.spyglass_claim_schedule_report(uuid,timestamptz),
+ public.spyglass_begin_schedule_report(uuid,uuid,uuid,timestamptz),
+ public.spyglass_finish_schedule_report(uuid,uuid,uuid,text,text,timestamptz) TO spyglass_integration_connector_worker;

@@ -4,6 +4,7 @@ package scheduling
 
 import (
 	"errors"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -150,6 +151,9 @@ func wallClockCandidates(date time.Time, hour, minute int, location *time.Locati
 }
 
 type AgentRunTemplate struct {
+	// EmailSelf is standing permission to deliver this schedule's results to its creator.
+	EmailSelf             bool                       `json:"email_self,omitempty"`
+	SourceURLs            []string                   `json:"source_urls,omitempty"`
 	BoardroomID           ids.BoardroomID            `json:"boardroom_id"`
 	Mode                  string                     `json:"mode"`
 	PersonaIDs            []ids.PersonaID            `json:"persona_ids"`
@@ -163,6 +167,16 @@ type AgentRunTemplate struct {
 
 func NewAgentRunTemplate(value AgentRunTemplate) (AgentRunTemplate, error) {
 	value.Subject, value.Prompt = strings.TrimSpace(value.Subject), strings.TrimSpace(value.Prompt)
+	value.SourceURLs = append([]string(nil), value.SourceURLs...)
+	if len(value.SourceURLs) > 6 {
+		return AgentRunTemplate{}, ErrInvalidTemplate
+	}
+	for i, raw := range value.SourceURLs {
+		u, err := url.Parse(raw)
+		if err != nil || len(raw) > 2048 || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.Fragment != "" || u.String() != raw || slices.Contains(value.SourceURLs[:i], raw) {
+			return AgentRunTemplate{}, ErrInvalidTemplate
+		}
+	}
 	value.PersonaIDs = append([]ids.PersonaID(nil), value.PersonaIDs...)
 	value.WorkItemIDs = append([]ids.WorkItemID(nil), value.WorkItemIDs...)
 	value.KnowledgeFactIDs = append([]ids.KnowledgeFactID(nil), value.KnowledgeFactIDs...)

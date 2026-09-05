@@ -19,6 +19,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/integrationsync"
 	"github.com/tinfoyle/spyglass-engine/internal/application/knowledge"
 	"github.com/tinfoyle/spyglass-engine/internal/application/registration"
+	"github.com/tinfoyle/spyglass-engine/internal/application/scheduledreports"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
@@ -26,6 +27,7 @@ import (
 )
 
 type Config struct {
+	ReportSender                       scheduledreports.Sender
 	GlobalDatabaseURL, CellDatabaseURL string
 	CellID                             ids.CellID
 	MaxGlobalConns, MaxCellConns       int32
@@ -174,7 +176,16 @@ func New(ctx context.Context, config Config, broker integrationexecution.Credent
 	if err != nil {
 		return closeOnError(err)
 	}
-	return &Worker{global: global, cell: cell, processor: &combinedProcessor{processors: []processor{healthApplication, application, sourceApplication}},
+	processors := []processor{healthApplication, application, sourceApplication}
+	if config.ReportSender != nil {
+		reports := postgres.NewScheduleReportRepository(cell, global, config.CellID)
+		reportProcessor, err := scheduledreports.New(reports, reports, config.ReportSender, ids.RandomGenerator{}, registration.SystemClock{})
+		if err != nil {
+			return closeOnError(err)
+		}
+		processors = append(processors, reportProcessor)
+	}
+	return &Worker{global: global, cell: cell, processor: &combinedProcessor{processors: processors},
 		sourceObjects: source.Objects, poll: config.PollInterval, logger: logger}, nil
 }
 
