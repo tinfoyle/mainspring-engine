@@ -43,3 +43,12 @@ Live evidence is recorded separately after deployment. Passing mocked provider t
 - Real TLS/SMTP fixture covers accepted DATA with a subsequent connection loss and uncertain DATA acceptance, with stable Message-ID, escaped HTML and correct report links.
 - Source-capture tests prove pages are read again, changed prices replace prior captures, scripts are stripped, and blocked sources remain explicitly unavailable.
 - UI type checking, lint, app build and four schedule UI tests passed, including uncertain delivery guidance.
+
+## Live OAuth correction
+
+The first RC52 browser attempt exposed a pre-existing consent failure: the
+no-referrer policy causes a form-navigation Origin to become null, which the
+same-origin CSRF check correctly rejects. Consent now uses same-origin referrer
+policy (no external referrer) and permits only the validated callback origin in
+form-action. Exact redirect matching, PKCE, session binding and CSRF origin
+validation remain mandatory. This correction is released in RC53.

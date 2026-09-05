@@ -126,6 +126,15 @@ func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
 		s.oauthError(w, http.StatusBadRequest, "invalid_request")
 		return
 	}
+
+	// A form navigation must retain its same-origin Origin header for the
+	// decision's CSRF check and may follow only this validated client's callback.
+	callback, err := url.Parse(pending.RedirectURI)
+	if err != nil || strings.ContainsAny(callback.Host, "; \t\r\n'\"\\") {
+		s.oauthError(w, http.StatusBadRequest, "invalid_client")
+		return
+	}
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' "+callback.Scheme+"://"+callback.Host+"; frame-ancestors 'none'; base-uri 'none'")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	if err := s.template.Execute(w, map[string]string{"PendingID": pending.ID, "ClientName": pending.ClientName, "Resource": pending.Resource, "Scope": pending.Scope}); err != nil {
@@ -331,7 +340,7 @@ func (s *Server) writeJSON(w http.ResponseWriter, status int, value any) {
 func (s *Server) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
-		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		next.ServeHTTP(w, r)
 	})

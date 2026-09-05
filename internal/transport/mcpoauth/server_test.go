@@ -146,6 +146,9 @@ func TestAuthorizationMetadataConsentAndTokenExchange(t *testing.T) {
 		t.Fatalf("authorization response = %d %s", authorizationResponse.Code, authorizationResponse.Body.String())
 	}
 
+	if authorizationResponse.Header().Get("Referrer-Policy") != "same-origin" || !strings.Contains(authorizationResponse.Header().Get("Content-Security-Policy"), "form-action 'self' http://127.0.0.1:8765;") {
+		t.Fatalf("browser consent policies: %v", authorizationResponse.Header())
+	}
 	decisionForm := url.Values{"pending_id": {testPending}, "decision": {"approve"}}
 	decisionRequest := httptest.NewRequest(http.MethodPost, testIssuer+"/oauth/authorize", strings.NewReader(decisionForm.Encode()))
 	decisionRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
