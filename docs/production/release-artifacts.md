@@ -1,6 +1,6 @@
 # Release artifacts and provenance
 
-Status: RC.44 is the active Hostinger Stage review candidate; its matched AMD64 image triple passed local admission with attached BuildKit SBOM/provenance but is deliberately not production-promotable because it is single-platform and unsigned. RC.5/RC.4 remain the independently verified Phase 2.5 baseline/rollback pair; final-product certification remains a promotion gate.
+Status: RC.45 is the active Hostinger Stage review candidate; its matched AMD64 image triple passed local admission with attached BuildKit SBOM/provenance but is deliberately not production-promotable because it is single-platform and unsigned. RC.5/RC.4 remain the independently verified Phase 2.5 baseline/rollback pair; final-product certification remains a promotion gate.
 
 Spyglass uses one shared, multi-mode application image for Account API, routers, cell APIs, private brokers, workers, runner execution, migrations, and one-shot operator commands. Runtime arguments choose the workload class. Kubernetes ServiceAccounts, NetworkPolicies, mounted credentials, database roles, and workload certificates—not separate per-customer builds—bound each process's authority. Ordinary Accounts never create an image, Deployment, namespace, or long-running container.
 
@@ -189,7 +189,7 @@ The RC.4-to-RC.5 source delta changes only deployment release records, environme
 
 ## RC.44 Stage functional-review artifact
 
-The active matched application/public/private triple is recorded in
+The RC.44 matched application/public/private triple is recorded in
 [`deploy/releases/0.3.0-rc.44.env`](../../deploy/releases/0.3.0-rc.44.env).
 Its source revision is `171992fe96389367e0bd07f0f8edbc2593a7f9e0`; the reviewed manifest and active VPS
 checkout are `ab964530a32240239e2b773d30617ccf00294d3d`. The UbuntuRojo publisher built all three AMD64
@@ -205,6 +205,21 @@ Marketing approvals without a model invocation. RC.41 cannot read those rows;
 rollback must retain this origin and the current Marketing decision authorization.
 The historical Phase 2.5 rollback pair is not compatible evidence for this schema.
 RC.44 remains unsigned and single-platform, and is not production-promotable.
+
+## RC.45 pricing presentation
+
+The matched triple is recorded in [`0.3.0-rc.45.env`](../../deploy/releases/0.3.0-rc.45.env),
+built from `3bcb3bdf2dd60665296134312a2bf8604292cf42`. The manifest and active VPS checkout are `cc88f07522ef644dc3a65127f219b2e1d900bc8e`.
+All three AMD64 images carry SBOM/provenance and passed the publisher's high/critical
+vulnerability and secret scans with zero findings. Deployment verification passed.
+The public pricing page now separates the monthly plan from optional setup help,
+adds card spacing, reduces the heading, removes repeated text and explains the
+Catalog-backed AI Token allowance and top-up price. Catalog amounts and checkout
+behavior are unchanged. Public tests (22), type checking, lint, production build,
+asset budgets, and pricing accessibility/signup checks at desktop, 360 and 320
+pixels passed. The final page was visually checked on Stage at desktop and phone
+sizes. The retained schema remains global 68 and cell 86/86; RC.44's rollback
+compatibility limits continue to apply. This remains a Stage-only review artifact.
 
 ## Verification and promotion
 
@@ -223,4 +238,4 @@ Promotion reuses the same digest through staging, internal canary, customer cana
 
 ## Remaining release evidence
 
-RC.4/RC.5 independent evidence, the earlier signed Phase 3 checkpoints and connected Stage evidence through RC.44 are recorded. Before final promotion, publish a complete-product immutable application/public/private triple, independently verify each signature/provenance/SBOM/scan set, archive the rendered environment overlay digest, migration set, Catalog version and `staging-cert`, and prove a compatible rollback transition. Cluster admission enforcement and the final-triple staged rollback remain launch gates.
+RC.4/RC.5 independent evidence, the earlier signed Phase 3 checkpoints and connected Stage evidence through RC.45 are recorded. Before final promotion, publish a complete-product immutable application/public/private triple, independently verify each signature/provenance/SBOM/scan set, archive the rendered environment overlay digest, migration set, Catalog version and `staging-cert`, and prove a compatible rollback transition. Cluster admission enforcement and the final-triple staged rollback remain launch gates.

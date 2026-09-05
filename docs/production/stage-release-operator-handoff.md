@@ -1,6 +1,6 @@
 # UbuntuRojo and Stage release handoff
 
-Status: current as of Spyglass `0.3.0-rc.44` on 2026-09-04.
+Status: current as of Spyglass `0.3.0-rc.45` on 2026-09-04.
 
 This is the short operator path for working on Spyglass locally and moving a
 review candidate to the Hostinger Stage VPS. It is not a production/LKE
@@ -40,9 +40,9 @@ Stage uses three public names:
 - `https://app.stage.infiniteocean.net`
 - `https://mcp.stage.infiniteocean.net`
 
-The active release is `0.3.0-rc.44`. Its images were built from source commit
-`171992fe96389367e0bd07f0f8edbc2593a7f9e0`; the reviewed manifest and active
-VPS checkout are commit `ab964530a32240239e2b773d30617ccf00294d3d`.
+The active release is `0.3.0-rc.45`. Its images were built from source commit
+`3bcb3bdf2dd60665296134312a2bf8604292cf42`; the reviewed manifest and active
+VPS checkout are commit `cc88f07522ef644dc3a65127f219b2e1d900bc8e`.
 `/opt/spyglass-stage/current` resolves to that immutable checkout. The database
 ledgers are global `68` and cell A/B `86/86`. Stage has 49 long-running
 containers; 48 have health checks and the internal edge is the exception.
@@ -60,6 +60,8 @@ a narrower first outcome after three model failures. That is intentional
 waiting, not an idle agent queue.
 
 RC.44 completes the [functional audit and plain-language UI review](stage-functional-audit-2026-09-04.md). It repairs saved schedule runs, no-tool agent creation and summary selection, Marketing file review and human approval, Finance supporting notes and archive guidance, and Knowledge fact navigation. Live synthetic workflows passed after deployment; the public phone layout and customer-facing copy were also corrected.
+
+RC.45 simplifies the pricing page: a padded monthly-plan card, a separate optional setup section, clear AI Token pricing, and a compact heading. Public tests, type checking, lint, build and desktop/phone accessibility and signup checks passed; the live Stage pricing page was also reviewed. The Catalog amounts and checkout contract are unchanged.
 
 Cell migration 86 permits narrowly scoped human Marketing approvals without a model invocation. Once those rows exist, RC.41 is not a compatible rollback target. Any rollback must retain this origin and its Marketing decision authorization; selecting an older checkout alone is insufficient.
 
