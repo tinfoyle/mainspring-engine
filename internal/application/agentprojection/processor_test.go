@@ -271,7 +271,7 @@ func TestProcessorDeadLettersTamperedOrSemanticallyInvalidResult(t *testing.T) {
 	}
 }
 
-func TestProcessorDeadLettersResultDeniedByFrozenPolicy(t *testing.T) {
+func TestProcessorMakesPolicyRejectionTerminalWithoutPublishingActions(t *testing.T) {
 	now := time.Date(2026, 8, 18, 22, 0, 0, 0, time.UTC)
 	var turn runneragents.TurnOutput
 	if err := json.Unmarshal(validTurnOutput(t), &turn); err != nil {
@@ -287,7 +287,7 @@ func TestProcessorDeadLettersResultDeniedByFrozenPolicy(t *testing.T) {
 	claim.ActionPolicy = "none"
 	queue := &projectionQueue{found: true, claim: claim}
 	result, err := testProcessor(t, queue, cipher, now).ProcessOne(context.Background())
-	if !errors.Is(err, ErrInvalidPayload) || !result.DeadLetter || queue.failureCode != "result_policy_denied" || queue.retry {
+	if err != nil || !result.Projected || result.DeadLetter || queue.failure == nil || queue.failure.FailureCode != "result_policy_denied" || queue.success != nil || queue.failed {
 		t.Fatalf("result=%+v code=%s retry=%v err=%v", result, queue.failureCode, queue.retry, err)
 	}
 }

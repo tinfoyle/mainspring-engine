@@ -218,11 +218,11 @@ func (p *Processor) ProcessOne(ctx context.Context) (Result, error) {
 	}
 	output, err := decodeExact[runneragents.TurnOutput](envelope.Output)
 	if err != nil {
-		return p.reject(ctx, claim, now, "turn_output_invalid", ErrInvalidPayload)
+		return p.failOutput(ctx, claim, now, "turn_output_invalid")
 	}
 	output, err = runneragents.ValidateTurnOutput(output, claim.ExpectedProvider, claim.PermittedModels)
 	if err != nil {
-		return p.reject(ctx, claim, now, "turn_output_invalid", ErrInvalidPayload)
+		return p.failOutput(ctx, claim, now, "turn_output_invalid")
 	}
 	if err := p.closeTokens(ctx, claim, agentusage.Usage{ProviderStarted: true, InputTokens: output.Usage.InputTokens,
 		CachedInputTokens: output.Usage.CachedInputTokens, OutputTokens: output.Usage.OutputTokens, ToolInvocations: output.Usage.ToolInvocations}); err != nil {
@@ -234,11 +234,11 @@ func (p *Processor) ProcessOne(ctx context.Context) (Result, error) {
 	if err := agentresultpolicy.Validate(agentresultpolicy.Policy{Version: claim.ResultPolicyVersion, CitationPolicy: claim.CitationPolicy,
 		ActionPolicy: claim.ActionPolicy, CurrentPersonaID: claim.CurrentPersonaID, DelegatePersonaIDs: claim.DelegatePersonaIDs,
 		ActionCapabilities: claim.ActionCapabilities, CitationBindings: claim.CitationBindings}, output.Result); err != nil {
-		return p.reject(ctx, claim, now, "result_policy_denied", ErrInvalidPayload)
+		return p.failOutput(ctx, claim, now, "result_policy_denied")
 	}
 	payload, err := json.Marshal(output.Result)
 	if err != nil {
-		return p.reject(ctx, claim, now, "turn_output_invalid", ErrInvalidPayload)
+		return p.failOutput(ctx, claim, now, "turn_output_invalid")
 	}
 	success := Success{
 		Claim: claim, MessageID: p.ids.New(), Provider: output.Provider, SelectedModel: output.RequestedModel, ResponseModel: output.ResponseModel,
@@ -251,13 +251,13 @@ func (p *Processor) ProcessOne(ctx context.Context) (Result, error) {
 	if claim.ResultPolicyVersion >= agentresultpolicy.ActionVersion {
 		success.Proposals, err = approvalProposals(claim, output.Result.ProposedActions, success.ResultDigest, success.CompletedAt)
 		if err != nil {
-			return p.reject(ctx, claim, now, "result_policy_denied", ErrInvalidPayload)
+			return p.failOutput(ctx, claim, now, "result_policy_denied")
 		}
 	}
 	if claim.ResultPolicyVersion >= agentresultpolicy.CurrentVersion && claim.WorkItemID != "" {
 		success.InformationRequests, success.WorkEventID, err = informationRequests(claim, output.Result.Questions)
 		if err != nil {
-			return p.reject(ctx, claim, now, "result_policy_denied", ErrInvalidPayload)
+			return p.failOutput(ctx, claim, now, "result_policy_denied")
 		}
 	}
 	if err := p.queue.ProjectSuccess(ctx, success); err != nil {
@@ -333,6 +333,19 @@ func approvalProposals(claim Claim, actions []agentdomain.ProposedAction, result
 
 func (p *Processor) Stats(ctx context.Context) (Stats, error) {
 	return p.queue.Stats(ctx, p.clock.Now().UTC())
+}
+
+// failOutput records an authenticated runner result that cannot be published as
+// a terminal agent failure. No rejected content or proposed actions are exposed.
+func (p *Processor) failOutput(ctx context.Context, claim Claim, now time.Time, code string) (Result, error) {
+	if err := p.closeTokens(ctx, claim, agentusage.Usage{}); err != nil && !errors.Is(err, aitokens.ErrInvalidReservation) {
+		return p.retry(ctx, claim, now, "token_release_failed", err)
+	}
+	err := p.queue.ProjectFailure(ctx, Failure{Claim: claim, RunnerDigest: claim.Result.Digest, FailureCode: code, CompletedAt: claim.Result.SubmittedAt.UTC(), ProjectedAt: now})
+	if err != nil {
+		return p.handleProjectionError(ctx, claim, now, "failure_projection_failed", err)
+	}
+	return Result{Worked: true, Projected: true}, nil
 }
 
 func (p *Processor) reject(ctx context.Context, claim Claim, now time.Time, code string, cause error) (Result, error) {

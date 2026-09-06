@@ -279,3 +279,51 @@ func seedAgentProjectionFixture(t *testing.T, ctx context.Context, owner interfa
 		t.Fatal(err)
 	}
 }
+
+func TestAgentRejectedCompletedResultIsTerminalAndDigestBound(t *testing.T) {
+	adminURL := os.Getenv("SPYGLASS_POSTGRES_TEST_URL")
+	if adminURL == "" {
+		t.Skip("SPYGLASS_POSTGRES_TEST_URL is not configured")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	databaseURL, cleanup := createDatabase(t, ctx, adminURL)
+	defer cleanup()
+	owner := openPool(t, ctx, databaseURL, nil)
+	defer owner.Close()
+	if _, err := migrations.Apply(ctx, owner, migrations.Cell); err != nil {
+		t.Fatal(err)
+	}
+	var now time.Time
+	if err := owner.QueryRow(ctx, `SELECT statement_timestamp()`).Scan(&now); err != nil {
+		t.Fatal(err)
+	}
+	const accountID = "11000000-0000-4000-8000-000000000001"
+	const invocationID = "61000000-0000-4000-8000-000000000001"
+	const leaseID = "73000000-0000-4000-8000-000000000001"
+	digest := bytes.Repeat([]byte{0x31}, 32)
+	seedAgentProjectionFixture(t, ctx, owner, accountID, "31000000-0000-4000-8000-000000000001", "41000000-0000-4000-8000-000000000001", "51000000-0000-4000-8000-000000000001", invocationID, digest, "completed", now)
+	var claimed string
+	if err := owner.QueryRow(ctx, `SELECT invocation_id FROM public.spyglass_claim_agent_result_projection_v4($1,$2,300)`, leaseID, now.Add(45*time.Second)).Scan(&claimed); err != nil || claimed != invocationID {
+		t.Fatalf("claim=%s err=%v", claimed, err)
+	}
+	query := `SELECT public.spyglass_project_agent_invocation_failure($1,$2,$3,$4,$5,$6,$6)`
+	var changed bool
+	if err := owner.QueryRow(ctx, query, accountID, invocationID, leaseID, digest, "provider_denied", now.Add(time.Minute)).Scan(&changed); err == nil {
+		t.Fatal("arbitrary failure code accepted for completed output")
+	}
+	if err := owner.QueryRow(ctx, query, accountID, invocationID, leaseID, bytes.Repeat([]byte{0x55}, 32), "result_policy_denied", now.Add(time.Minute)).Scan(&changed); err == nil {
+		t.Fatal("unbound result digest accepted")
+	}
+	if err := owner.QueryRow(ctx, query, accountID, invocationID, leaseID, digest, "result_policy_denied", now.Add(time.Minute)).Scan(&changed); err != nil || !changed {
+		t.Fatalf("changed=%v err=%v", changed, err)
+	}
+	if err := owner.QueryRow(ctx, query, accountID, invocationID, leaseID, digest, "result_policy_denied", now.Add(time.Minute)).Scan(&changed); err != nil || changed {
+		t.Fatalf("replay changed=%v err=%v", changed, err)
+	}
+	var invocationState, runState, queueState string
+	var messageCount int
+	if err := owner.QueryRow(ctx, `SELECT i.status,r.state,q.state,(SELECT count(*) FROM spyglass.agent_messages WHERE account_id=$1) FROM spyglass.agent_invocations i JOIN spyglass.agent_runs r ON r.account_id=i.account_id AND r.id=i.run_id JOIN spyglass.agent_result_projection_queue q ON q.account_id=i.account_id AND q.invocation_id=i.id WHERE i.account_id=$1 AND i.id=$2`, accountID, invocationID).Scan(&invocationState, &runState, &queueState, &messageCount); err != nil || invocationState != "failed" || runState != "failed" || queueState != "projected" || messageCount != 0 {
+		t.Fatalf("invocation=%s run=%s queue=%s messages=%d err=%v", invocationState, runState, queueState, messageCount, err)
+	}
+}

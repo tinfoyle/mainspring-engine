@@ -231,6 +231,9 @@ export const useConversationStore = defineStore("conversation", () => {
       if (body.length > 65536) throw new Error("The message and selected context are too long. Remove some context or shorten the message.");
       const result = await startAgentRun(accountID, roomID.value, {
         prompt: body, mode: selectedMode, persona_ids: selectedAgents,
+        ...(checkedContext.some(item => item.kind === "document") ? { context: {
+          knowledge_document_ids: [...new Set(checkedContext.filter(item => item.kind === "document").map(item => (JSON.parse(item.text) as { document_id: string }).document_id))]
+        } } : {}),
         ...(conversationID.value ? { conversation_id: conversationID.value } : { subject: selectedSubject || question.slice(0, 120).padEnd(2, ".") })
       });
       if (ticket !== generation) return;

@@ -6,7 +6,7 @@ Open `/app/workspace` for chat on its own. Choose Work, Knowledge or Documents t
 
 - **Work** holds tasks and responsibilities. Open an item to see its details or choose Use in chat.
 - **Knowledge** holds saved information and its sources. Open a record to review, correct or explicitly add its current version to chat.
-- **Documents** holds uploaded files. Upload a supported file of up to 50 MB, wait for checking and preparation, then publish the prepared revision if requested. Open the file to read its published passages; Use passage in chat adds only the selected passage. Search by title or expand Search inside published documents. The library and long files are paginated.
+- **Documents** holds uploaded files. Upload a supported file of up to 50 MB, wait for checking and preparation, then publish the prepared revision if requested. Open the file to read its published passages; Use document in chat adds the entire published revision using the server’s existing frozen context mechanism. Search by title or expand Search inside published documents. The library and long files are paginated.
 - **Needs you** opens the existing Your Turn review queue. Its count is refreshed from the server. Decisions and consequential proposed actions still require their existing approvals.
 - **More** opens Schedules, Finance and Marketing. Pin frequently used views under Settings → Workspace preferences.
 
@@ -16,7 +16,7 @@ Chat stays mounted while working views change. History selects a team and a save
 
 Unsent drafts and the last conversation are saved in this browser tab, separately for each signed-in user and account. Reload restores them when browser storage is available. Closing the tab is not a durable draft backup; sent conversations are stored by the application. Exact unconfirmed sends reuse their request identity when retried after reload. Running conversations resume progress polling. Changing accounts clears the visible old-account context and opens the selected account’s workspace.
 
-Opening a record does not silently attach it. Use in chat shows an explicit reference chip that can be removed before sending. The application checks source access again at send time and rejects changed Work or Knowledge versions. Document passages must still belong to the current published revision. These references do not grant agents additional tools or permission to act.
+Opening a record does not silently attach it. Use in chat shows an explicit reference chip that can be removed before sending. The application checks source access again at send time and rejects changed Work or Knowledge versions. Document references must still belong to the current published revision. Whole-document context is subject to the existing 48 KiB run-context limit; oversized selections are rejected before a run starts. These references do not grant agents additional tools or permission to act.
 
 The business interview remains available under Settings → Business profile. Its conversation persists while other views are open; More → Business interview returns to it. The business notebook appears in the working view. More → Agent conversations returns to the regular team chat. Interview answers retain their existing Knowledge and approved Work behavior.
 

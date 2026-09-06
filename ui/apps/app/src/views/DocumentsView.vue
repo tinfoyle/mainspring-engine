@@ -38,7 +38,7 @@ async function load(): Promise<void> {
         if (ticket !== sequence) return;
         passages.value = page.items; morePassages.value = page.items.length === 20;
       }
-      if (value.document.state === "processing") timer = setTimeout(() => void load(), 5000);
+      if (value.document.state === "processing" && !["ready", "failed"].includes(value.latest_revision.state)) timer = setTimeout(() => void load(), 5000);
     } else {
       const page = await listDocuments(accountID, { cursor: cursor.value, title: titleFilter.value.trim() });
       if (ticket !== sequence) return;
@@ -98,9 +98,9 @@ async function find(): Promise<void> {
   finally { if (ticket === sequence) loading.value = false; }
 }
 function attach(passage: KnowledgeDocumentCitation): void {
-  chat.attach({ kind: "document", id: passage.document_id + ":" + passage.chunk_id, title: passage.document_title,
-    version: "revision " + passage.revision + ", passage " + (passage.chunk_index + 1),
-    text: JSON.stringify({ content: passage.content, document_id: passage.document_id, revision_id: passage.revision_id, chunk_id: passage.chunk_id, content_sha256: passage.content_sha256 }) });
+  chat.attach({ kind: "document", id: passage.document_id, title: passage.document_title,
+    version: "revision " + passage.revision + " · whole document",
+    text: JSON.stringify({ document_id: passage.document_id, revision_id: passage.revision_id, chunk_id: passage.chunk_id, content_sha256: passage.content_sha256 }) });
 }
 watch(() => [session.selectedID, id.value, available.value], () => {
   sequence++; detail.value = undefined; passages.value = []; results.value = []; items.value = [];
@@ -119,11 +119,13 @@ onBeforeUnmount(() => { sequence++; if (timer) clearTimeout(timer); });
       <p v-if="loading && !detail" role="status">Opening document…</p>
       <template v-if="detail">
         <p class="document-status">{{ label(detail.document.state) }} · {{ detail.latest_revision.filename }} · {{ label(detail.document.sensitivity) }}</p>
-        <p v-if="detail.document.state === 'processing'" role="status">Checking and preparing this document. This view updates automatically.</p>
+        <p v-if="detail.document.state === 'processing' && !['ready', 'failed'].includes(detail.latest_revision.state)" role="status">Checking and preparing this document. This view updates automatically.</p>
         <p v-if="detail.latest_revision.state === 'failed'">This file could not be prepared. <span>{{ label(detail.latest_revision.failure_code) }}</span></p>
+        <p v-if="detail.document.state === 'processing' && detail.latest_revision.state === 'ready'">Checks complete. Publish this revision to make it available in chat.</p>
         <button v-if="writable && detail.latest_revision.state === 'ready' && detail.document.current_revision_id !== detail.latest_revision.id" type="button" :disabled="saving" @click="publish">Publish prepared document</button>
+        <div v-if="passages.length && chat.available" class="document-chat-action"><button type="button" @click="attach(passages[0]!)">Use document in chat</button><p class="chat-note">Adds the entire published revision to this conversation.</p></div>
         <div v-if="passages.length" class="document-passages">
-          <article v-for="passage in passages" :key="passage.chunk_id" class="document-passage"><header><span>Revision {{ passage.revision }} · Passage {{ passage.chunk_index + 1 }}</span><button v-if="chat.available" type="button" @click="attach(passage)">Use passage in chat</button></header><pre>{{ passage.content }}</pre></article>
+          <article v-for="passage in passages" :key="passage.chunk_id" class="document-passage"><header><span>Revision {{ passage.revision }} · Passage {{ passage.chunk_index + 1 }}</span></header><pre>{{ passage.content }}</pre></article>
           <button v-if="morePassages" type="button" :disabled="loading" @click="nextPassages">Show more passages</button>
         </div>
         <p v-else-if="detail.document.state === 'ready' && !loading">No published text is available for this revision.</p>
@@ -144,7 +146,7 @@ onBeforeUnmount(() => { sequence++; if (timer) clearTimeout(timer); });
       <p v-else-if="!items.length">No documents match this view.</p>
       <ol class="document-list"><li v-for="item in items" :key="item.id"><RouterLink :to="'/app/documents/' + item.id"><strong>{{ item.title }}</strong><span>{{ label(item.state) }} · Revision {{ item.current_revision || 1 }}</span></RouterLink></li></ol>
       <nav v-if="previous.length || nextCursor" class="document-pagination" aria-label="Document pages"><button type="button" :disabled="!previous.length || loading" @click="cursor = previous.pop() ?? ''; load()">Previous</button><button type="button" :disabled="!nextCursor || loading" @click="previous.push(cursor); cursor = nextCursor; load()">Next</button></nav>
-      <details class="document-search"><summary>Search inside published documents</summary><form @submit.prevent="find"><label>Words or phrase<input v-model="search" maxlength="512" required></label><button type="submit" :disabled="loading">Search text</button></form><article v-for="passage in results" :key="passage.chunk_id" class="document-passage"><RouterLink :to="'/app/documents/' + passage.document_id">{{ passage.document_title }}</RouterLink><pre>{{ passage.content }}</pre><button v-if="chat.available" type="button" @click="attach(passage)">Use passage in chat</button></article></details>
+      <details class="document-search"><summary>Search inside published documents</summary><form @submit.prevent="find"><label>Words or phrase<input v-model="search" maxlength="512" required></label><button type="submit" :disabled="loading">Search text</button></form><article v-for="passage in results" :key="passage.chunk_id" class="document-passage"><RouterLink :to="'/app/documents/' + passage.document_id">{{ passage.document_title }}</RouterLink><pre>{{ passage.content }}</pre><button v-if="chat.available" type="button" @click="attach(passage)">Use document in chat</button></article></details>
     </template>
   </section>
 </template>

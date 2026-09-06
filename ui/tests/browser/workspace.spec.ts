@@ -44,12 +44,19 @@ test("working views preserve the conversation and draft", async ({ page }, info)
   await page.screenshot({ path: info.outputPath("workspace.png"), fullPage: true });
 });
 test("documents open as references and are attached only by an explicit action", async ({ page }) => {
+  let input: { context?: { knowledge_document_ids?: string[] } } | undefined;
+  await page.route("**/agent-boardrooms/" + agentRoom.id + "/runs", async route => {
+    input = route.request().postDataJSON(); return fulfillJSON(route, { ...agentRun, state: "running" }, 201);
+  });
   await page.goto("/app/documents/" + documentID);
   await expect(page.getByText(passage.content, { exact: true })).toBeVisible();
   await expect(page.locator(".chat-context")).toHaveCount(0);
-  await page.getByRole("button", { name: "Use passage in chat", exact: true }).click();
+  await page.getByRole("button", { name: "Use document in chat", exact: true }).click();
   await expect(page.locator(".chat-context")).toContainText(document.title);
-  await expect(page.locator(".chat-context")).toContainText("revision 1");
+  await expect(page.locator(".chat-context")).toContainText("revision 1 · whole document");
+  await page.locator("#workspace-message").fill("Check the document requirements.");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect.poll(() => input?.context).toEqual({ knowledge_document_ids: [documentID] });
   await expectNoHorizontalOverflow(page); await expectAccessible(page);
 });
 test("existing conversation links resume a run while another view is open", async ({ page }) => {

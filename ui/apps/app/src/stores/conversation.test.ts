@@ -117,6 +117,17 @@ describe("persistent workspace conversation", () => {
     expect(chat.context).toEqual([]); expect(chat.prompt).toBe("");
   });
 
+  it("registers an explicitly attached document in the server frozen context", async () => {
+    await flushPromises();
+    chat.attach({ kind: "document", id: "doc-a", title: "Delivery details", version: "revision 1 · whole document",
+      text: JSON.stringify({ document_id: "doc-a", revision_id: "rev-a", chunk_id: "chunk-a" }) });
+    api.getDocumentCitation.mockResolvedValue({ document_id: "doc-a", revision_id: "rev-a", chunk_id: "chunk-a", content: "Checked text" });
+    chat.prompt = "What is the delivery window?";
+    await chat.send();
+    expect(api.startAgentRun.mock.calls[0]![2].context).toEqual({ knowledge_document_ids: ["doc-a"] });
+    expect(api.getDocumentCitation).toHaveBeenCalledWith(account.account_id, "doc-a", "rev-a", "chunk-a");
+  });
+
   it("never dispatches a queued message if accounts change during context authorization", async () => {
     await flushPromises();
     chat.attach({ kind: "work", id: "work-a", title: "Job", version: "version 2", text: "" });
