@@ -1,6 +1,6 @@
 # UbuntuRojo and Stage release handoff
 
-Status: current as of Spyglass `0.3.0-rc.61` with workspace edge routing correction on 2026-09-06.
+Status: current as of Spyglass `0.3.0-rc.62` on 2026-09-06.
 
 This is the short operator path for working on Spyglass locally and moving a
 review candidate to the Hostinger Stage VPS. It is not a production/LKE
@@ -41,22 +41,22 @@ Stage uses four HTTPS names:
 - `https://mcp.stage.infiniteocean.net`
 - `https://ops.stage.infiniteocean.net` (Google plus authenticator staff console)
 
-The active release is `0.3.0-rc.61`. Its four images were built from source commit
-`68a439794acc1efe1113b6910c2710a6214e693d`; the reviewed image manifest was committed
-in `535863d6d0fb7baeb91d1b9106d68dca3ac6c3e8`. The active VPS checkout is
-`296e467ffb19a08803adcb14650ece8048044353`, which adds the new workspace routes
-to the edge configuration while retaining those exact RC61 image digests.
+The active release is `0.3.0-rc.62`. Its four images were built from source commit
+`f2fb5a2d12b67e311971b7eeb547a5a172b9c684`; the reviewed image manifest and active
+VPS checkout are `382dc7f3dd53e2bfc74746c335f496db120a93fd`.
 `/opt/spyglass-stage/current` resolves to that checkout. Database ledgers are
 global `72` and cell A/B `90/90`. Stage has 53 long-running containers; all 52
 health checks pass. The internal edge has no container health check.
 
-RC60–61 introduce the unified workspace: persistent chat, optional Work,
+RC60–62 introduce the unified workspace: persistent chat, optional Work,
 Knowledge and Documents views, and grouped Settings. Existing record and
 conversation links remain supported. RC61 registers attached documents in the
 server's frozen run context and turns authenticated rejected results into visible
 failures instead of leaving runs stuck. The live document question returned the
 correct answer with a source after switching views and reloading. The edge
 correction makes direct Workspace, Settings and Documents links load correctly.
+RC62 keeps the desktop composer visible below both navigation bars, including
+in a short window with a long reply.
 See [the workspace guide](workspace-user-guide.md) and
 [workspace verification](stage-workspace-verification-2026-09-06.md).
 

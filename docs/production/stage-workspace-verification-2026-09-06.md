@@ -2,9 +2,9 @@
 
 ## Reviewed deployment
 
-- Application images: `0.3.0-rc.61`, source `68a439794acc1efe1113b6910c2710a6214e693d`.
-- Manifest commit: `535863d6d0fb7baeb91d1b9106d68dca3ac6c3e8`.
-- Active configuration checkout: `296e467ffb19a08803adcb14650ece8048044353`. This adds the new routes to both Caddy configurations and the local HTTP smoke list; the RC61 image digests are unchanged.
+- Final application images: `0.3.0-rc.62`, source `f2fb5a2d12b67e311971b7eeb547a5a172b9c684`.
+- Final manifest and active checkout: `382dc7f3dd53e2bfc74746c335f496db120a93fd`.
+- The live document execution below passed on RC61, source `68a439794acc1efe1113b6910c2710a6214e693d`. Configuration correction `296e467ffb19a08803adcb14650ece8048044353` added the new routes to both Caddy configurations and the local HTTP smoke list. RC62 retains those changes and corrects the desktop chat height.
 - Global migration ledger: 72. Cell A/B ledgers: 90/90.
 - Final Stage check: 53 long-running containers, 52 healthy, zero unhealthy. The internal edge has no container health check.
 - All four earlier owner report schedules remain paused; no schedule was created during this verification.
@@ -27,7 +27,7 @@ Use document in chat showed an explicit whole-revision reference. Reloading the 
 
 Its Sources section named the uploaded document. There was one user message and one agent reply. The completed conversation and fixture remain available for review.
 
-Direct HTTP checks now return 200 for `/app/workspace`, `/app/settings`, `/app/documents` and the document detail URL. Browser reloads of the document and Settings routes also passed. The desktop Settings/chat layout was visually reviewed after completion.
+Direct HTTP checks now return 200 for `/app/workspace`, `/app/settings`, `/app/documents` and the document detail URL. Browser reloads of the document and Settings routes also passed. The desktop Settings/chat layout was visually reviewed after completion. After RC62 deployment, a document-route reload restored the completed conversation, the message box and Send button were fully visible, and all four new route HTTP checks still returned 200.
 
 ## Defects found and repaired during the live check
 
@@ -39,6 +39,8 @@ Only the exact owner RC60 test invocation `cd486fcf-5e6d-829d-ae9b-f985dd2280dc`
 
 **New route reloads.** The edge's explicit private-UI route list omitted Workspace, Settings and Documents. Navigation inside the already loaded app worked, but direct HTTP requests returned 404. Configuration commit `296e467` adds all four new paths, retains the existing API/auth routing, and extends local smoke coverage. Both Caddy configurations adapt successfully, and all 39 app route patterns match the private-UI route list.
 
+**Desktop composer visibility.** The chat's maximum height originally reserved room for only one top bar, placing Send below the initial viewport with a long reply. RC62 reserves room for both bars. A regression test checks the entire message box and Send button at 1280 × 720 in both Chromium and Firefox. The final live screenshot also confirms the controls are visible.
+
 ## Automated checks
 
 - Full Go suite and API contract check passed.
@@ -47,9 +49,10 @@ Only the exact owner RC60 test invocation `cd486fcf-5e6d-829d-ae9b-f985dd2280dc`
 - Full lint, app production build/type checking and asset budgets passed. Private JS is approximately 135 KiB gzip against a 140 KiB budget; CSS approximately 15 KiB against 20 KiB.
 - 38 applicable legacy desktop browser cases passed, plus the phone keyboard/focus case.
 - RC61 workspace browser suite: 32 passed across Chromium, Firefox, 360-pixel phone and 320-pixel reflow. Covers draft persistence, explicit references and document registration, run resumption, duplicate-send prevention, existing record links, business interview persistence, upload and toolbar preferences.
-- Desktop and phone screenshots were reviewed. Both release publications passed the existing image scan, SBOM and provenance gates.
+- RC62 app production build/type check and targeted lint passed. The complete workspace suite passed 34 cases, with two intentional skips for the desktop-only composer check on mobile projects.
+- Desktop and phone screenshots were reviewed. RC60, RC61 and RC62 publications passed the existing image scan, SBOM and provenance gates.
 
-Local evidence logs are under `/home/rojo/.cache/spyglass-stage-audit/logs/`, notably `workspace-rc61-browser.log`, `workspace-rc61-go.log`, `workspace-rc61-pg.log`, `workspace-rc61-context-pg.log`, `workspace-rc61-unit.log`, and `deploy-rc61-edge.log`.
+Local evidence logs are under `/home/rojo/.cache/spyglass-stage-audit/logs/`, notably `workspace-rc61-browser.log`, `workspace-rc61-go.log`, `workspace-rc61-pg.log`, `workspace-rc61-context-pg.log`, `workspace-rc61-unit.log`, `deploy-rc61-edge.log`, `workspace-rc62-browser.log`, `workspace-rc62-build.log`, `publish-rc62.log`, `deploy-rc62.log`, and `workspace-final-stage-health.log`.
 
 ## Product boundaries
 
