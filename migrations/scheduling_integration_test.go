@@ -330,7 +330,7 @@ func TestScheduleExecutionAtomicallyCreatesRunAndAdvancesDefinition(t *testing.T
 		t.Fatal(err)
 	}
 	if _, err := owner.Exec(ctx, `INSERT INTO spyglass.agent_messages(account_id,id,conversation_id,run_id,invocation_id,sequence,role,persona_version_id,body,structured_result,result_digest,created_at)
- SELECT account_id,'96000000-0000-4000-8000-000000000001', $3,run_id,id,2,'persona',persona_version_id,'Fresh mulch report: $4 per 2 cubic feet.','{}',decode(repeat('00',32),'hex'),$4
+ SELECT account_id,'96000000-0000-4000-8000-000000000001', $3,run_id,id,2,'persona',persona_version_id,'Here is the report.','{"findings":["Fresh mulch report: $4 per 2 cubic feet.","Other retailers: unavailable."],"recommendations":["Compare matching bag sizes."],"questions":[],"citations":[{"label":"Price source: https://example.com/mulch"}],"proposed_actions":[{"payload":{"secret_internal_field":"must not appear"}}]}',decode(repeat('00',32),'hex'),$4
  FROM spyglass.agent_invocations WHERE account_id=$1 AND run_id=$2 LIMIT 1`, accountID, runID, conversationID, triggerAt); err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +348,7 @@ func TestScheduleExecutionAtomicallyCreatesRunAndAdvancesDefinition(t *testing.T
 		t.Fatalf("wrong lease ready=%v err=%v", ready, err)
 	}
 	message, ready, err := delivery.Begin(ctx, claim, triggerAt)
-	if err != nil || !ready || message.Body != "Fresh mulch report: $4 per 2 cubic feet." || message.BoardroomID != boardroomID {
+	if err != nil || !ready || !strings.Contains(message.Body, "Findings\n- Fresh mulch report: $4 per 2 cubic feet.\n- Other retailers: unavailable.") || !strings.Contains(message.Body, "Recommendations\n- Compare matching bag sizes.") || !strings.Contains(message.Body, "https://example.com/mulch") || strings.Contains(message.Body, "secret_internal_field") || message.BoardroomID != boardroomID {
 		t.Fatalf("message=%+v ready=%v err=%v", message, ready, err)
 	}
 	// A worker crash after beginning SMTP must become unknown, never be resent.

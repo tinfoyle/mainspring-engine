@@ -46,7 +46,9 @@ The approval worker atomically creates one schedule and its optional immediate
 trigger, keyed by the approved operation ID. Retries reconcile the same operation.
 The existing schedule worker fetches fresh public HTTPS source captures, runs
 the report agent, and queues its email. The email worker checks recipient
-eligibility again. Blocked sources must be described as unavailable.
+eligibility again. Email includes the contribution, findings, recommendations,
+questions and source labels shown in the report, excluding raw action payloads.
+Blocked sources must be described as unavailable.
 
 A recurring schedule remains active after the test report until paused in
 Schedules. Test operators should pause it after checking the email. Preparing
