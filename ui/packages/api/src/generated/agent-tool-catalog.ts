@@ -14,7 +14,8 @@ export const agentToolCatalog = {
       },
       "effect": "read_only",
       "timeout_seconds": 15,
-      "handler": "router"
+      "handler": "router",
+      "help": "Read the current Account Work summary."
     },
     {
       "capability": "finance.ledgers.read",
@@ -29,7 +30,8 @@ export const agentToolCatalog = {
       },
       "effect": "read_only",
       "timeout_seconds": 15,
-      "handler": "router"
+      "handler": "router",
+      "help": "List the account’s financial ledgers."
     },
     {
       "capability": "finance.accounts.read",
@@ -51,7 +53,8 @@ export const agentToolCatalog = {
       },
       "effect": "read_only",
       "timeout_seconds": 15,
-      "handler": "router"
+      "handler": "router",
+      "help": "List accounts in a financial ledger."
     },
     {
       "capability": "finance.entry.draft",
@@ -136,7 +139,8 @@ export const agentToolCatalog = {
       },
       "effect": "additive",
       "timeout_seconds": 15,
-      "handler": "router"
+      "handler": "router",
+      "help": "Draft an entry. Posting requires a separate approval."
     },
     {
       "capability": "marketing.campaigns.read",
@@ -171,7 +175,8 @@ export const agentToolCatalog = {
       },
       "effect": "read_only",
       "timeout_seconds": 15,
-      "handler": "router"
+      "handler": "router",
+      "help": "List marketing campaigns."
     },
     {
       "capability": "marketing.asset-revisions.read",
@@ -205,7 +210,8 @@ export const agentToolCatalog = {
       },
       "effect": "read_only",
       "timeout_seconds": 15,
-      "handler": "router"
+      "handler": "router",
+      "help": "List saved content versions for a campaign."
     },
     {
       "capability": "marketing.releases.read",
@@ -227,7 +233,8 @@ export const agentToolCatalog = {
       },
       "effect": "read_only",
       "timeout_seconds": 15,
-      "handler": "router"
+      "handler": "router",
+      "help": "List campaign releases."
     },
     {
       "capability": "marketing.campaign.draft",
@@ -273,7 +280,8 @@ export const agentToolCatalog = {
       },
       "effect": "additive",
       "timeout_seconds": 15,
-      "handler": "router"
+      "handler": "router",
+      "help": "Create a campaign draft."
     },
     {
       "capability": "marketing.asset-revision.draft",
@@ -314,7 +322,8 @@ export const agentToolCatalog = {
       },
       "effect": "additive",
       "timeout_seconds": 15,
-      "handler": "router"
+      "handler": "router",
+      "help": "Save draft text for a campaign."
     },
     {
       "capability": "marketing.release.draft",
@@ -372,7 +381,8 @@ export const agentToolCatalog = {
       },
       "effect": "additive",
       "timeout_seconds": 15,
-      "handler": "router"
+      "handler": "router",
+      "help": "Create a release draft for review."
     },
     {
       "capability": "agents.teams.read",
@@ -387,7 +397,8 @@ export const agentToolCatalog = {
       },
       "effect": "read_only",
       "timeout_seconds": 15,
-      "handler": "router"
+      "handler": "router",
+      "help": "See the agent teams in your account."
     },
     {
       "capability": "agents.personas.read",
@@ -409,7 +420,8 @@ export const agentToolCatalog = {
       },
       "effect": "read_only",
       "timeout_seconds": 15,
-      "handler": "router"
+      "handler": "router",
+      "help": "See the agents available in a team."
     },
     {
       "capability": "schedules.read",
@@ -424,7 +436,8 @@ export const agentToolCatalog = {
       },
       "effect": "read_only",
       "timeout_seconds": 15,
-      "handler": "router"
+      "handler": "router",
+      "help": "Check existing schedules before proposing another one."
     },
     {
       "capability": "integrations.web.search",
@@ -456,7 +469,8 @@ export const agentToolCatalog = {
       },
       "effect": "read_only",
       "timeout_seconds": 45,
-      "handler": "router"
+      "handler": "router",
+      "help": "Search public websites using a web research connection set up in Integrations."
     },
     {
       "capability": "integrations.web.read",
@@ -482,7 +496,8 @@ export const agentToolCatalog = {
       },
       "effect": "additive",
       "timeout_seconds": 45,
-      "handler": "router"
+      "handler": "router",
+      "help": "Read a public webpage and save it as evidence using your web research connection."
     },
     {
       "capability": "schedules.prepare",
@@ -569,7 +584,8 @@ export const agentToolCatalog = {
       },
       "effect": "read_only",
       "timeout_seconds": 15,
-      "handler": "schedule_prepare"
+      "handler": "schedule_prepare",
+      "help": "Prepare a daily task or emailed report for your approval. Nothing runs until you approve."
     }
   ],
   "actions": [

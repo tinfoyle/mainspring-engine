@@ -13,6 +13,7 @@ import (
 var CatalogJSON []byte
 
 type Tool struct {
+	Help string `json:"help"`
 	agents.ToolGrant
 	Label          string                  `json:"label"`
 	Effect         runnercapability.Effect `json:"effect"`

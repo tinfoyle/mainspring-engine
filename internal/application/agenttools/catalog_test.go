@@ -9,7 +9,7 @@ import (
 func TestCatalogHasUniqueExecutableToolsAndCompleteActionPayloads(t *testing.T) {
 	names, caps := map[string]bool{}, map[string]bool{}
 	for _, v := range Definitions().Tools {
-		if names[v.Name] || caps[v.Capability] || v.Name == "" || v.TimeoutSeconds <= 0 || (v.Handler != "router" && v.Handler != "schedule_prepare") {
+		if names[v.Name] || caps[v.Capability] || v.Name == "" || v.Help == "" || v.TimeoutSeconds <= 0 || (v.Handler != "router" && v.Handler != "schedule_prepare") {
 			t.Fatalf("invalid tool: %+v", v)
 		}
 		names[v.Name], caps[v.Capability] = true, true

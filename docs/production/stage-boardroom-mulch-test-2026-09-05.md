@@ -1,6 +1,8 @@
 # Stage boardroom request test — 2026-09-05
 
-Result: failed twice before the agent could produce a reply. This was a plain-English
+Follow-up: the harness is now repaired and the [Boardroom end-to-end verification](stage-agent-harness-verification-2026-09-05.md) passed. The original failure evidence below is retained.
+
+Original result: failed twice before the agent could produce a reply. This was a plain-English
 request entered through the Weekly Operations boardroom, not an MCP-created
 schedule or a manually assembled workflow.
 
