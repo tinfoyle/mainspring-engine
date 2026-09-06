@@ -147,7 +147,7 @@ watch(() => [session.selectedID, session.userID, session.attentionAccess.work, s
     <section v-else-if="!session.attentionAccess.work && !session.attentionAccess.approvals" class="queue-state">
       <h2>Your Turn is not enabled for this Account</h2>
       <p>The Work or Agents package makes Account-scoped questions and decisions available here.</p>
-      <a href="/app#billing">Review Account plans</a>
+      <a href="/app/billing">Review Account plans</a>
     </section>
 
     <template v-else>

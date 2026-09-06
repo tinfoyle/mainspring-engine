@@ -1,247 +1,135 @@
 <script setup lang="ts">
-import { IoLogo } from "@spyglass/design-system";
-import { APIProblem, emitAnalytics, getPrivacyConsent, logout, type CatalogPackageCode } from "@spyglass/api";
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { APIProblem, emitAnalytics, getPrivacyConsent, listAttentionQueue, logout, type CatalogPackageCode } from "@spyglass/api";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { RouterLink, RouterView, useRoute, useRouter } from "vue-router";
 import { applicationEntryPoint } from "./applicationEntry";
 import { useSessionStore } from "./stores/session";
-
-const route = useRoute();
-const router = useRouter();
-const session = useSessionStore();
-const menuOpen = ref(false);
-const menuButton = ref<HTMLButtonElement>();
-const sidebar = ref<HTMLElement>();
+import { useConversationStore } from "./stores/conversation";
+import BaselineView from "./views/BaselineView.vue";
+import { useWorkspacePreferences } from "./stores/workspacePreferences";
+import WorkspaceChat from "./components/WorkspaceChat.vue";
+const route = useRoute(), router = useRouter(), session = useSessionStore(), chat = useConversationStore();
 const main = ref<HTMLElement>();
-const signingOut = ref(false);
-const signOutError = ref("");
+const attentionCount = ref<number>();
+let attentionSequence = 0;
+let attentionTimer: ReturnType<typeof setTimeout> | undefined;
+async function refreshAttention(): Promise<void> {
+  const ticket = ++attentionSequence, accountID = session.selectedID, userID = session.userID;
+  if (attentionTimer) clearTimeout(attentionTimer);
+  if (!accountID || !userID || session.selected?.account_state === "restricted") { attentionCount.value = undefined; return; }
+  try { const items = await listAttentionQueue(accountID, userID, session.attentionAccess); if (ticket === attentionSequence) attentionCount.value = items.length; }
+  catch { if (ticket === attentionSequence) attentionCount.value = undefined; }
+  if (ticket === attentionSequence) attentionTimer = setTimeout(() => void refreshAttention(), 30000);
+}
+watch(() => [session.selectedID, session.userID, chat.run?.state, route.fullPath], () => { attentionCount.value = undefined; void refreshAttention(); }, { immediate: true });
+onBeforeUnmount(() => { attentionSequence++; if (attentionTimer) clearTimeout(attentionTimer); });
+const signingOut = ref(false), signOutError = ref("");
+const preferences = useWorkspacePreferences();
+const businessRoute = computed(() => route.name === "baseline" || route.name === "baseline-detail");
+watch([businessRoute, () => session.selectedID], ([active]) => { if (active) { chat.businessVisited = true; chat.surface = "business"; } }, { immediate: true });
 const setupActive = computed(() => route.name === "setup");
 const setupRequired = computed(() => Boolean(session.selected?.owner_enrollment_required));
-
+const restricted = computed(() => session.selected?.account_state === "restricted");
+const restrictedNavigation = new Set(["/app/settings", "/app/billing", "/app/security", "/app/account-exports", "/app/privacy", "/app/checkout"]);
+const panelOpen = computed(() => !["workspace", "agent-conversation"].includes(String(route.name)));
+const settingsPaths = ["/app/settings", "/app/account", "/app/billing", "/app/security", "/app/account-exports", "/app/account-closures", "/app/affiliate", "/app/privacy", "/app/agents", "/app/integrations", "/app/baseline", "/app/checkout"];
+const inSettings = computed(() => settingsPaths.some(p => route.path === p || route.path.startsWith(p + "/")) && route.name !== "agent-conversation");
+interface NavigationItem { to: string; label: string; packageCode?: CatalogPackageCode }
+const primary: NavigationItem[] = [
+  { to: "/app/work", label: "Work", packageCode: "work" },
+  { to: "/app/knowledge", label: "Knowledge", packageCode: "knowledge" },
+  { to: "/app/documents", label: "Documents", packageCode: "knowledge" }
+];
+const secondary: NavigationItem[] = [
+  { to: "/app/schedules", label: "Schedules", packageCode: "agents" },
+  { to: "/app/finance", label: "Finance", packageCode: "finance" },
+  { to: "/app/marketing", label: "Marketing", packageCode: "marketing" }
+];
+const enabled = (item: NavigationItem) => !restricted.value && (!item.packageCode || session.selected?.entitlements.packages.some(p => p.code === item.packageCode && p.mode !== "suspended"));
+const visiblePrimary = computed(() => [...primary, ...secondary.filter(item => preferences.pinned.includes(item.to))].filter(enabled)), visibleSecondary = computed(() => secondary.filter(enabled));
 function setupReturnTo(value: string): string {
-  if (!value.startsWith("/") || value.startsWith("//") || value.startsWith("/app/setup")) return "/app/your-turn";
-  return value;
+  return value.startsWith("/") && !value.startsWith("//") && !value.startsWith("/app/setup") ? value : "/app/workspace";
 }
-
 watch(() => route.fullPath, async () => {
-  menuOpen.value = false;
-  await nextTick();
-  main.value?.focus();
+  chat.mobileChat = !panelOpen.value;
+  await nextTick(); if (panelOpen.value) main.value?.focus();
 });
 onMounted(async () => {
   await session.load();
   if (!session.userID || sessionStorage.getItem("spyglass_application_entered") === "1") return;
   try {
     const consent = await getPrivacyConsent();
-    const emitted = await emitAnalytics(consent.decided && consent.analytics && !consent.renewal_required, {
-      name: "application_entered", fields: { entry_point: applicationEntryPoint(route.name) }
-    });
-    if (emitted) sessionStorage.setItem("spyglass_application_entered", "1");
-  } catch {
-    // Optional analytics never interrupts the application shell.
-  }
+    if (await emitAnalytics(consent.decided && consent.analytics && !consent.renewal_required, { name: "application_entered", fields: { entry_point: applicationEntryPoint(route.name) } })) sessionStorage.setItem("spyglass_application_entered", "1");
+  } catch { /* Optional analytics never interrupts the workspace. */ }
 });
-
-interface NavigationItem {
-  to: string;
-  label: string;
-  packageCode?: CatalogPackageCode;
-}
-
-const workspaceNavigation: NavigationItem[] = [
-  { to: "/app/your-turn", label: "Your Turn" },
-  { to: "/app/work", label: "Work", packageCode: "work" },
-  { to: "/app/knowledge", label: "Knowledge", packageCode: "knowledge" },
-  { to: "/app/baseline", label: "Business setup" },
-  { to: "/app/agents", label: "Agents", packageCode: "agents" },
-  { to: "/app/schedules", label: "Schedules", packageCode: "agents" },
-  { to: "/app/finance", label: "Finance", packageCode: "finance" },
-  { to: "/app/integrations", label: "Integrations", packageCode: "integrations" },
-  { to: "/app/marketing", label: "Marketing", packageCode: "marketing" }
-];
-const accountNavigation: NavigationItem[] = [
-  { to: "/app/account", label: "Account" },
-  { to: "/app/billing", label: "Billing" },
-  { to: "/app/security", label: "Security" },
-  { to: "/app/account-exports", label: "Exports" },
-  { to: "/app/account-closures", label: "Close account" },
-  { to: "/app/affiliate", label: "Affiliate" },
-  { to: "/app/privacy", label: "Privacy" }
-];
-const restrictedNavigation = new Set(["/app/billing", "/app/security", "/app/account-exports", "/app/privacy", "/app/checkout"]);
-const restricted = computed(() => session.selected?.account_state === "restricted");
-const visibleAccountNavigation = computed(() => restricted.value
-  ? accountNavigation.filter((item) => restrictedNavigation.has(item.to))
-  : accountNavigation);
-const availablePackageCodes = computed(() => new Set(
-  session.selected?.entitlements.packages
-    .filter((item) => item.mode !== "suspended")
-    .map((item) => item.code) ?? []
-));
-const visibleWorkspaceNavigation = computed(() => workspaceNavigation.filter(
-	(item) => !restricted.value && (!item.packageCode || availablePackageCodes.value.has(item.packageCode))
-));
-const hiddenPackageCount = computed(() => new Set(
-  workspaceNavigation
-    .map((item) => item.packageCode)
-    .filter((code): code is CatalogPackageCode => code !== undefined && !availablePackageCodes.value.has(code))
-).size);
-
 watch([restricted, () => route.path], ([isRestricted, path]) => {
   if (isRestricted && !setupRequired.value && !restrictedNavigation.has(path)) void router.replace("/app/billing");
 }, { immediate: true });
-
 watch([() => session.loaded, setupRequired, () => route.fullPath], ([loaded, required, fullPath]) => {
   if (!loaded) return;
-  if (required && !setupActive.value) {
-    void router.replace({ name: "setup", query: { return_to: setupReturnTo(fullPath) } });
-  } else if (!required && setupActive.value) {
+  if (required && !setupActive.value) void router.replace({ name: "setup", query: { return_to: setupReturnTo(fullPath) } });
+  else if (!required && setupActive.value) {
     const requested = Array.isArray(route.query.return_to) ? route.query.return_to[0] : route.query.return_to;
     void router.replace(setupReturnTo(typeof requested === "string" ? requested : ""));
   }
 }, { immediate: true });
-
 async function selectAccount(event: Event): Promise<void> {
-  const target = event.target as HTMLSelectElement;
-  const previous = session.selectedID ?? "";
+  const target = event.target as HTMLSelectElement, next = target.value, previous = session.selectedID ?? "";
   try {
-    await session.select(target.value);
-  } catch {
-    target.value = previous;
-  }
+    const failure = await router.push("/app/workspace");
+    if (failure && route.path !== "/app/workspace") { target.value = previous; return; }
+    await session.select(next);
+  } catch { target.value = previous; }
 }
-
 async function signOut(): Promise<void> {
   if (signingOut.value) return;
-  signingOut.value = true;
-  signOutError.value = "";
-  try {
-    await logout();
-    window.location.assign("/login?status=signed_out");
-  } catch (cause) {
-    signOutError.value = cause instanceof APIProblem ? cause.message : "We could not sign you out. Please try again.";
-    signingOut.value = false;
-  }
+  signingOut.value = true; signOutError.value = "";
+  try { await logout(); chat.forget(); window.location.assign("/login?status=signed_out"); }
+  catch (cause) { signOutError.value = cause instanceof APIProblem ? cause.message : "We could not sign you out. Please try again."; signingOut.value = false; }
 }
-
-async function toggleMenu(): Promise<void> {
-  if (menuOpen.value) {
-    closeMenu(true);
-    return;
-  }
-  menuOpen.value = true;
+async function toggleChat(): Promise<void> {
+  chat.mobileChat = !chat.mobileChat;
   await nextTick();
-  sidebar.value?.querySelector<HTMLElement>(".sidebar-close")?.focus();
+  if (chat.mobileChat) document.querySelector<HTMLElement>((chat.surface === "business" ? "#workspace-business-chat" : "#workspace-chat") + " textarea")?.focus();
+  else main.value?.focus();
 }
-
-async function closeMenu(restoreFocus = false): Promise<void> {
-  menuOpen.value = false;
-  if (restoreFocus) {
-    await nextTick();
-    menuButton.value?.focus();
-  }
-}
-
-function containMenuFocus(event: KeyboardEvent): void {
-  if (!menuOpen.value) return;
-  if (event.key === "Escape") {
-    event.preventDefault();
-    void closeMenu(true);
-    return;
-  }
-  if (event.key !== "Tab") return;
-  const focusable = Array.from(sidebar.value?.querySelectorAll<HTMLElement>(
-    'a[href], button:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
-  ) ?? []).filter((item) => !item.hidden);
-  const first = focusable[0];
-  const last = focusable.at(-1);
-  if (!first || !last) return;
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
-  }
+async function openMore(event: Event): Promise<void> {
+  const target = event.target as HTMLSelectElement;
+  if (target.value === "business-chat") { chat.surface = "business"; chat.mobileChat = true; }
+  else if (target.value === "agent-chat") { chat.surface = "agents"; chat.mobileChat = true; }
+  else if (target.value) await router.push(target.value);
+  target.value = "";
 }
 </script>
 
 <template>
-  <a class="skip-link" href="#main">Skip to content</a>
-  <div class="app-shell" :class="{ 'app-shell--setup': setupActive }">
-    <header v-if="!setupActive" class="mobile-header" :inert="menuOpen || undefined">
-      <RouterLink to="/app/your-turn"><IoLogo compact /></RouterLink>
-      <strong>{{ String(route.meta.title ?? "Spyglass") }}</strong>
-      <button ref="menuButton" class="menu-button" type="button" :aria-expanded="menuOpen" aria-controls="app-navigation" @click="toggleMenu">
-        <span class="sr-only">{{ menuOpen ? "Close" : "Open" }} navigation</span>
-        <span aria-hidden="true">{{ menuOpen ? "×" : "☰" }}</span>
-      </button>
+  <a class="skip-link" :href="panelOpen ? '#main' : chat.surface === 'business' ? '#workspace-business-chat' : '#workspace-chat'">Skip to content</a>
+  <div class="workspace-shell" :class="{ 'workspace-setup': setupActive }">
+    <header v-if="!setupActive" class="workspace-top">
+      <RouterLink class="workspace-brand" to="/app/workspace">Spyglass</RouterLink>
+      <label class="workspace-account"><span class="sr-only">Account</span><select id="account" :value="session.selectedID" :disabled="session.loading || session.selecting || !session.accounts.length" @change="selectAccount"><option v-if="!session.accounts.length" value="">{{ session.loading ? "Loading…" : "No account" }}</option><option v-for="account in session.accounts" :key="account.account_id" :value="account.account_id">{{ account.display_name }}</option></select></label>
+      <RouterLink class="workspace-settings-link" to="/app/settings">Settings</RouterLink>
     </header>
-
-    <!-- The key handler is active only when this landmark becomes the mobile dialog. -->
-    <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
-    <aside
-      v-if="!setupActive"
-      id="app-navigation"
-      ref="sidebar"
-      class="sidebar"
-      :class="{ 'sidebar--open': menuOpen }"
-      :role="menuOpen ? 'dialog' : undefined"
-      :aria-modal="menuOpen ? 'true' : undefined"
-      :aria-label="menuOpen ? 'Application navigation' : undefined"
-      @keydown="containMenuFocus"
-    >
-      <div class="sidebar-header">
-        <RouterLink class="brand" to="/app/your-turn"><IoLogo /></RouterLink>
-        <button class="sidebar-close" type="button" aria-label="Close navigation" @click="closeMenu(true)">×</button>
-      </div>
-      <nav aria-label="Main navigation">
-        <div class="nav-group" role="group" aria-labelledby="workspace-navigation-label">
-          <p id="workspace-navigation-label" class="nav-group-title">Workspace</p>
-          <RouterLink v-for="item in visibleWorkspaceNavigation" :key="item.to" :to="item.to" class="nav-link">
-            <span>{{ item.label }}</span>
-          </RouterLink>
-          <RouterLink v-if="session.loaded && !restricted && hiddenPackageCount" to="/app/checkout" class="nav-link nav-link--packages">
-            <span>Explore plans</span><small>{{ hiddenPackageCount }} more areas</small>
-          </RouterLink>
-        </div>
-        <div class="nav-group" role="group" aria-labelledby="account-navigation-label">
-          <p id="account-navigation-label" class="nav-group-title">Account</p>
-          <RouterLink v-for="item in visibleAccountNavigation" :key="item.to" :to="item.to" class="nav-link">
-            <span>{{ item.label }}</span>
-          </RouterLink>
-        </div>
-      </nav>
-      <div class="sidebar-footer">
-        <div class="account-switcher">
-          <label for="account">Account</label>
-          <select id="account" :value="session.selectedID" :disabled="session.loading || session.selecting || session.accounts.length === 0" @change="selectAccount">
-            <option v-if="session.accounts.length === 0" value="">{{ session.loading ? "Loading…" : "No Account" }}</option>
-            <option v-for="account in session.accounts" :key="account.account_id" :value="account.account_id">{{ account.display_name }}{{ account.account_state === "restricted" ? " — restricted" : "" }}</option>
-          </select>
-        </div>
-        <button class="sign-out-button" type="button" :disabled="signingOut" @click="signOut">
-          <span class="sign-out-icon" aria-hidden="true">↪</span>
-          <span><strong>{{ signingOut ? "Signing out…" : "Sign out" }}</strong><small></small></span>
-        </button>
-        <p v-if="signOutError" class="sidebar-error" role="alert">{{ signOutError }}</p>
-      </div>
-    </aside>
-    <button v-if="menuOpen && !setupActive" class="scrim" type="button" tabindex="-1" aria-hidden="true" @click="closeMenu(true)" />
-
-    <main id="main" ref="main" tabindex="-1" :inert="menuOpen || undefined">
-      <div v-if="session.unavailable && !setupActive" class="session-notice" role="status">
-        We could not load your Account. <a href="/login?return_to=%2Fapp">Sign in again</a>
-      </div>
-      <div v-else-if="session.selectionError && !setupActive" class="session-notice" role="alert">{{ session.selectionError }}</div>
-      <div v-else-if="restricted && !setupActive" class="session-notice" role="status">
-        This Account is restricted. Billing, security, privacy, and data export remain available while you restore the subscription.
-      </div>
-      <RouterView />
-    </main>
-    <button v-if="setupActive" class="setup-sign-out" type="button" :disabled="signingOut" @click="signOut">
-      <span aria-hidden="true">↪</span>{{ signingOut ? "Signing out…" : "Sign out" }}
-    </button>
+    <nav v-if="!setupActive" class="workspace-navigation" aria-label="Workspace views">
+      <RouterLink v-for="item in visiblePrimary" :key="item.to" :to="item.to">{{ item.label }}</RouterLink>
+      <RouterLink v-if="!restricted" class="workspace-attention" to="/app/your-turn">Needs you<span v-if="attentionCount"> · {{ attentionCount }}</span></RouterLink>
+      <label v-if="visibleSecondary.length" class="workspace-more"><span class="sr-only">More workspace views</span><select value="" @change="openMore"><option value="">More…</option><option value="agent-chat">Agent conversations</option><option v-if="chat.businessVisited" value="business-chat">Business interview</option><option v-for="item in visibleSecondary" :key="item.to" :value="item.to">{{ item.label }}</option></select></label>
+      <button class="workspace-chat-toggle" type="button" :aria-pressed="chat.mobileChat || !panelOpen" :aria-controls="chat.surface === 'business' ? 'workspace-business-chat' : 'workspace-chat'" @click="toggleChat">{{ chat.mobileChat && panelOpen ? "Back to view" : "Chat" }}<span v-if="chat.running"> · working</span></button>
+    </nav>
+    <p v-if="signOutError" role="alert" class="session-notice">{{ signOutError }}</p>
+    <div v-if="session.unavailable && !setupActive" class="session-notice" role="status">We could not load your account. <a href="/login?return_to=%2Fapp">Sign in again</a></div>
+    <div v-else-if="session.selectionError && !setupActive" class="session-notice" role="alert">{{ session.selectionError }}</div>
+    <div v-else-if="restricted && !setupActive" class="session-notice" role="status">This account is restricted. Billing, security, privacy, and data export remain available.</div>
+    <div class="workspace-body" :class="{ 'workspace-body-chat-only': !panelOpen, 'workspace-mobile-chat': chat.mobileChat }">
+      <main v-if="panelOpen || setupActive" id="main" ref="main" tabindex="-1" class="workspace-view">
+        <div v-if="!setupActive" class="workspace-view-controls"><RouterLink v-if="inSettings && route.path !== '/app/settings'" to="/app/settings">← Settings</RouterLink><span></span><RouterLink v-if="!restricted" to="/app/workspace" aria-label="Close working view">Close</RouterLink></div>
+        <RouterView />
+        <div v-if="route.name === 'settings'" class="settings-sign-out"><button type="button" :disabled="signingOut" @click="signOut">{{ signingOut ? "Signing out…" : "Sign out" }}</button></div>
+      </main>
+      <BaselineView v-if="!setupActive && chat.businessVisited" v-show="chat.surface === 'business'" id="workspace-business-chat" :key="'business-' + session.selectedID" :workspace-mode="true" />
+      <WorkspaceChat v-if="!setupActive" v-show="chat.surface === 'agents'" id="workspace-chat" :key="session.selectedID ?? 'no-account'" :role="!panelOpen ? 'main' : undefined" />
+    </div>
+    <button v-if="setupActive" class="setup-sign-out" type="button" :disabled="signingOut" @click="signOut">{{ signingOut ? "Signing out…" : "Sign out" }}</button>
     <p v-if="setupActive && signOutError" class="setup-sign-out-error" role="alert">{{ signOutError }}</p>
   </div>
 </template>

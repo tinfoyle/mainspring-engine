@@ -24,9 +24,11 @@ import { IoButton } from "@spyglass/design-system";
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { useSafeNavigation } from "../composables/useSafeNavigation";
+import { useConversationStore } from "../stores/conversation";
 import { useSessionStore } from "../stores/session";
 
 const session = useSessionStore();
+const chat = useConversationStore();
 const route = useRoute();
 const router = useRouter();
 const items = ref<ReadonlyArray<WorkItem>>([]);
@@ -293,7 +295,7 @@ watch(() => [session.selectedID, itemID.value, available.value], () => void load
       <section v-if="detailLoading" class="queue-state" role="status"><h1>Loading work…</h1></section>
       <section v-else-if="detailError && !detail" class="queue-state queue-state--error" role="alert"><h1>Work did not load</h1><p>{{ detailError }}</p><IoButton kind="secondary" @click="loadDetail">Try again</IoButton></section>
       <template v-else-if="detail">
-        <header class="detail-heading"><div><p class="eyebrow">{{ label(detail.kind) }} · #{{ String(detail.number).padStart(4, "0") }}</p><h1>{{ detail.title }}</h1></div><span class="state-badge">{{ label(detail.state) }}</span></header>
+        <header class="detail-heading"><div><p class="eyebrow">{{ label(detail.kind) }} · #{{ String(detail.number).padStart(4, "0") }}</p><h1>{{ detail.title }}</h1></div><span class="state-badge">{{ label(detail.state) }}</span><button v-if="chat.available" type="button" @click="chat.attach({ kind: 'work', id: detail.id, title: detail.title, version: 'version ' + detail.version, text: JSON.stringify({ title: detail.title, description: detail.description, state: detail.state, id: detail.id }) })">Use in chat</button></header>
         <p v-if="detailError" class="queue-inline-status queue-inline-status--error" role="alert">{{ detailError }}</p>
         <div class="detail-layout">
           <article class="detail-card work-detail-card">
@@ -331,7 +333,7 @@ watch(() => [session.selectedID, itemID.value, available.value], () => void load
     <template v-else>
       <header class="page-heading page-heading--action"><div><h1>Work</h1><p>Track tasks assigned to you and your agents.</p></div><IoButton v-if="writable" @click="createOpen = !createOpen">{{ createOpen ? "Close new work" : "New work" }}</IoButton></header>
       <section v-if="!session.selectedID" class="queue-state"><h2>Select an Account</h2><p>Work always belongs to one Account.</p></section>
-      <section v-else-if="!available" class="queue-state"><h2>Work is not enabled</h2><p>This Account's current package set does not include Work.</p><a href="/app#billing">Review Account plans</a></section>
+      <section v-else-if="!available" class="queue-state"><h2>Work is not enabled</h2><p>This Account's current package set does not include Work.</p><a href="/app/billing">Review Account plans</a></section>
       <template v-else>
         <form v-if="createOpen" class="work-create decision-card" @submit.prevent="submitCreate">
           <h2>New task</h2>

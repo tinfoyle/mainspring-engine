@@ -10,14 +10,16 @@ import { expectNoAxeViolations } from "./test/accessibility";
 
 const analytics = vi.hoisted(() => ({
   emitAnalytics: vi.fn(), getPrivacyConsent: vi.fn(), getSecurityPosture: vi.fn(),
-  getPasskeys: vi.fn(), getRecoveryCodeStatus: vi.fn(), logout: vi.fn()
+  listAgentBoardrooms: vi.fn(), listAttentionQueue: vi.fn(), getPasskeys: vi.fn(), getRecoveryCodeStatus: vi.fn(), logout: vi.fn()
 }));
 vi.mock("@spyglass/api", async (original) => ({ ...await original<typeof import("@spyglass/api")>(), ...analytics }));
 const fetcher = vi.fn();
 vi.stubGlobal("fetch", fetcher);
 
 beforeEach(() => {
-  sessionStorage.clear();
+  sessionStorage.clear(); localStorage.clear();
+  analytics.listAgentBoardrooms.mockReset().mockResolvedValue([]);
+  analytics.listAttentionQueue.mockReset().mockResolvedValue([]);
   fetcher.mockReset().mockResolvedValue(new Response(JSON.stringify({ accounts: [] }), { status: 200 }));
   analytics.getPrivacyConsent.mockReset().mockResolvedValue({ decided: false, analytics: false, marketing: false, renewal_required: false });
   analytics.emitAnalytics.mockReset().mockResolvedValue(false);
@@ -28,31 +30,19 @@ beforeEach(() => {
 });
 
 describe("application shell", () => {
-  it("makes Your Turn the default and keeps unavailable packages out of the mobile menu", async () => {
-    await router.push("/app");
-    await router.isReady();
-    const pinia = createPinia();
-    const session = useSessionStore(pinia);
-    session.loaded = true;
-    vi.spyOn(session, "load").mockResolvedValue();
+  it("opens a conversation workspace and keeps administration in Settings", async () => {
+    await router.push("/app"); await router.isReady();
+    const pinia = createPinia(), session = useSessionStore(pinia);
+    session.loaded = true; vi.spyOn(session, "load").mockResolvedValue();
     const wrapper = mount(App, { global: { plugins: [pinia, router] } });
-    expect(wrapper.get("h1").text()).toBe("Your Turn");
-    expect(wrapper.get("nav").attributes("aria-label")).toBe("Main navigation");
-    expect(wrapper.get("nav").text()).toContain("Workspace");
-    expect(wrapper.get("nav").text()).toContain("Your Turn");
-    expect(wrapper.get("nav").text()).toContain("Business setup");
-    expect(wrapper.get("nav").text()).toContain("Explore plans");
-    expect(wrapper.get("nav").text()).not.toContain("Schedules");
-    expect(wrapper.get("nav").text()).not.toContain("Finance");
-    expect(wrapper.get("nav").text()).not.toContain("Integrations");
-    expect(wrapper.get("nav").text()).toContain("Account");
-    expect(wrapper.get("nav").text()).toContain("Billing");
-    expect(wrapper.get("nav").text()).toContain("Security");
-    expect(wrapper.get("nav").text()).toContain("Exports");
-    expect(wrapper.get("nav").text()).toContain("Close account");
-    expect(wrapper.find(".nav-link em").exists()).toBe(false);
-    await expectNoAxeViolations(wrapper.element);
-    wrapper.unmount();
+    expect(router.currentRoute.value.path).toBe("/app/workspace");
+    expect(wrapper.get("nav").attributes("aria-label")).toBe("Workspace views");
+    expect(wrapper.get("nav").text()).toContain("Needs you");
+    expect(wrapper.get("nav").text()).not.toContain("Billing");
+    expect(wrapper.get("nav").text()).not.toContain("Security");
+    expect(wrapper.get('a[href="/app/settings"]').text()).toBe("Settings");
+    expect(wrapper.get(".workspace-chat").attributes("role")).toBe("main");
+    await expectNoAxeViolations(wrapper.element); wrapper.unmount();
   });
 
   it("adds enabled and read-only package areas to the Workspace group", async () => {
@@ -89,15 +79,15 @@ describe("application shell", () => {
     session.loaded = true;
     vi.spyOn(session, "load").mockResolvedValue();
     const wrapper = mount(App, { global: { plugins: [pinia, router] } });
-    const workspace = wrapper.get('[aria-labelledby="workspace-navigation-label"]');
+    const workspace = wrapper.get('[aria-label="Workspace views"]');
     expect(workspace.text()).toContain("Work");
     expect(workspace.text()).toContain("Knowledge");
-    expect(workspace.text()).toContain("Agents");
+    expect(workspace.text()).toContain("Documents");
     expect(workspace.text()).toContain("Schedules");
     expect(workspace.text()).toContain("Finance");
-    expect(workspace.text()).toContain("Integrations");
+    expect(workspace.text()).not.toContain("Integrations");
     expect(workspace.text()).not.toContain("Marketing");
-    expect(workspace.text()).toContain("1 more areas");
+    expect(wrapper.find('a[href="/app/settings"]').exists()).toBe(true);
     wrapper.unmount();
   });
 
@@ -118,10 +108,15 @@ describe("application shell", () => {
 	await flushPromises();
 	expect(router.currentRoute.value.path).toBe("/app/billing");
 	expect(wrapper.get(".session-notice").text()).toContain("Billing, security, privacy, and data export");
-	const navigation = wrapper.get("nav").text(); const links = wrapper.findAll(".nav-link").map((item) => item.text());
-	expect(navigation).toContain("Billing"); expect(navigation).toContain("Security"); expect(navigation).toContain("Exports"); expect(navigation).toContain("Privacy");
-	expect(links).not.toContain("Your Turn"); expect(links).not.toContain("Work"); expect(links).not.toContain("Affiliate"); expect(links).not.toContain("Lifecycle");
-	expect(wrapper.get("option").text()).toContain("restricted");
+    expect(wrapper.get("nav").text()).not.toContain("Work");
+    await router.push("/app/settings"); await flushPromises();
+    const settings = wrapper.get(".settings-page");
+    expect(settings.text()).toContain("Billing");
+    expect(settings.text()).toContain("Security");
+    expect(settings.text()).toContain("Export your data");
+    expect(settings.text()).toContain("Privacy");
+    expect(settings.text()).not.toContain("Agents & tools");
+    expect(settings.text()).not.toContain("Close account");
 	wrapper.unmount();
   });
 
@@ -144,7 +139,7 @@ describe("application shell", () => {
     expect(router.currentRoute.value.query.return_to).toBe("/app/your-turn");
     expect(wrapper.get("h1").text()).toBe("How would you like to set up two-factor authentication?");
     expect(wrapper.find("nav").exists()).toBe(false);
-    expect(wrapper.get(".app-shell").classes()).toContain("app-shell--setup");
+    expect(wrapper.get(".workspace-shell").classes()).toContain("workspace-setup");
     wrapper.unmount();
   });
 
@@ -171,12 +166,12 @@ describe("application shell", () => {
     repeated.unmount();
   });
 
-  it("offers a friendly sidebar logout and ends the current session", async () => {
+  it("offers logout in Settings and ends the current session", async () => {
     const assign = vi.spyOn(window.location, "assign").mockImplementation(() => undefined);
-    await router.push("/app/your-turn");
+    await router.push("/app/settings");
     await router.isReady();
     const wrapper = mount(App, { global: { plugins: [createPinia(), router] } });
-    const button = wrapper.get(".sign-out-button");
+    const button = wrapper.get(".settings-sign-out button");
     expect(button.text()).toContain("Sign out");
     expect(button.text()).not.toContain("See you next time");
     await button.trigger("click");
@@ -195,40 +190,16 @@ describe("application shell", () => {
     expect(applicationEntryPoint(undefined)).toBe("deep_link");
   });
 
-  it("contains mobile drawer focus and restores it on Escape", async () => {
-    await router.push("/app/your-turn");
-    await router.isReady();
+  it("switches the working view and chat without a modal navigation drawer", async () => {
+    await router.push("/app/work"); await router.isReady();
     const wrapper = mount(App, { attachTo: document.body, global: { plugins: [createPinia(), router] } });
-    const toggle = wrapper.get(".menu-button");
+    await flushPromises();
+    const toggle = wrapper.get(".workspace-chat-toggle");
     await toggle.trigger("click");
-    await wrapper.vm.$nextTick();
-
-    const close = wrapper.get<HTMLButtonElement>(".sidebar-close");
-    expect(document.activeElement).toBe(close.element);
-    expect(wrapper.get("#app-navigation").attributes("role")).toBe("dialog");
-    expect(wrapper.get("#app-navigation").attributes("aria-modal")).toBe("true");
-    expect(wrapper.get("#app-navigation").attributes("aria-label")).toBe("Application navigation");
-    expect(wrapper.get("main").attributes()).toHaveProperty("inert");
-    expect(wrapper.get(".mobile-header").attributes()).toHaveProperty("inert");
-    expect(wrapper.get(".scrim").attributes("tabindex")).toBe("-1");
-    expect(wrapper.get(".scrim").attributes("aria-hidden")).toBe("true");
-
-    const last = wrapper.get<HTMLButtonElement>(".sign-out-button");
-    const first = wrapper.get<HTMLAnchorElement>(".brand");
-    expect(last.text()).toContain("Sign out");
-    last.element.focus();
-    await last.trigger("keydown", { key: "Tab" });
-    expect(document.activeElement).toBe(first.element);
-    await first.trigger("keydown", { key: "Tab", shiftKey: true });
-    expect(document.activeElement).toBe(last.element);
-
-    await last.trigger("keydown", { key: "Escape" });
-    await wrapper.vm.$nextTick();
-    expect(toggle.attributes("aria-expanded")).toBe("false");
-    expect(wrapper.get("#app-navigation").attributes("role")).toBeUndefined();
-    expect(wrapper.get("#app-navigation").attributes("aria-label")).toBeUndefined();
-    expect(wrapper.get("main").attributes("inert")).toBeUndefined();
-    expect(document.activeElement).toBe(toggle.element);
+    expect(wrapper.get(".workspace-body").classes()).toContain("workspace-mobile-chat");
+    await toggle.trigger("click");
+    expect(wrapper.get(".workspace-body").classes()).not.toContain("workspace-mobile-chat");
+    expect(wrapper.find(".sidebar").exists()).toBe(false);
     wrapper.unmount();
   });
 });

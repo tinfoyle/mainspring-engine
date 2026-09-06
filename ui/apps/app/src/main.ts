@@ -6,6 +6,7 @@ import App from "./App.vue";
 import { installDialogFocus } from "./dialogFocus";
 import { router } from "./router";
 import "./styles.css";
+import "./workspace.css";
 
 const root = document.querySelector<HTMLElement>("#app");
 if (!root) throw new Error("Spyglass application root is missing.");

@@ -1,660 +1,6 @@
-import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Route } from "@playwright/test";
 import { baselinePersonaDescription, baselinePersonaInstructions, baselineRoomPurpose } from "../../apps/app/src/baseline-interviewer";
-
-const accountID = "10000000-0000-4000-8000-000000000001";
-const userID = "20000000-0000-4000-8000-000000000002";
-const account = {
-  account_id: accountID,
-  account_type: "paid",
-  account_state: "active",
-  account_version: 1,
-  cell_id: "cell-us-east-01",
-  display_name: "Northstar Studio",
-  placement_generation: 1,
-  role: "owner",
-  slug: "northstar-studio",
-  owner_enrollment_required: false,
-  entitlements: {
-    account_id: accountID,
-    catalog_version: 2,
-    evaluated_at: "2026-08-24T20:00:00Z",
-    version: 3,
-    packages: [
-      { code: "work", version: 1, mode: "enabled", sources: ["subscription"] },
-      { code: "knowledge", version: 1, mode: "enabled", sources: ["subscription"] },
-      { code: "agents", version: 1, mode: "enabled", sources: ["subscription"] },
-      { code: "finance", version: 1, mode: "enabled", sources: ["subscription"] },
-      { code: "integrations", version: 1, mode: "enabled", sources: ["subscription"] },
-      { code: "marketing", version: 1, mode: "enabled", sources: ["subscription"] }
-    ]
-  }
-};
-const secondAccountID = "10000000-0000-4000-8000-000000000010";
-const secondAccount = {
-  ...account,
-  account_id: secondAccountID,
-  display_name: "Harbor Workshop",
-  role: "member",
-  slug: "harbor-workshop",
-  entitlements: { ...account.entitlements, account_id: secondAccountID }
-};
-const consent = {
-  analytics: true,
-  decided: true,
-  marketing: false,
-  policy_version: 1,
-  renewal_required: false,
-  surface: "private"
-};
-const privacyRightsRequest = {
-  request_id: "11000000-0000-4000-8000-000000000011",
-  kind: "erasure",
-  scope: "affiliate",
-  state: "submitted",
-  requested_at: "2026-08-25T12:00:00Z",
-  response_due_at: "2026-09-24T12:00:00Z",
-  updated_at: "2026-08-25T12:00:00Z",
-  verified_at: "2026-08-25T12:00:00Z"
-};
-const terminalPrivacyRightsRequests = [
-  { ...privacyRightsRequest, request_id: "12000000-0000-4000-8000-000000000012", kind: "access", scope: "identity", state: "in_review", updated_at: "2026-08-26T10:00:00Z" },
-  { ...privacyRightsRequest, request_id: "13000000-0000-4000-8000-000000000013", kind: "restriction", scope: "analytics", state: "partially_completed", updated_at: "2026-08-26T11:00:00Z" },
-  { ...privacyRightsRequest, request_id: "14000000-0000-4000-8000-000000000014", kind: "objection", scope: "affiliate", state: "declined", updated_at: "2026-08-26T12:00:00Z" }
-];
-const catalog = {
-  version: 3,
-  published_at: "2026-08-24T20:00:00Z",
-  limits: [],
-  packages: [],
-  plans: [{
-    code: "team",
-    version: 2,
-    name: "Infinite Ocean Team",
-    description: "The complete Infinite Ocean operating system for one team.",
-    packages: { work: "enabled", knowledge: "enabled" }
-  }],
-  offers: [{
-    code: "team-monthly-v2",
-    plan_code: "team",
-    plan_version: 2,
-    currency: "USD",
-    amount_minor: 5000,
-    billing_interval: "month",
-    effective_from: "2026-08-20T20:00:00Z"
-  }],
-  ai_token_renewal_grant: { code: "team_renewal_v1", version: 1, quantity: 10000, disclosure: "Included per successful renewal." },
-  ai_token_bundles: [{ code: "tokens_10k_v1", version: 1, quantity: 10000, currency: "USD", amount_minor: 1000, effective_from: "2026-08-20T20:00:00Z", disclosure: "Purchased AI Tokens remain with the active team." }],
-  commissioning_offer: { code: "commissioning_v1", version: 1, currency: "USD", amount_minor: 25000, effective_from: "2026-08-20T20:00:00Z", disclosure: "Collaborative setup and configuration for one team." },
-  ai_complexity_rates: ["simple", "efficient", "balanced", "thorough", "advanced"].map((complexity, index) => ({ complexity, code: `${complexity}_v1`, version: 1, input_per_thousand: 1 + index, cached_input_per_thousand: 1 + index, output_per_thousand: 4 + index * 4, tool_invocation: 10 + index * 10, minimum_charge: 5 + index * 5, maximum_reservation: 1000 + index * 1000, estimated_minimum: 10 + index * 10, estimated_maximum: 100 + index * 100 }))
-};
-const ownerMembership = {
-  membership_id: "80000000-0000-4000-8000-000000000008",
-  user_id: userID,
-  display_name: "Casey Owner",
-  email: "casey@example.com",
-  role: "owner",
-  state: "active",
-  version: 5,
-  created_at: "2026-08-20T20:00:00Z"
-};
-const memberMembership = {
-  membership_id: "90000000-0000-4000-8000-000000000009",
-  user_id: "a0000000-0000-4000-8000-00000000000a",
-  display_name: "Morgan Member",
-  email: "morgan@example.com",
-  role: "member",
-  state: "active",
-  version: 2,
-  created_at: "2026-08-21T20:00:00Z"
-};
-const queuedExport = {
-  id: "b0000000-0000-4000-8000-00000000000b",
-  account_id: accountID,
-  requested_by: userID,
-  cell_id: "cell-us-east-01",
-  placement_generation: 1,
-  account_version: 1,
-  state: "queued",
-  version: 3,
-  attempt_count: 0,
-  requested_at: "2026-08-25T12:00:00Z",
-  expires_at: "2026-09-01T12:00:00Z"
-};
-const workItem = {
-  id: "c0000000-0000-4000-8000-00000000000c",
-  number: 17,
-  depth: 0,
-  kind: "ticket",
-  title: "Confirm the launch checklist",
-  description: "Verify the governed release boundary.",
-  state: "in_progress",
-  priority: "high",
-  assignment: { responsibility: "shared" },
-  provenance: { source: "manual", created_by: { kind: "user", id: userID } },
-  version: 4,
-  created_at: "2026-08-24T20:00:00Z",
-  updated_at: "2026-08-24T20:05:00Z"
-};
-const knowledgeClaim = {
-  id: "d0000000-0000-4000-8000-00000000000d",
-  account_id: accountID,
-  scope: { kind: "account" },
-  key: "launch.release_window",
-  value: "August 31",
-  value_sha256: "a".repeat(64),
-  hash_version: 1,
-  confidence: 920,
-  sensitivity: "internal",
-  citations: [{
-    evidence_id: "e0000000-0000-4000-8000-00000000000e",
-    evidence_kind: "document_revision",
-    relation: "supports",
-    locator: "Launch plan, page 4"
-  }],
-  state: "proposed",
-  proposed_by: { kind: "workload", id: "planning-agent" },
-  version: 3,
-  created_at: "2026-08-24T20:00:00Z",
-  updated_at: "2026-08-24T20:05:00Z"
-};
-const knowledgeFact = {
-  id: "f0000000-0000-4000-8000-00000000000f",
-  current_claim_id: knowledgeClaim.id,
-  scope: { kind: "account" },
-  key: "organization.legal_name",
-  sensitivity: "internal",
-  state: "active",
-  revision: 2,
-  accepted_at: "2026-08-23T20:00:00Z",
-  updated_at: "2026-08-23T20:00:00Z"
-};
-const baselineID = "11000000-0000-4000-8000-000000000011";
-const baseline = {
-  id: baselineID,
-  account_id: accountID,
-  catalog_version: "baseline-evidence-2026-08-22",
-  scope_policy_version: "baseline-scope-v1",
-  state: "interview",
-  answers: [],
-  requirements: [],
-  created_by_user_id: userID,
-  version: 1,
-  created_at: "2026-08-24T20:00:00Z",
-  updated_at: "2026-08-24T20:00:00Z"
-};
-const agentRoom = {
-  id: "12000000-0000-4000-8000-000000000012",
-  manager_persona_id: "13000000-0000-4000-8000-000000000013",
-  name: "Operating review",
-  purpose: "Resolve launch constraints.",
-  state: "active",
-  version: 4,
-  created_at: "2026-08-24T20:00:00Z",
-  updated_at: "2026-08-24T20:00:00Z"
-};
-const agentPersona = {
-  id: agentRoom.manager_persona_id,
-  boardroom_id: agentRoom.id,
-  state: "active",
-  latest_version: 2,
-  persona_version_id: "14000000-0000-4000-8000-000000000014",
-  name: "Operations Lead",
-  role: "Summary agent",
-  description: "Synthesizes evidence and open risks.",
-  system_instructions: "Review the evidence and state bounded recommendations.",
-  content_digest: "b".repeat(64),
-  policy: {
-    complexity: "balanced",
-    maximum_input_tokens: 10000,
-    maximum_output_tokens: 2000,
-    maximum_cost_micros: 100000,
-    maximum_tool_steps: 2,
-    citation_policy: "required",
-    action_policy: "propose",
-    tools: [],
-    output_schema: {}
-  },
-  created_at: "2026-08-24T20:00:00Z",
-  updated_at: "2026-08-24T20:00:00Z"
-};
-const agentConversation = {
-  id: "15000000-0000-4000-8000-000000000015",
-  boardroom_id: agentRoom.id,
-  subject: "Launch readiness",
-  state: "open",
-  message_count: 2,
-  created_by: userID,
-  created_at: "2026-08-24T20:00:00Z",
-  updated_at: "2026-08-24T20:05:00Z"
-};
-const agentRunID = "16000000-0000-4000-8000-000000000016";
-const agentMessage = {
-  id: "17000000-0000-4000-8000-000000000017",
-  conversation_id: agentConversation.id,
-  sequence: 2,
-  role: "persona",
-  body: "Two readiness gaps remain.",
-  run_id: agentRunID,
-  invocation_id: "18000000-0000-4000-8000-000000000018",
-  persona_version_id: agentPersona.persona_version_id,
-  created_at: "2026-08-24T20:05:00Z",
-  result: {
-    contribution: "Two readiness gaps remain.",
-    findings: ["Security review is open."],
-    recommendations: ["Close the review."],
-    questions: [],
-    citations: [],
-    delegations: [],
-    confidence: "high",
-    proposed_actions: [{ kind: "marketing.release.publish", reason: "Publish only after approval.", payload: {}, evidence: ["release-checklist"] }]
-  }
-};
-const agentRun = {
-  id: agentRunID,
-  boardroom_id: agentRoom.id,
-  conversation_id: agentConversation.id,
-  subject: agentConversation.subject,
-  prompt: "Review launch readiness.",
-  mode: "selected",
-  state: "succeeded",
-  context: [],
-  context_digest: "c".repeat(64),
-  entitlement_version: 3,
-  plan_digest: "d".repeat(64),
-  policy_version: 2,
-  invocation_ids: [],
-  invocations: [],
-  turns: [],
-  resolutions: [],
-  user_message_id: "19000000-0000-4000-8000-000000000019",
-  created_at: "2026-08-24T20:00:00Z"
-};
-const schedule = {
-  id: "21000000-0000-4000-8000-000000000021",
-  account_id: accountID,
-  name: "Monday launch review",
-  timezone: "America/New_York",
-  recurrence: { frequency: "weekly", weekdays: [1], local_hour: 9, local_minute: 30, gap_policy: "next_valid", overlap_policy: "first" },
-  missed_run_policy: "catch_up_one",
-  template: { boardroom_id: agentRoom.id, mode: "selected", persona_ids: [agentPersona.id], subject: "Launch review", prompt: "Review launch readiness.", work_item_ids: null, knowledge_fact_ids: null, knowledge_document_ids: null, baseline_assessment_ids: null },
-  state: "active",
-  next_run_at: "2026-08-31T13:30:00Z",
-  version: 4,
-  created_by: userID,
-  created_at: "2026-08-24T20:00:00Z",
-  updated_at: "2026-08-24T20:00:00Z"
-};
-const financeLedger = { id: "22000000-0000-4000-8000-000000000022", account_id: accountID, name: "Operating", code: "OPS", description: "Primary book", currency: "USD", state: "active", version: 3, created_by: { kind: "user", id: userID }, created_at: "2026-08-24T00:00:00Z", updated_at: "2026-08-24T00:00:00Z" };
-const financeSummary = { ...financeLedger, account_count: 2, draft_count: 1, income_minor: 5000, expense_minor: 2000, net_minor: 3000 };
-const financeEntry = { id: "23000000-0000-4000-8000-000000000023", account_id: accountID, ledger_id: financeLedger.id, number: 8, entry_date: "2026-08-24T00:00:00Z", description: "Monthly close", reference: "CLOSE-8", currency: "USD", total_minor: 5000, state: "draft", version: 5, lines: [{ account_id: "cash", memo: "", debit_minor: 5000, credit_minor: 0 }, { account_id: "income", memo: "", debit_minor: 0, credit_minor: 5000 }], evidence: ["30000000-0000-4000-8000-000000000003"], provenance: { source: "manual" }, created_by: { kind: "user", id: userID }, created_at: "2026-08-24T00:00:00Z", updated_at: "2026-08-24T00:00:00Z" };
-const integrationConnection = { id: "24000000-0000-4000-8000-000000000024", account_id: accountID, name: "Policy research", kind: "web_research", state: "active", current_revision_id: "25000000-0000-4000-8000-000000000025", current_revision: 2, credential_id: "26000000-0000-4000-8000-000000000026", credential_generation: 1, version: 4, created_by: { user_id: userID }, created_at: "2026-08-24T00:00:00Z", updated_at: "2026-08-24T00:00:00Z" };
-const integrationHealth = { id: "27000000-0000-4000-8000-000000000027", account_id: accountID, connection_id: integrationConnection.id, connection_revision_id: integrationConnection.current_revision_id, credential_id: integrationConnection.credential_id, state: "healthy", latency_milliseconds: 81, checked_at: "2026-08-24T00:00:00Z" };
-const integrationDetail = { connection: integrationConnection, revision: { id: integrationConnection.current_revision_id, account_id: accountID, connection_id: integrationConnection.id, revision: 2, capabilities: ["web.research"], scope: { https_origin: "https://example.com", path_prefix: "/policy" }, created_by: { user_id: userID }, created_at: "2026-08-24T00:00:00Z" }, latest_health: integrationHealth };
-const integrationExecution = { id: "28000000-0000-4000-8000-000000000028", account_id: accountID, release_id: "29000000-0000-4000-8000-000000000029", release_version: 3, approval_id: "31000000-0000-4000-8000-000000000031", capability: "web.publish", connection_id: integrationConnection.id, connection_revision_id: integrationConnection.current_revision_id, connection_revision: 2, credential_id: integrationConnection.credential_id, credential_generation: 1, payload_sha256: "e".repeat(64), state: "manual_resolution", attempt_count: 1, created_at: "2026-08-24T00:00:00Z", updated_at: "2026-08-24T00:00:00Z" };
-const integrationExecutionDetail = { execution: integrationExecution, attempts: [], resolution: { id: "32000000-0000-4000-8000-000000000032", execution_id: integrationExecution.id, requested_outcome: "succeeded", evidence_sha256: "f".repeat(64), requested_by_user_id: userID, requested_at: "2026-08-24T00:00:00Z", state: "pending" } };
-const marketingCampaign = { id: "33000000-0000-4000-8000-000000000033", account_id: accountID, name: "Launch", objective: "Explain the operating model", audience: "Business owners", channels: ["email", "web"], state: "draft", version: 4, created_by: { kind: "user", id: userID }, provenance: { origin: "human" }, created_at: "2026-08-24T00:00:00Z", updated_at: "2026-08-24T01:00:00Z" };
-const marketingAsset = { id: "34000000-0000-4000-8000-000000000034", account_id: accountID, campaign_id: marketingCampaign.id, asset_id: "35000000-0000-4000-8000-000000000035", revision: 2, kind: "copy", title: "Launch copy", media_type: "text/plain", content_reference: "opaque", content_sha256: "1".repeat(64), content_bytes: 120, created_by: { kind: "user", id: userID }, provenance: { origin: "human" }, created_at: "2026-08-24T00:30:00Z" };
-const marketingRelease = { id: "36000000-0000-4000-8000-000000000036", account_id: accountID, campaign_id: marketingCampaign.id, campaign_version: 4, name: "Launch release", channels: ["email", "web"], asset_revision_ids: [marketingAsset.id], state: "submitted", version: 2, created_by: { kind: "user", id: userID }, provenance: { origin: "human" }, submitted_by: { kind: "user", id: userID }, created_at: "2026-08-24T00:40:00Z", updated_at: "2026-08-24T00:50:00Z" };
-
-interface SyntheticAPIState {
-  readonly analyticsEvents: Array<{ name: string; fields?: Record<string, string> }>;
-  readonly unhandled: string[];
-  securityReady: boolean;
-}
-
-function fulfillJSON(route: Route, body: unknown, status = 200) {
-  return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
-}
-
-function fulfillProblem(route: Route, status: number, code: string, detail: string) {
-  return route.fulfill({
-    status,
-    contentType: "application/problem+json",
-    body: JSON.stringify({ type: `https://infiniteocean.net/problems/${code}`, title: "Request denied", status, code, detail })
-  });
-}
-
-function accountWithPackageModes(mode: "enabled" | "read_only", excluded: ReadonlyArray<string> = []) {
-  return {
-    ...account,
-    entitlements: {
-      ...account.entitlements,
-      packages: account.entitlements.packages
-        .filter((item) => !excluded.includes(item.code))
-        .map((item) => ({ ...item, mode }))
-    }
-  };
-}
-
-async function overrideSession(page: Page, selectedAccount: ReturnType<typeof accountWithPackageModes>): Promise<void> {
-  await page.route("**/api/v1/session/accounts", async (route) => {
-    await fulfillJSON(route, { user_id: userID, selected_account_id: accountID, accounts: [selectedAccount] });
-  });
-}
-
-async function installSyntheticAPI(page: Page): Promise<SyntheticAPIState> {
-  const state: SyntheticAPIState = { analyticsEvents: [], unhandled: [], securityReady: false };
-  await page.route("**/api/v1/**", async (route) => {
-    const request = route.request();
-    const url = new URL(request.url());
-    const path = url.pathname;
-    if (path === "/api/v1/session/accounts") {
-      await fulfillJSON(route, { user_id: userID, selected_account_id: accountID, accounts: [account] });
-      return;
-    }
-    if (path === "/api/v1/privacy/consent") {
-      if (request.method() === "PUT") {
-        const selection = request.postDataJSON() as { analytics: boolean; marketing: boolean };
-        await fulfillJSON(route, { ...consent, ...selection });
-      } else await fulfillJSON(route, consent);
-      return;
-    }
-    if (path === "/api/v1/privacy/consent/history") {
-      await fulfillJSON(route, { decisions: [{
-        decision_id: "12000000-0000-4000-8000-000000000012",
-        subject_id: "13000000-0000-4000-8000-000000000013",
-        policy_version: 1,
-        surface: "private",
-        analytics: true,
-        marketing: false,
-        effective_at: "2026-08-25T11:00:00Z"
-      }] });
-      return;
-    }
-    if (path === "/api/v1/privacy/rights-requests") {
-      await fulfillJSON(route, { requests: [] });
-      return;
-    }
-    if (path === "/api/v1/analytics/events") {
-      const event = request.postDataJSON() as { name: string; fields?: Record<string, string> };
-      state.analyticsEvents.push({ name: event.name, fields: event.fields });
-      await fulfillJSON(route, {}, 202);
-      return;
-    }
-    if (path === "/api/v1/identity") {
-      await fulfillJSON(route, { user_id: userID, primary_email: "owner@example.com" });
-      return;
-    }
-    if (path === "/api/v1/security-posture") {
-      await fulfillJSON(route, {
-        passkey_count: 1,
-        mfa_method_count: 0,
-        recovery_codes_configured: state.securityReady,
-        recovery_codes_remaining: state.securityReady ? 10 : 0,
-        owner_ready: state.securityReady
-      });
-      return;
-    }
-    if (path === "/api/v1/passkeys") {
-      await fulfillJSON(route, { passkeys: [{
-        id: "60000000-0000-4000-8000-000000000006",
-        name: "Laptop",
-        created_at: "2026-08-24T20:00:00Z",
-        backup_eligible: true,
-        backed_up: true
-      }] });
-      return;
-    }
-    if (path === "/api/v1/mfa-methods") {
-      await fulfillJSON(route, { methods: [] });
-      return;
-    }
-    if (path === "/api/v1/recovery-codes") {
-      if (request.method() === "POST") {
-        state.securityReady = true;
-        await fulfillJSON(route, {
-          status: { configured: true, version: 1, remaining: 10, created_at: "2026-08-25T12:00:00Z" },
-          codes: ["ALPHA-BRAVO", "CHARLIE-DELTA"]
-        });
-      } else await fulfillJSON(route, {
-        configured: state.securityReady,
-        version: state.securityReady ? 1 : 0,
-        remaining: state.securityReady ? 10 : 0,
-        created_at: state.securityReady ? "2026-08-25T12:00:00Z" : undefined
-      });
-      return;
-    }
-    if (path === "/api/v1/sessions") {
-      await fulfillJSON(route, { sessions: [{
-        id: "70000000-0000-4000-8000-000000000007",
-        client_label: "Current browser",
-        authenticated_at: "2026-08-25T11:00:00Z",
-        last_seen_at: "2026-08-25T12:00:00Z",
-        expires_at: "2026-09-25T12:00:00Z",
-        current: true,
-        authentication_method: "passkey",
-        authentication_assurance: "phishing_resistant"
-      }] });
-      return;
-    }
-    if (path === "/api/v1/security-events") {
-      await fulfillJSON(route, { events: [] });
-      return;
-    }
-    if (path === "/api/v1/mcp-grants") {
-      await fulfillJSON(route, { grants: [] });
-      return;
-    }
-    if (path === `/api/v1/accounts/${accountID}/support-access-history`) {
-      await fulfillJSON(route, { events: [] });
-      return;
-    }
-    if (path.startsWith(`/api/v1/accounts/${accountID}/attention/`)) {
-      const items = path.endsWith("/approvals") ? [{
-        id: "30000000-0000-4000-8000-000000000003",
-        capability: "marketing.release.publish",
-        invocation_id: "40000000-0000-4000-8000-000000000004",
-        operation_id: "50000000-0000-4000-8000-000000000005",
-        policy_version: 2,
-        proposer: { kind: "workload", id: "campaign-agent" },
-        state: "open",
-        version: 4,
-        created_at: "2026-08-24T20:00:00Z",
-        updated_at: "2026-08-24T20:01:00Z",
-        expires_at: "2026-08-25T20:00:00Z"
-      }] : [];
-      await fulfillJSON(route, { items });
-      return;
-    }
-    if (path === "/api/v1/catalog/public") {
-      await fulfillJSON(route, catalog);
-      return;
-    }
-    if (path === `/api/v1/accounts/${accountID}/billing`) {
-      await fulfillJSON(route, { has_customer: false, can_manage: true, can_start_checkout: true, commissioning_purchased: false, subscriptions: [] });
-      return;
-    }
-    if (path === `/api/v1/accounts/${accountID}/ai-tokens`) {
-      await fulfillJSON(route, { available: 0, reserved: 0, consumed: 0, included: 0, purchased: 0, promotion: 0 });
-      return;
-    }
-    if (path === `/api/v1/accounts/${accountID}/membership`) {
-      await fulfillJSON(route, { membership: ownerMembership });
-      return;
-    }
-    if (path === `/api/v1/accounts/${accountID}/memberships`) {
-      await fulfillJSON(route, { memberships: [ownerMembership, memberMembership] });
-      return;
-    }
-    if (path === `/api/v1/accounts/${accountID}/exports` && request.method() === "GET") {
-      await fulfillJSON(route, { exports: [queuedExport] });
-      return;
-    }
-    if (path === "/api/v1/account-closures") {
-      await fulfillJSON(route, { account_closures: [] });
-      return;
-    }
-    const workBase = `/api/v1/accounts/${accountID}/work-items`;
-    if (path === `${workBase}/summary`) {
-      await fulfillJSON(route, { active: 1, in_progress: 1, waiting: 0, urgent: 0, done: 0 });
-      return;
-    }
-    if (path === `${workBase}/${workItem.id}/children`) {
-      await fulfillJSON(route, { items: [] });
-      return;
-    }
-    if (path === `${workBase}/${workItem.id}`) {
-      await fulfillJSON(route, workItem);
-      return;
-    }
-    if (path === workBase && request.method() === "GET") {
-      await fulfillJSON(route, { items: [workItem] });
-      return;
-    }
-    const knowledgeBase = `/api/v1/accounts/${accountID}/knowledge`;
-    if (path === `${knowledgeBase}/claims/${knowledgeClaim.id}`) {
-      await fulfillJSON(route, knowledgeClaim);
-      return;
-    }
-    if (path === `${knowledgeBase}/claims` && request.method() === "GET") {
-      await fulfillJSON(route, { items: [knowledgeClaim] });
-      return;
-    }
-    if (path === `${knowledgeBase}/facts` && request.method() === "GET") {
-      await fulfillJSON(route, { items: [knowledgeFact] });
-      return;
-    }
-    if (path === `/api/v1/accounts/${accountID}/baseline-assessments/${baselineID}`) {
-      await fulfillJSON(route, baseline);
-      return;
-    }
-    const accountBase = `/api/v1/accounts/${accountID}`;
-    if (path === `${accountBase}/agent-boardrooms`) {
-      await fulfillJSON(route, { items: [agentRoom] });
-      return;
-    }
-    if (path === `${accountBase}/agent-boardrooms/${agentRoom.id}/personas`) {
-      await fulfillJSON(route, { items: [agentPersona] });
-      return;
-    }
-    if (path === `${accountBase}/agent-boardrooms/${agentRoom.id}/conversations`) {
-      await fulfillJSON(route, { items: [agentConversation] });
-      return;
-    }
-    if (path === `${accountBase}/agent-conversations/${agentConversation.id}`) {
-      await fulfillJSON(route, agentConversation);
-      return;
-    }
-    if (path === `${accountBase}/agent-conversations/${agentConversation.id}/messages`) {
-      await fulfillJSON(route, { items: [agentMessage] });
-      return;
-    }
-    if (path === `${accountBase}/agent-runs/${agentRunID}`) {
-      await fulfillJSON(route, agentRun);
-      return;
-    }
-    if (path === `${accountBase}/schedules/${schedule.id}`) {
-      await fulfillJSON(route, schedule);
-      return;
-    }
-    if (path === `${accountBase}/schedules` && request.method() === "GET") {
-      await fulfillJSON(route, { items: [schedule] });
-      return;
-    }
-    const financeBase = `${accountBase}/finance`;
-    if (path === `${financeBase}/entries/${financeEntry.id}`) {
-      await fulfillJSON(route, financeEntry);
-      return;
-    }
-    if (path === `${financeBase}/ledgers/${financeLedger.id}`) {
-      await fulfillJSON(route, financeLedger);
-      return;
-    }
-    if (path === `${financeBase}/ledgers`) {
-      await fulfillJSON(route, { items: [financeSummary] });
-      return;
-    }
-    if (path === `${financeBase}/ledgers/${financeLedger.id}/accounts`) {
-      await fulfillJSON(route, { items: [] });
-      return;
-    }
-    if (path === `${financeBase}/ledgers/${financeLedger.id}/entries`) {
-      await fulfillJSON(route, { items: [financeEntry] });
-      return;
-    }
-    if (path === `${financeBase}/ledgers/${financeLedger.id}/reconciliations`) {
-      await fulfillJSON(route, { items: [] });
-      return;
-    }
-    const integrationsBase = `${accountBase}/integrations`;
-    if (path === `${integrationsBase}/connections/${integrationConnection.id}`) {
-      await fulfillJSON(route, integrationDetail);
-      return;
-    }
-    if (path === `${integrationsBase}/connections/${integrationConnection.id}/health`) {
-      await fulfillJSON(route, { items: [integrationHealth] });
-      return;
-    }
-    if (path === `${integrationsBase}/connections` && request.method() === "GET") {
-      await fulfillJSON(route, { items: [integrationConnection] });
-      return;
-    }
-    if (path === `${integrationsBase}/executions/${integrationExecution.id}`) {
-      await fulfillJSON(route, integrationExecutionDetail);
-      return;
-    }
-    if (path === `${integrationsBase}/executions` && request.method() === "GET") {
-      await fulfillJSON(route, { items: [integrationExecution] });
-      return;
-    }
-    const marketingBase = `${accountBase}/marketing`;
-    if (path === `${marketingBase}/campaigns/${marketingCampaign.id}/asset-revisions`) {
-      await fulfillJSON(route, { items: [marketingAsset] });
-      return;
-    }
-    if (path === `${marketingBase}/campaigns/${marketingCampaign.id}/releases`) {
-      await fulfillJSON(route, { items: [marketingRelease] });
-      return;
-    }
-    if (path === `${marketingBase}/campaigns/${marketingCampaign.id}`) {
-      await fulfillJSON(route, marketingCampaign);
-      return;
-    }
-    if (path === `${marketingBase}/campaigns` && request.method() === "GET") {
-      await fulfillJSON(route, { items: [marketingCampaign] });
-      return;
-    }
-    if (path === `${marketingBase}/releases/${marketingRelease.id}`) {
-      await fulfillJSON(route, marketingRelease);
-      return;
-    }
-    if (path === "/api/v1/affiliate") {
-      await fulfillJSON(route, {
-        enrollment_open: false,
-        attribution_enabled: false,
-        terms_version: 1,
-        rule_version: 1,
-        settlement_mode: "unconfigured"
-      });
-      return;
-    }
-    state.unhandled.push(`${request.method()} ${path}`);
-    await fulfillJSON(route, { title: "Synthetic browser route missing", status: 501 }, 501);
-  });
-  return state;
-}
-
-async function expectAccessible(page: Page): Promise<void> {
-  const results = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
-    .analyze();
-  expect(results.violations, results.violations.map((violation) =>
-    `${violation.id}: ${violation.help}\n${violation.nodes.map((node) => `  ${node.target.join(" ")} — ${node.failureSummary}`).join("\n")}`
-  ).join("\n\n")).toEqual([]);
-}
-
-async function expectNoHorizontalOverflow(page: Page): Promise<void> {
-  const dimensions = await page.evaluate(() => ({
-    viewport: document.documentElement.clientWidth,
-    document: document.documentElement.scrollWidth,
-    offenders: Array.from(document.querySelectorAll<HTMLElement>("body *")).map((element) => {
-      const rect = element.getBoundingClientRect();
-      return { selector: `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}${Array.from(element.classList).map((name) => `.${name}`).join("")}`, left: Math.round(rect.left), right: Math.round(rect.right), width: Math.round(rect.width), scrollWidth: element.scrollWidth };
-    }).filter((element) => element.left < 0 || element.right > document.documentElement.clientWidth || element.scrollWidth > element.width + 1).slice(0, 12)
-  }));
-  expect(dimensions.document, `document width ${dimensions.document}px exceeds ${dimensions.viewport}px viewport; offenders: ${JSON.stringify(dimensions.offenders)}`).toBeLessThanOrEqual(dimensions.viewport);
-}
+import { accountID, userID, account, secondAccountID, secondAccount, consent, privacyRightsRequest, terminalPrivacyRightsRequests, ownerMembership, memberMembership, queuedExport, workItem, knowledgeClaim, baselineID, agentRoom, agentPersona, agentConversation, agentMessage, schedule, financeEntry, integrationConnection, integrationDetail, integrationExecution, marketingCampaign, marketingRelease, type SyntheticAPIState, fulfillJSON, fulfillProblem, accountWithPackageModes, overrideSession, installSyntheticAPI, expectAccessible, expectNoHorizontalOverflow } from "./private-fixtures";
 
 let state: SyntheticAPIState;
 let browserErrors: string[] = [];
@@ -857,8 +203,8 @@ test("@text-zoom authenticated routes retain content and reflow at 200% text siz
     { path: "/app/account", heading: "Account" },
     { path: `/app/work/${workItem.id}`, heading: workItem.title },
     { path: `/app/knowledge/claims/${knowledgeClaim.id}`, heading: "Launch release window" },
-    { path: `/app/baseline/${baselineID}`, heading: "Business Baseline" },
-    { path: `/app/agents/boardrooms/${agentRoom.id}/conversations/${agentConversation.id}`, heading: agentRoom.name },
+    { path: `/app/baseline/${baselineID}`, heading: "Business profile" },
+    { path: `/app/agents/boardrooms/${agentRoom.id}/conversations/${agentConversation.id}`, heading: agentConversation.subject },
     { path: `/app/schedules/${schedule.id}`, heading: schedule.name },
     { path: `/app/finance/entries/${financeEntry.id}`, heading: "Finance" },
     { path: `/app/integrations/executions/${integrationExecution.id}`, heading: "Integrations" },
@@ -908,8 +254,8 @@ test("@browser-zoom authenticated routes reflow at 400% browser scale", async ({
     { path: "/app/account", heading: "Account" },
     { path: `/app/work/${workItem.id}`, heading: workItem.title },
     { path: `/app/knowledge/claims/${knowledgeClaim.id}`, heading: "Launch release window" },
-    { path: `/app/baseline/${baselineID}`, heading: "Business Baseline" },
-    { path: `/app/agents/boardrooms/${agentRoom.id}/conversations/${agentConversation.id}`, heading: agentRoom.name },
+    { path: `/app/baseline/${baselineID}`, heading: "Business profile" },
+    { path: `/app/agents/boardrooms/${agentRoom.id}/conversations/${agentConversation.id}`, heading: agentConversation.subject },
     { path: `/app/schedules/${schedule.id}`, heading: schedule.name },
     { path: `/app/finance/entries/${financeEntry.id}`, heading: "Finance" },
     { path: `/app/integrations/executions/${integrationExecution.id}`, heading: "Integrations" },
@@ -930,23 +276,15 @@ test("@browser-zoom authenticated routes reflow at 400% browser scale", async ({
   }
 });
 
-test("mobile navigation traps and restores focus", async ({ page }, testInfo) => {
-  test.skip(!["chromium-phone-360", "chromium-phone", "chromium-phone-412", "chromium-reflow", "chromium-tablet"].includes(testInfo.project.name), "compact-navigation interaction contract");
+test("mobile workspace switching focuses chat and restores the working view", async ({ page }, testInfo) => {
+  test.skip(!["chromium-phone-360", "chromium-phone", "chromium-phone-412", "chromium-reflow", "chromium-tablet"].includes(testInfo.project.name), "compact workspace interaction");
   await page.goto("/app/your-turn");
-  const menu = page.getByRole("button", { name: "Open navigation" });
-  await menu.click();
-  const dialog = page.getByRole("dialog", { name: "Application navigation" });
-  await expect(dialog).toBeVisible();
-  await expect(dialog).toHaveAttribute("aria-modal", "true");
-  await expect(dialog.getByRole("button", { name: "Close navigation", exact: true })).toBeFocused();
-  await page.keyboard.press("Shift+Tab");
-  await page.keyboard.press("Shift+Tab");
-  await expect(dialog.getByRole("button", { name: /Sign out/ })).toBeFocused();
-  await page.keyboard.press("Shift+Tab");
-  await expect(dialog.locator("#account")).toBeFocused();
-  await page.keyboard.press("Escape");
-  await expect(dialog).toHaveCount(0);
-  await expect(menu).toBeFocused();
+  await expect(page.locator("#workspace-message")).toBeAttached();
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await expect(page.locator("#workspace-message")).toBeFocused();
+  await page.getByRole("button", { name: "Back to view", exact: true }).click();
+  await expect(page.locator("#main")).toBeFocused();
+  await expect(page.getByRole("heading", { level: 1, name: "Your Turn" })).toBeVisible();
 });
 
 test("checkout requires deliberate referral application and remains usable at phone width", async ({ page }) => {
@@ -1217,17 +555,12 @@ test("Affiliate dashboard exposes an aggregate renewal ledger and fails closed w
   await expectAccessible(page);
 
   await page.getByRole("button", { name: "Request status review" }).click();
-  const menu = page.getByRole("button", { name: "Open navigation" });
-  const compact = await menu.isVisible();
-  if (compact) await menu.click();
-  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await page.locator(".workspace-attention").click();
   await expect(page).toHaveURL(/\/app\/affiliate$/);
-  if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
   await expect(page.getByRole("status").filter({ hasText: "This Affiliate request is still in progress" })).toBeVisible();
   releaseSupport?.();
   await expect(page.getByRole("button", { name: "Review requested" })).toBeDisabled();
-  if (compact) await menu.click();
-  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await page.locator(".workspace-attention").click();
   await expect(page).toHaveURL(/\/app\/your-turn$/);
 });
 
@@ -1276,25 +609,20 @@ test("owner-security onboarding records completion only after authoritative read
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 
-  const menu = page.getByRole("button", { name: "Open navigation" });
-  const compact = await menu.isVisible();
   const dismissed = new Promise<string>((resolve) => {
     page.once("dialog", async (dialog) => {
       resolve(dialog.message());
       await dialog.dismiss();
     });
   });
-  if (compact) await menu.click();
-  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await page.locator(".workspace-attention").click();
   await expect(dismissed).resolves.toBe("Leave Security? Your entered values or one-time recovery codes may be lost.");
   await expect(page).toHaveURL(/\/app\/security$/);
-  if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
   await expect(page.getByRole("region", { name: "New recovery codes" })).toContainText("Save these now");
   await expect(page.getByRole("status").filter({ hasText: "Save every one-time recovery code" })).toBeVisible();
 
   page.once("dialog", (dialog) => dialog.accept());
-  if (compact) await menu.click();
-  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await page.locator(".workspace-attention").click();
   await expect(page).toHaveURL(/\/app\/your-turn$/);
 });
 
@@ -1318,7 +646,7 @@ test("Account administration keeps authority, billing, portability, and closure 
     {
       path: "/app/account-closures",
       heading: "Close account",
-      evidence: ["Request closure", "No closure history", "Request account closure or check an existing request."]
+      evidence: ["Request closure", "No closure history"]
     }
   ] as const;
 
@@ -1333,21 +661,16 @@ test("Account administration keeps authority, billing, portability, and closure 
       if (route.path === "/app/account") {
         const email = page.getByLabel("Email address");
         await email.fill("new.member@example.test");
-        const menu = page.getByRole("button", { name: "Open navigation" });
-        const compact = await menu.isVisible();
         const dismissed = new Promise<string>((resolve) => {
           page.once("dialog", async (dialog) => { resolve(dialog.message()); await dialog.dismiss(); });
         });
-        if (compact) await menu.click();
-        await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+        await page.locator(".workspace-attention").click();
         await expect(dismissed).resolves.toBe("Leave Account administration? Your invitation or team command will be lost.");
         await expect(page).toHaveURL(/\/app\/account$/);
-        if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
         await expect(email).toHaveValue("new.member@example.test");
         await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your invitation or team command remains available." })).toBeVisible();
         page.once("dialog", (dialog) => dialog.accept());
-        if (compact) await menu.click();
-        await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+        await page.locator(".workspace-attention").click();
         await expect(page).toHaveURL(/\/app\/your-turn$/);
       }
 
@@ -1392,7 +715,7 @@ test("new Accounts preserve actionable empty states across customer workspaces",
   });
 
   const routes = [
-    { path: "/app/baseline", heading: "Tell Spyglass how your business works.", evidence: "Start the conversation" },
+    { path: "/app/baseline", heading: "Business profile", evidence: "Start the conversation" },
     { path: "/app/finance", heading: "Finance", evidence: "No ledgers yet" },
     { path: "/app/marketing", heading: "Marketing", evidence: "No campaigns yet" },
     { path: "/app/integrations", heading: "Integrations", evidence: "No connections match this view." }
@@ -1566,9 +889,9 @@ test("conversational Baseline learns, proposes setup Work, and hands off to Your
 
 test("package workspaces preserve governed list and durable detail context", async ({ page }) => {
   const routes = [
-    { path: "/app/agents", heading: "Agents", evidence: [agentRoom.name, agentRoom.purpose, "New agent team"] },
+    { path: "/app/agents", heading: "Agents & tools", evidence: [agentRoom.name, agentRoom.purpose, "New agent team"] },
     { path: `/app/agents/boardrooms/${agentRoom.id}`, heading: agentRoom.name, evidence: [agentPersona.name, "Ask for approval first", "Send"] },
-    { path: `/app/agents/boardrooms/${agentRoom.id}/conversations/${agentConversation.id}`, heading: agentRoom.name, evidence: [agentMessage.body, "Security review is open", "Review proposed actions in Your Turn"] },
+    { path: `/app/agents/boardrooms/${agentRoom.id}/conversations/${agentConversation.id}`, heading: agentConversation.subject, evidence: [agentMessage.body, "Security review is open", "Review proposed actions"] },
     { path: "/app/schedules", heading: "Schedules", evidence: [schedule.name, "Mon at 09:30", "New schedule"] },
     { path: `/app/schedules/${schedule.id}`, heading: schedule.name, evidence: [schedule.timezone, "Run now", "Missed run"] },
     { path: `/app/finance/entries/${financeEntry.id}`, heading: "Finance", evidence: ["#8 · Monthly close", "Post entry"] },
@@ -1671,7 +994,7 @@ test("the application shell keeps Account-load failure recoverable", async ({ pa
     await fulfillJSON(route, { title: "Account service temporarily unavailable", status: 503 }, 503);
   });
   await page.goto("/app/your-turn");
-  await expect(page.getByRole("status")).toContainText("We could not load your Account.");
+  await expect(page.locator(".session-notice")).toContainText("We could not load your account.");
   await expect(page.getByRole("link", { name: "Sign in again" })).toHaveAttribute("href", "/login?return_to=%2Fapp");
   await expect(page.locator("#account")).toHaveValue("");
   await expectNoHorizontalOverflow(page);
@@ -1694,12 +1017,8 @@ test("Work capacity denial preserves the customer's local draft", async ({ page 
   await page.getByLabel("Title").fill("Preserve this capacity-blocked draft");
   await page.getByRole("button", { name: "Create work" }).click();
   await expect.poll(() => createRequests).toBe(1);
-  const menu = page.getByRole("button", { name: "Open navigation" });
-  const compact = await menu.isVisible();
-  if (compact) await menu.click();
-  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await page.locator(".workspace-attention").click();
   await expect(page).toHaveURL(/\/app\/work$/);
-  if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
   await expect(page.getByRole("status").filter({ hasText: "This Work change is still being saved." })).toBeVisible();
   expect(createRequests).toBe(1);
 
@@ -1716,17 +1035,14 @@ test("Work capacity denial preserves the customer's local draft", async ({ page 
       await dialog.dismiss();
     });
   });
-  if (compact) await menu.click();
-  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await page.locator(".workspace-attention").click();
   await expect(dismissed).resolves.toBe("Leave Work? Your unsubmitted changes will remain only in this browser tab until you return.");
   await expect(page).toHaveURL(/\/app\/work$/);
-  if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
   await expect(page.getByLabel("Title")).toHaveValue("Preserve this capacity-blocked draft");
   await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your Work changes remain" })).toBeVisible();
 
   page.once("dialog", (dialog) => dialog.accept());
-  if (compact) await menu.click();
-  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await page.locator(".workspace-attention").click();
   await expect(page).toHaveURL(/\/app\/your-turn$/);
 });
 
@@ -1762,21 +1078,16 @@ test("Checkout provider failure leaves payment and Account state unchanged", asy
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 
-  const menu = page.getByRole("button", { name: "Open navigation" });
-  const compact = await menu.isVisible();
   const dismissed = new Promise<string>((resolve) => {
     page.once("dialog", async (dialog) => { resolve(dialog.message()); await dialog.dismiss(); });
   });
-  if (compact) await menu.click();
-  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await page.locator(".workspace-attention").click();
   await expect(dismissed).resolves.toBe("Leave checkout? Your reviewed offer, Affiliate code, or confirmation will be lost.");
   await expect(page).toHaveURL(/\/app\/checkout\?offer=team-monthly-v2$/);
-  if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
   await expect(page.getByRole("checkbox", { name: /I confirm this offer/ })).toBeChecked();
   await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your checkout review remains available." })).toBeVisible();
   page.once("dialog", (dialog) => dialog.accept());
-  if (compact) await menu.click();
-  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await page.locator(".workspace-attention").click();
   await expect(page).toHaveURL(/\/app\/your-turn$/);
 });
 
@@ -1799,15 +1110,14 @@ test("multi-Account switching adopts only the server-confirmed context", async (
       }
     });
   });
+  for (const path of ["agent-boardrooms", "attention/information-requests", "attention/work-reviews"]) {
+    await page.route("**/api/v1/accounts/" + secondAccountID + "/" + path + "**", route => fulfillJSON(route, { items: [] }));
+  }
   await page.goto("/app/privacy");
-  const menu = page.getByRole("button", { name: "Open navigation" });
-  const compact = await menu.isVisible();
-  if (compact) await menu.click();
   await page.locator("#account").selectOption(secondAccountID);
   await expect(page.locator("#account")).toHaveValue(secondAccountID);
   expect(selections).toEqual([secondAccountID]);
-  if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Privacy" })).toBeVisible();
+  await expect(page).toHaveURL(/\/app\/workspace$/);
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 });
@@ -1821,12 +1131,8 @@ test("failed multi-Account switching restores the prior Account", async ({ page 
     await fulfillProblem(route, 503, "account_context_unavailable", "That Account could not be selected right now. Your current Account is unchanged.");
   });
   await page.goto("/app/privacy");
-  const menu = page.getByRole("button", { name: "Open navigation" });
-  const compact = await menu.isVisible();
-  if (compact) await menu.click();
   await page.locator("#account").selectOption(secondAccountID);
   await expect(page.locator("#account")).toHaveValue(accountID);
-  if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("Your current Account is unchanged.");
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
@@ -2059,12 +1365,14 @@ test("package workspaces preserve customer intent through capacity and downstrea
     });
 
     await page.goto(`/app/agents/boardrooms/${agentRoom.id}`);
-    await page.getByLabel("Subject").fill("Capacity-safe launch review");
-    await page.getByLabel("Your question").fill("Which launch constraint needs attention first?");
+    await page.getByRole("button", { name: "Open chat with this team" }).click();
+    await page.getByRole("button", { name: "History", exact: true }).click();
+    await page.getByLabel("Conversation title").fill("Capacity-safe launch review");
+    await page.getByLabel("Message", { exact: true }).fill("Which launch constraint needs attention first?");
     await page.getByRole("button", { name: "Send" }).click();
     await expect(page.getByRole("alert")).toContainText("Wait for an active run to finish");
-    await expect(page.getByLabel("Subject")).toHaveValue("Capacity-safe launch review");
-    await expect(page.getByLabel("Your question")).toHaveValue("Which launch constraint needs attention first?");
+    await expect(page.getByLabel("Conversation title")).toHaveValue("Capacity-safe launch review");
+    await expect(page.getByLabel("Message", { exact: true })).toHaveValue("Which launch constraint needs attention first?");
     await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
     expect(runs).toEqual([{
       mode: "selected",
@@ -2075,22 +1383,13 @@ test("package workspaces preserve customer intent through capacity and downstrea
     await expectNoHorizontalOverflow(page);
     await expectAccessible(page);
 
-    const dismissed = new Promise<string>((resolve) => {
-      page.once("dialog", async (dialog) => {
-        resolve(dialog.message());
-        await dialog.dismiss();
-      });
-    });
-    await page.getByRole("link", { name: "All agent teams" }).click();
-    await expect(dismissed).resolves.toBe("Leave Agents? Your unsaved changes will be lost.");
-    await expect(page).toHaveURL(new RegExp(`/app/agents/boardrooms/${agentRoom.id}$`));
-    await expect(page.getByLabel("Subject")).toHaveValue("Capacity-safe launch review");
-    await expect(page.getByLabel("Your question")).toHaveValue("Which launch constraint needs attention first?");
-    await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your changes are still here." })).toBeVisible();
-
-    page.once("dialog", (dialog) => dialog.accept());
-    await page.getByRole("link", { name: "All agent teams" }).click();
-    await expect(page).toHaveURL(/\/app\/agents$/);
+    await page.getByRole("link", { name: "Settings", exact: true }).click();
+    await expect(page).toHaveURL(/\/app\/settings$/);
+    await expect(page.getByLabel("Conversation title")).toHaveValue("Capacity-safe launch review");
+    await expect(page.getByLabel("Message", { exact: true })).toHaveValue("Which launch constraint needs attention first?");
+    await page.getByRole("link", { name: "Close working view" }).click();
+    await expect(page).toHaveURL(/\/app\/workspace$/);
+    await expect(page.getByLabel("Message", { exact: true })).toHaveValue("Which launch constraint needs attention first?");
   });
 
   await test.step("Knowledge decision failure retains the reviewed reason", async () => {
@@ -2268,25 +1567,20 @@ test("Integration research failure retains the scoped customer query", async ({ 
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);
 
-  const menu = page.getByRole("button", { name: "Open navigation" });
-  const compact = await menu.isVisible();
   const dismissed = new Promise<string>((resolve) => {
     page.once("dialog", async (dialog) => {
       resolve(dialog.message());
       await dialog.dismiss();
     });
   });
-  if (compact) await menu.click();
-  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await page.locator(".workspace-attention").click();
   await expect(dismissed).resolves.toBe("Leave Integrations? Your open command or unsubmitted research query will be lost.");
   await expect(page).toHaveURL(/\/app\/integrations$/);
-  if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
   await expect(query).toHaveValue("current policy retention requirements");
   await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your Integration command or research query remains available." })).toBeVisible();
 
   page.once("dialog", (dialog) => dialog.accept());
-  if (compact) await menu.click();
-  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await page.locator(".workspace-attention").click();
   await expect(page).toHaveURL(/\/app\/your-turn$/);
 });
 
@@ -2330,21 +1624,16 @@ test("GDPR rights requests are tracked, deduplicated, and cancelable", async ({ 
 
   const analytics = page.getByLabel("Analytics");
   await analytics.uncheck();
-  const menu = page.getByRole("button", { name: "Open navigation" });
-  const compact = await menu.isVisible();
   const dismissed = new Promise<string>((resolve) => {
     page.once("dialog", async (dialog) => { resolve(dialog.message()); await dialog.dismiss(); });
   });
-  if (compact) await menu.click();
-  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await page.locator(".workspace-attention").click();
   await expect(dismissed).resolves.toBe("Leave Privacy? Your unsaved consent choice or browser-erasure confirmation will be lost.");
   await expect(page).toHaveURL(/\/app\/privacy$/);
-  if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
   await expect(analytics).not.toBeChecked();
   await expect(page.getByRole("status").filter({ hasText: "Navigation canceled. Your Privacy choices remain available." })).toBeVisible();
   page.once("dialog", (dialog) => dialog.accept());
-  if (compact) await menu.click();
-  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await page.locator(".workspace-attention").click();
   await expect(page).toHaveURL(/\/app\/your-turn$/);
 });
 
@@ -2366,13 +1655,9 @@ test("browser privacy erasure is single-flight and blocks navigation until confi
   await pending.evaluate((button: HTMLButtonElement) => button.click());
   expect(erasureRequests).toBe(1);
 
-  const menu = page.getByRole("button", { name: "Open navigation" });
-  const compact = await menu.isVisible();
-  if (compact) await menu.click();
-  await page.getByRole("link", { name: "Your Turn", exact: true }).click();
+  await page.locator(".workspace-attention").click();
   await expect(page).toHaveURL(/\/app\/privacy$/);
   await expect(page.getByRole("status").filter({ hasText: "This Privacy request is still in progress" })).toBeVisible();
-  if (compact) await page.getByRole("dialog", { name: "Application navigation" }).getByRole("button", { name: "Close navigation", exact: true }).click();
 
   releaseErasure?.();
   await expect(page.getByRole("status").filter({ hasText: "privacy receipt and raw analytics were erased" })).toBeVisible();

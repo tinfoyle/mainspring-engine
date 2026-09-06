@@ -57,51 +57,36 @@ beforeEach(() => {
   const session = useSessionStore(); session.accounts = [account]; session.selectedID = account.account_id; session.userID = "60000000-0000-4000-8000-000000000006";
 });
 
-describe("Agents surface", () => {
-  it("keeps the summary agent out of selected turns after saving the team configuration", async () => {
+
+describe("Agent configuration inside Settings", () => {
+  it("keeps policy controls and conversation links without a second composer", async () => {
+    const wrapper = await mountAt("/app/agents/boardrooms/" + room.id);
+    expect(wrapper.text()).toContain("Operating review");
+    expect(wrapper.text()).toContain("Operations Lead");
+    expect(wrapper.text()).toContain("Ask for approval first");
+    expect(wrapper.text()).toContain("Open chat with this team");
+    expect(wrapper.find(".agents-composer").exists()).toBe(false);
+    expect(wrapper.findAllComponents(RouterLinkStub).some(link => link.props("to") === "/app/agents/boardrooms/" + room.id + "/conversations/" + conversation.id)).toBe(true);
+    wrapper.unmount();
+  });
+  it("saves the summary agent against the reviewed team version", async () => {
     const summary = { ...persona, id: "b0000000-0000-4000-8000-00000000000b", name: "Summary" };
     api.listAgentPersonas.mockResolvedValue([persona, summary]);
     api.configureAgentManager.mockResolvedValue({ ...room, manager_persona_id: summary.id, version: room.version + 1 });
-    api.startAgentRun.mockResolvedValue(run);
-    const wrapper = await mountAt(`/app/agents/boardrooms/${room.id}`);
-    const composer = wrapper.get(".agents-composer");
-    await composer.get("select").setValue("manager_led");
+    const wrapper = await mountAt("/app/agents/boardrooms/" + room.id);
     await wrapper.get(".agents-manager select").setValue(summary.id);
-    await wrapper.get(".agents-manager").trigger("submit");
-    await flushPromises();
+    await wrapper.get(".agents-manager").trigger("submit"); await flushPromises();
     expect(api.configureAgentManager).toHaveBeenCalledWith(account.account_id, room.id, { manager_persona_id: summary.id, expected_version: room.version });
-    expect(composer.findAll('input[type="checkbox"]')).toHaveLength(1);
-    expect(composer.text()).toContain("up to 2,000");
-    await composer.get('input[placeholder="Conversation title"]').setValue("Audit conversation");
-    await composer.get("textarea").setValue("Calculate seven times six.");
-    await composer.trigger("submit");
-    await flushPromises();
-    expect(api.startAgentRun).toHaveBeenCalledWith(account.account_id, room.id, expect.objectContaining({ mode: "manager_led", persona_ids: [persona.id] }));
-    wrapper.unmount();
+    expect(api.startAgentRun).not.toHaveBeenCalled(); wrapper.unmount();
   });
-
-  it("explains why a one-agent team cannot summarize other agents", async () => {
-    const wrapper = await mountAt(`/app/agents/boardrooms/${room.id}`);
-    expect(wrapper.get('.agents-composer option[value="manager_led"]').attributes("disabled")).toBeDefined();
-    expect(wrapper.text()).toContain("add at least two agents");
-    wrapper.unmount();
+  it("lets members open conversations while hiding configuration mutations", async () => {
+    useSessionStore().accounts = [{ ...account, role: "member" }];
+    const wrapper = await mountAt("/app/agents/boardrooms/" + room.id);
+    expect(wrapper.text()).toContain("Open chat with this team");
+    expect(wrapper.text()).not.toContain("New agent");
+    expect(wrapper.text()).not.toContain("Save summary agent");
+    expect(wrapper.text()).not.toContain("Save new version"); wrapper.unmount();
   });
-
-  it("renders durable Boardroom and Persona policy boundaries", async () => {
-    const wrapper = await mountAt(`/app/agents/boardrooms/${room.id}`);
-    expect(wrapper.text()).toContain("Operating review"); expect(wrapper.text()).toContain("Operations Lead");
-    expect(wrapper.text()).toContain("Complexity"); expect(wrapper.text()).toContain("Balanced");
-    expect(wrapper.text()).toContain("Ask for approval first"); expect(wrapper.text()).toContain("Send");
-    expect(wrapper.findAllComponents(RouterLinkStub).some((link) => link.props("to") === `/app/agents/boardrooms/${room.id}/conversations/${conversation.id}`)).toBe(true);
-  });
-
-  it("renders conversation evidence while routing consequential proposals to Your Turn", async () => {
-    const wrapper = await mountAt(`/app/agents/boardrooms/${room.id}/conversations/${conversation.id}`);
-    expect(api.listAgentMessages).toHaveBeenCalledWith(account.account_id, conversation.id);
-    expect(wrapper.text()).toContain("Two readiness gaps remain"); expect(wrapper.text()).toContain("Security review is open");
-    expect(wrapper.text()).toContain("Review proposed actions in Your Turn"); expect(wrapper.text()).not.toContain("secret_internal_field");
-  });
-
   it("publishes a new immutable Persona with bounded proposal policy", async () => {
     api.publishAgentPersona.mockResolvedValue({ ...persona, id: "b0000000-0000-4000-8000-00000000000b", latest_version: 1 });
     const wrapper = await mountAt(`/app/agents/boardrooms/${room.id}`); await wrapper.findAll("button").find((item) => item.text() === "New agent")?.trigger("click");
@@ -110,8 +95,5 @@ describe("Agents surface", () => {
     expect(api.publishAgentPersona).toHaveBeenCalledWith(account.account_id, room.id, expect.objectContaining({ expected_latest_version: 0, name: "Finance Reviewer", policy: expect.objectContaining({ complexity: "balanced", action_policy: "propose", action_capabilities: ["marketing.release.activate"], tools: [] }) }));
   });
 
-  it("lets members run Boardrooms without exposing manager configuration", async () => {
-    const session = useSessionStore(); session.accounts = [{ ...account, role: "member" }]; const wrapper = await mountAt(`/app/agents/boardrooms/${room.id}`);
-    expect(wrapper.text()).toContain("Send"); expect(wrapper.text()).not.toContain("New agent"); expect(wrapper.text()).not.toContain("Save summary agent"); expect(wrapper.text()).not.toContain("Save new version");
-  });
+
 });

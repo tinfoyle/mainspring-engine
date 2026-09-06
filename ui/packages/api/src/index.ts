@@ -7,6 +7,7 @@ export * from "./catalog";
 export * from "./affiliate";
 export * from "./work";
 export * from "./knowledge";
+export * from "./documents";
 export * from "./agents";
 export * from "./schedules";
 export * from "./account-team";

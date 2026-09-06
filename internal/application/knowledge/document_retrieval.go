@@ -18,6 +18,9 @@ const (
 )
 
 type DocumentRetrievalQuery struct {
+	DocumentID        ids.KnowledgeDocumentID
+	RevisionID        ids.KnowledgeDocumentRevisionID
+	AfterChunkIndex   *uint32
 	Text              string
 	Limit             int
 	IncludeRestricted bool
@@ -75,5 +78,12 @@ func (s *DocumentService) GetCitation(ctx context.Context, actor access.Actor, a
 
 func validDocumentRetrievalQuery(query DocumentRetrievalQuery) bool {
 	text := strings.TrimSpace(query.Text)
+	if query.DocumentID != "" {
+		return ids.Validate(string(query.DocumentID)) == nil && ids.Validate(string(query.RevisionID)) == nil &&
+			text == "" && query.Limit >= 0 && query.Limit <= MaximumDocumentRetrievalLimit
+	}
+	if query.RevisionID != "" || query.AfterChunkIndex != nil {
+		return false
+	}
 	return text != "" && len(text) <= MaximumDocumentRetrievalQuery && !strings.ContainsRune(text, '\x00') && query.Limit >= 0 && query.Limit <= MaximumDocumentRetrievalLimit
 }

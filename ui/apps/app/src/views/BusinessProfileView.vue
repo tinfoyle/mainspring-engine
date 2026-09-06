@@ -1,0 +1,1 @@
+<template><section class="page"><header class="page-heading"><h1>Business profile</h1></header><div id="business-profile-panel"><p>Continue the business interview in chat. Saved information and related work appear here.</p></div></section></template>

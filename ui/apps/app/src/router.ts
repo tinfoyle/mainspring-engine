@@ -15,15 +15,23 @@ import LifecycleView from "./views/LifecycleView.vue";
 import BillingView from "./views/BillingView.vue";
 import FinanceView from "./views/FinanceView.vue";
 import IntegrationsView from "./views/IntegrationsView.vue";
-import BaselineView from "./views/BaselineView.vue";
+import BusinessProfileView from "./views/BusinessProfileView.vue";
 import MarketingView from "./views/MarketingView.vue";
 import SetupView from "./views/SetupView.vue";
+
+import DocumentsView from "./views/DocumentsView.vue";
+import WorkspaceView from "./views/WorkspaceView.vue";
+import SettingsView from "./views/SettingsView.vue";
 
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: "/", redirect: "/app/your-turn" },
-    { path: "/app", redirect: "/app/your-turn" },
+    { path: "/app/documents", name: "documents", component: DocumentsView, meta: { title: "Documents" } },
+    { path: "/app/documents/:documentID", name: "document-detail", component: DocumentsView, meta: { title: "Document" } },
+    { path: "/", redirect: "/app/workspace" },
+    { path: "/app", redirect: "/app/workspace" },
+    { path: "/app/workspace", name: "workspace", component: WorkspaceView, meta: { title: "Workspace" } },
+    { path: "/app/settings", name: "settings", component: SettingsView, meta: { title: "Settings" } },
     { path: "/app/setup", name: "setup", component: SetupView, meta: { title: "Account setup" } },
     { path: "/app/your-turn", name: "your-turn", component: YourTurnView, meta: { title: "Your Turn" } },
 	{ path: "/app/your-turn/:kind/:id", name: "your-turn-detail", component: YourTurnDetailView, meta: { title: "Your Turn detail" } },
@@ -31,11 +39,11 @@ export const router = createRouter({
 	{ path: "/app/work/:itemID", name: "work-detail", component: WorkView, meta: { title: "Work detail" } },
 	{ path: "/app/knowledge", name: "knowledge", component: KnowledgeView, meta: { title: "Knowledge" } },
 	{ path: "/app/knowledge/claims/:claimID", name: "knowledge-claim", component: KnowledgeView, meta: { title: "Knowledge claim" } },
-	{ path: "/app/baseline", name: "baseline", component: BaselineView, meta: { title: "Business setup" } },
-	{ path: "/app/baseline/:assessmentID", name: "baseline-detail", component: BaselineView, meta: { title: "Business setup" } },
+	{ path: "/app/baseline", name: "baseline", component: BusinessProfileView, meta: { title: "Business setup" } },
+	{ path: "/app/baseline/:assessmentID", name: "baseline-detail", component: BusinessProfileView, meta: { title: "Business setup" } },
 	{ path: "/app/agents", name: "agents", component: AgentsView, meta: { title: "Agents" } },
 	{ path: "/app/agents/boardrooms/:roomID", name: "agent-boardroom", component: AgentsView, meta: { title: "Agent team" } },
-	{ path: "/app/agents/boardrooms/:roomID/conversations/:conversationID", name: "agent-conversation", component: AgentsView, meta: { title: "Agent conversation" } },
+	{ path: "/app/agents/boardrooms/:roomID/conversations/:conversationID", name: "agent-conversation", component: WorkspaceView, meta: { title: "Agent conversation" } },
     { path: "/app/schedules", name: "schedules", component: SchedulesView, meta: { title: "Schedules" } },
     { path: "/app/schedules/:scheduleID", name: "schedule-detail", component: SchedulesView, meta: { title: "Schedule detail" } },
     { path: "/app/account", name: "account", component: AccountView, meta: { title: "Account" } },

@@ -16,6 +16,7 @@ import {
 import { useSafeNavigation } from "../composables/useSafeNavigation";
 import { useSessionStore } from "../stores/session";
 
+const props = withDefaults(defineProps<{ workspaceMode?: boolean }>(), { workspaceMode: false });
 const bootstrapPrompt = "Please begin my Business Baseline interview. Introduce yourself briefly, explain that you will learn how my business works and save my answers for later, then ask the single best first question.";
 const session = useSessionStore(); const route = useRoute(); const router = useRouter();
 const baseline = ref<BaselineAssessment>(); const room = ref<AgentBoardroom>(); const persona = ref<AgentPersona>();
@@ -64,7 +65,7 @@ function approvalTitle(body: string): string {
 const approvedOfferTitles = computed(() => new Set([...messages.value, ...pendingMessages.value].filter((item) => item.role === "user").map((item) => approvalTitle(item.body)).filter(Boolean)));
 const availableOffers = computed(() => listOrEmpty(interview.value?.automation_offers).filter((offer) => !approvedOfferTitles.value.has(offer.title)));
 
-const { allowNextNavigation } = useSafeNavigation({ dirty: hasDraft, pending: sending, message: "Leave Business Baseline? Your unsent reply will remain only in this browser tab.", onBlocked: (reason) => { navigationNotice.value = reason === "pending" ? "Your operations agent is still working. Stay here until the reply arrives." : "Navigation canceled. Your reply is still here."; } });
+const { allowNextNavigation } = useSafeNavigation({ dirty: computed(() => !props.workspaceMode && hasDraft.value), pending: computed(() => !props.workspaceMode && sending.value), message: "Leave Business Baseline? Your unsent reply will remain only in this browser tab.", onBlocked: (reason) => { navigationNotice.value = reason === "pending" ? "Your operations agent is still working. Stay here until the reply arrives." : "Navigation canceled. Your reply is still here."; } });
 
 function label(value: string): string { return value.replaceAll("_", " ").replace(/^./, (first) => first.toUpperCase()); }
 function messageName(item: AgentMessage): string { return item.role === "user" ? "You" : persona.value?.name ?? "Operations Guide"; }
@@ -81,6 +82,7 @@ function runIsTerminal(run: AgentRun): boolean { return ["succeeded", "partially
 async function scrollToLatest(): Promise<void> { await nextTick(); chat.value?.scrollTo({ top: chat.value.scrollHeight, behavior: "smooth" }); }
 
 async function synchronizeAssessmentRoute(assessmentID: string): Promise<void> {
+  if (props.workspaceMode && !["baseline", "baseline-detail"].includes(String(route.name))) return;
   if (route.params.assessmentID === assessmentID) return;
   suppressedAssessmentRoute = assessmentID; allowNextNavigation();
   await router.replace(`/app/baseline/${assessmentID}`);
@@ -123,10 +125,11 @@ async function ensureOperationsGuide(accountID: string): Promise<void> {
 
 async function load(): Promise<void> {
   const accountID = session.selectedID; const sequence = ++loadSequence;
+  const previousAssessmentID = baseline.value?.id ?? "";
   baseline.value = undefined; room.value = undefined; persona.value = undefined; messages.value = []; pendingMessages.value = []; activeRun.value = undefined; error.value = "";
   if (!accountID || !available.value) return; loading.value = true;
   try {
-    const id = typeof route.params.assessmentID === "string" ? route.params.assessmentID : "";
+    const id = typeof route.params.assessmentID === "string" ? route.params.assessmentID : previousAssessmentID;
     try { baseline.value = id ? await getBaseline(accountID, id) : await getCurrentBaseline(accountID); }
     catch (cause) { if (!isAPIProblem(cause) || cause.status !== 404 || id) throw cause; }
     if (sequence !== loadSequence) return;
@@ -294,21 +297,30 @@ function continueToYourTurn(): void { allowNextNavigation(); void router.push("/
 watch(() => [session.selectedID, route.params.assessmentID, available.value, manageable.value], () => {
   const assessmentID = typeof route.params.assessmentID === "string" ? route.params.assessmentID : "";
   if (suppressedAssessmentRoute && suppressedAssessmentRoute === assessmentID) { suppressedAssessmentRoute = ""; return; }
+  if (props.workspaceMode && baseline.value && !["baseline", "baseline-detail"].includes(String(route.name))) return;
   void load();
 }, { immediate: true });
+watch(() => session.selectedID, accountID => {
+  if (!props.workspaceMode) return;
+  try { reply.value = sessionStorage.getItem("spyglass.chat.business." + session.userID + "." + accountID) ?? ""; } catch { reply.value = ""; }
+}, { immediate: true });
+watch(reply, value => {
+  if (!props.workspaceMode) return;
+  try { sessionStorage.setItem("spyglass.chat.business." + session.userID + "." + session.selectedID, value); } catch { /* Keep the mounted draft. */ }
+});
 onBeforeUnmount(() => { pollGeneration += 1; if (pollTimer !== undefined) window.clearTimeout(pollTimer); });
 </script>
 
 <template>
-  <section class="page baseline-interview-page">
+  <section class="page baseline-interview-page" :class="{ 'workspace-chat business-chat': workspaceMode }" aria-label="Business interview">
     <p class="sr-only" role="status" aria-live="polite">{{ announcement }}</p>
-    <header class="page-heading baseline-heading"><div><h1>Tell Spyglass how your business works.</h1><p>This is a conversation, not a form. Your agent will ask what matters to your business, remember your answers, and help set up useful work.</p></div><div v-if="interview" class="baseline-business-chip"><span>Business</span><strong>{{ interview.business_type }}</strong><small>{{ label(interview.business_type_confidence) }} confidence</small></div></header>
+    <header class="page-heading baseline-heading"><div><h1>Business interview</h1><p>Your answers help the agents understand your business.</p></div><div v-if="interview" class="baseline-business-chip"><span>Business</span><strong>{{ interview.business_type }}</strong><small>{{ label(interview.business_type_confidence) }} confidence</small></div></header>
     <p v-if="navigationNotice" class="queue-inline-status" role="status">{{ navigationNotice }}</p>
     <section v-if="loading" class="queue-state" aria-busy="true"><h2>Opening your conversation…</h2></section>
     <section v-else-if="!available" class="queue-state queue-state--warning"><h2>Business Setup is not available</h2><p>This Account needs both Knowledge and Agents access.</p></section>
     <section v-else-if="error && !baseline" class="queue-state queue-state--error"><h2>Business Setup could not load</h2><p>{{ error }}</p><IoButton kind="secondary" @click="load">Try again</IoButton></section>
     <section v-else-if="!baseline || messages.length === 0" class="baseline-welcome">
-      <div class="baseline-agent-row"><span class="baseline-agent-avatar" aria-hidden="true">O</span><div class="baseline-agent-bubble"><p class="baseline-agent-name"><strong>Operations Guide</strong><span>Your first Spyglass agent</span></p><h2>Let’s start with your business—not a generic checklist.</h2><p>I’ll learn what you sell, how the work moves, what gets in your way, and where Spyglass can help. I’ll skip things that do not apply.</p><small>You can leave and return to this same conversation at any time.</small></div></div>
+      <div class="baseline-agent-row"><span class="baseline-agent-avatar" aria-hidden="true">O</span><div class="baseline-agent-bubble"><p class="baseline-agent-name"><strong>Operations Guide</strong><span>Your first Spyglass agent</span></p><h2>Tell us about your business.</h2><p>I’ll learn what you sell, how the work moves, what gets in your way, and where Spyglass can help. I’ll skip things that do not apply.</p><small>You can leave and return to this same conversation at any time.</small></div></div>
       <p v-if="error" class="queue-inline-status queue-inline-status--error" role="alert">{{ error }}</p><IoButton v-if="manageable" :disabled="sending || preparing" @click="begin">{{ sending || preparing ? "Getting your agent ready…" : "Start the conversation" }}</IoButton><p v-else class="queue-inline-status">An Owner or Administrator must start Business Setup.</p>
     </section>
     <div v-else class="baseline-conversation-layout">
@@ -320,7 +332,12 @@ onBeforeUnmount(() => { pollGeneration += 1; if (pollTimer !== undefined) window
         <form v-if="!ready && !runNeedsAttention" class="baseline-composer" @submit.prevent="submitReply"><label for="baseline-reply">Your reply</label><textarea id="baseline-reply" v-model="reply" rows="3" maxlength="4000" placeholder="Type your answer here…" required @keydown="handleReplyKeydown" /><div><small>Enter sends · Shift+Enter adds a new line. Your answer is saved to this Account’s Knowledge. Do not include passwords or private customer data.</small><IoButton type="submit" :disabled="sending || runPending || !reply.trim()">{{ sending || runPending ? "Working…" : "Send" }}</IoButton></div></form>
         <section v-if="ready" class="baseline-finish"><h2>Business setup complete</h2><p>{{ interview?.readiness_reason }}</p><IoButton @click="continueToYourTurn">Continue to Your Turn</IoButton></section><p v-if="error" class="queue-inline-status queue-inline-status--error" role="alert">{{ error }}</p>
       </section>
-      <aside class="baseline-notebook" aria-label="What Spyglass has learned"><h2>Your business notebook</h2><dl><div><dt>Answers saved</dt><dd>{{ capturedTopicCount }}</dd></div><div><dt>Setup work created</dt><dd>{{ baselineWork.length }}</dd></div></dl><section v-if="interview?.captured_topics.length"><h3>What we understand</h3><ul><li v-for="topic in interview.captured_topics" :key="topic">{{ topic }}</li></ul></section><section v-if="interview?.missing_topics.length && !ready"><h3>Information still needed</h3><ul><li v-for="topic in interview.missing_topics" :key="topic">{{ topic }}</li></ul></section><section v-if="baselineWork.length"><h3>Work added</h3><ul><li v-for="item in baselineWork" :key="item.id"><RouterLink :to="`/app/work/${item.id}`">{{ item.title }}</RouterLink></li></ul></section><p class="form-note">Only your replies become confirmed Knowledge. Suggestions become Work only after you approve them.</p></aside>
+      <Teleport v-if="workspaceMode && ['baseline', 'baseline-detail'].includes(String(route.name))" to="#business-profile-panel" defer>
+        <aside class="baseline-notebook" aria-label="What Spyglass has learned"><h2>Your business notebook</h2><dl><div><dt>Answers saved</dt><dd>{{ capturedTopicCount }}</dd></div><div><dt>Setup work created</dt><dd>{{ baselineWork.length }}</dd></div></dl><section v-if="interview?.captured_topics.length"><h3>What we understand</h3><ul><li v-for="topic in interview.captured_topics" :key="topic">{{ topic }}</li></ul></section><section v-if="interview?.missing_topics.length && !ready"><h3>Information still needed</h3><ul><li v-for="topic in interview.missing_topics" :key="topic">{{ topic }}</li></ul></section><section v-if="baselineWork.length"><h3>Work added</h3><ul><li v-for="item in baselineWork" :key="item.id"><RouterLink :to="`/app/work/${item.id}`">{{ item.title }}</RouterLink></li></ul></section><p class="form-note">Only your replies become confirmed Knowledge. Suggestions become Work only after you approve them.</p></aside>
+      </Teleport>
+      <template v-else-if="!workspaceMode">
+        <aside class="baseline-notebook" aria-label="What Spyglass has learned"><h2>Your business notebook</h2><dl><div><dt>Answers saved</dt><dd>{{ capturedTopicCount }}</dd></div><div><dt>Setup work created</dt><dd>{{ baselineWork.length }}</dd></div></dl><section v-if="interview?.captured_topics.length"><h3>What we understand</h3><ul><li v-for="topic in interview.captured_topics" :key="topic">{{ topic }}</li></ul></section><section v-if="interview?.missing_topics.length && !ready"><h3>Information still needed</h3><ul><li v-for="topic in interview.missing_topics" :key="topic">{{ topic }}</li></ul></section><section v-if="baselineWork.length"><h3>Work added</h3><ul><li v-for="item in baselineWork" :key="item.id"><RouterLink :to="`/app/work/${item.id}`">{{ item.title }}</RouterLink></li></ul></section><p class="form-note">Only your replies become confirmed Knowledge. Suggestions become Work only after you approve them.</p></aside>
+      </template>
     </div>
   </section>
 </template>

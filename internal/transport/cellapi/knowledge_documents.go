@@ -23,8 +23,11 @@ type knowledgeDocumentPublishRequest struct {
 }
 
 type knowledgeDocumentRetrievalRequest struct {
-	Query string `json:"query"`
-	Limit int    `json:"limit,omitempty"`
+	DocumentID      ids.KnowledgeDocumentID         `json:"document_id,omitempty"`
+	RevisionID      ids.KnowledgeDocumentRevisionID `json:"revision_id,omitempty"`
+	AfterChunkIndex *uint32                         `json:"after_chunk_index,omitempty"`
+	Query           string                          `json:"query"`
+	Limit           int                             `json:"limit,omitempty"`
 }
 
 func (s *Server) knowledgeDocumentRetrieve(w http.ResponseWriter, r *http.Request) {
@@ -40,7 +43,7 @@ func (s *Server) knowledgeDocumentRetrieve(w http.ResponseWriter, r *http.Reques
 	if !decodeKnowledgeJSON(w, r, &body) {
 		return
 	}
-	items, err := s.documents.Retrieve(routecontext.WithClaims(r.Context(), claims), actor, accountID, knowledgeapp.DocumentRetrievalQuery{Text: body.Query, Limit: body.Limit})
+	items, err := s.documents.Retrieve(routecontext.WithClaims(r.Context(), claims), actor, accountID, knowledgeapp.DocumentRetrievalQuery{Text: body.Query, Limit: body.Limit, DocumentID: body.DocumentID, RevisionID: body.RevisionID, AfterChunkIndex: body.AfterChunkIndex})
 	if err != nil {
 		s.writeKnowledgeError(w, "retrieve document chunks", err)
 		return

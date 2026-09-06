@@ -2851,8 +2851,11 @@ export interface ResolveAgentRunRequest {
 }
 
 export interface RetrieveKnowledgeDocumentsRequest {
+  readonly "after_chunk_index"?: number;
+  readonly "document_id"?: string;
   readonly "limit"?: number;
   readonly "query": string;
+  readonly "revision_id"?: string;
 }
 
 export interface ReverseFinanceEntryRequest {

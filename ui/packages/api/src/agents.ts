@@ -18,6 +18,24 @@ import type {
 import { requestJSON } from "./client";
 
 const pendingOperations = new Map<string, string>();
+const pendingStorageKey = "spyglass.agent-operations";
+function savedOperation(fingerprint: string): string | undefined {
+  try {
+    const value: unknown = JSON.parse(sessionStorage.getItem(pendingStorageKey) ?? "{}")[fingerprint];
+    return typeof value === "string" && /^[0-9a-f-]{36}$/i.test(value) ? value : undefined;
+  } catch { return undefined; }
+}
+function persistOperation(fingerprint: string, key?: string): void {
+  try {
+    const values = JSON.parse(sessionStorage.getItem(pendingStorageKey) ?? "{}") as Record<string, string>;
+    if (key) values[fingerprint] = key; else delete values[fingerprint];
+    sessionStorage.setItem(pendingStorageKey, JSON.stringify(values));
+  } catch { /* In-memory retry protection remains available without browser storage. */ }
+}
+export function clearAgentPendingOperations(): void {
+  pendingOperations.clear();
+  try { sessionStorage.removeItem(pendingStorageKey); } catch { /* Storage may be disabled. */ }
+}
 
 function base(accountID: string): string { return `/api/v1/accounts/${encodeURIComponent(accountID)}`; }
 
@@ -27,8 +45,9 @@ function collectionPath(accountID: string, roomID: string, suffix: string): stri
 
 function operation(method: string, path: string, body: string): { fingerprint: string; key: string } {
   const fingerprint = `${method} ${path} ${body}`;
-  let key = pendingOperations.get(fingerprint);
+  let key = pendingOperations.get(fingerprint) ?? savedOperation(fingerprint);
   if (!key) { key = crypto.randomUUID(); pendingOperations.set(fingerprint, key); }
+  persistOperation(fingerprint, key);
   return { fingerprint, key };
 }
 
@@ -37,6 +56,7 @@ async function command<T>(method: "POST" | "PUT", path: string, payload: unknown
   const pending = operation(method, path, body);
   const result = await requestJSON<T>(path, { method, headers: { "Idempotency-Key": pending.key }, body });
   pendingOperations.delete(pending.fingerprint);
+  persistOperation(pending.fingerprint);
   return result;
 }
 

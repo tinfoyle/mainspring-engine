@@ -14,9 +14,11 @@ import { IoButton } from "@spyglass/design-system";
 import { computed, ref, watch } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import { useSafeNavigation } from "../composables/useSafeNavigation";
+import { useConversationStore } from "../stores/conversation";
 import { useSessionStore } from "../stores/session";
 
 const session = useSessionStore();
+const chat = useConversationStore();
 const route = useRoute();
 const claims = ref<ReadonlyArray<KnowledgeClaimSummary>>([]);
 const facts = ref<ReadonlyArray<KnowledgeFactSummary>>([]);
@@ -121,7 +123,7 @@ watch(() => [session.selectedID, claimID.value, available.value], () => void loa
       <section v-if="detailLoading" class="queue-state" role="status"><h1>Loading information…</h1></section>
       <section v-else-if="detailError && !detail" class="queue-state queue-state--error" role="alert"><h1>Information did not load</h1><p>{{ detailError }}</p><IoButton kind="secondary" @click="loadDetail">Try again</IoButton></section>
       <template v-else-if="detail">
-        <header class="detail-heading"><div><p class="eyebrow">{{ scope(detail.scope) }} information</p><h1>{{ factTitle(detail.key) }}</h1></div><span class="state-badge">{{ label(detail.state) }}</span></header>
+        <header class="detail-heading"><div><p class="eyebrow">{{ scope(detail.scope) }} information</p><h1>{{ factTitle(detail.key) }}</h1></div><span class="state-badge">{{ label(detail.state) }}</span><button v-if="chat.available" type="button" @click="chat.attach({ kind: 'knowledge', id: detail.id, title: factTitle(detail.key), version: 'version ' + detail.version, text: JSON.stringify({ key: detail.key, value: detail.value, state: detail.state, citations: detail.citations }) })">Use in chat</button></header>
         <p v-if="detailError" class="queue-inline-status queue-inline-status--error" role="alert">{{ detailError }}</p>
         <div class="detail-layout">
           <article class="detail-card knowledge-detail-card"><h2>Information</h2><pre class="knowledge-value">{{ formatValue(detail.value) }}</pre><dl><div><dt>Confidence</dt><dd>{{ detail.confidence / 10 }}%</dd></div><div><dt>Sensitivity</dt><dd>{{ label(detail.sensitivity) }}</dd></div><div><dt>Version</dt><dd>{{ detail.version }}</dd></div></dl><section class="knowledge-citations"><h2>Citations</h2><ol><li v-for="citation in detail.citations" :key="`${citation.evidence_id}:${citation.locator}`"><strong>{{ label(citation.relation) }} · {{ label(citation.evidence_kind) }}</strong><span>{{ citation.locator }}</span></li></ol></section></article>

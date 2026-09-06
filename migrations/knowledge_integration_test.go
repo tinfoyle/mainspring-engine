@@ -334,6 +334,10 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 	if err != nil || stats.Completed != 1 || stats.Ready != 0 || stats.DeadLetter != 0 {
 		t.Fatalf("processing stats=%+v err=%v", stats, err)
 	}
+	previewQuery := knowledgeapp.DocumentRetrievalQuery{DocumentID: documentID, RevisionID: revisionID, Limit: 1, IncludeRestricted: true}
+	if values, err := repository.RetrieveDocumentChunks(ctx, accountID, previewQuery); err != nil || len(values) != 0 {
+		t.Fatalf("unpublished preview=%+v err=%v", values, err)
+	}
 	published, err := repository.PublishDocumentRevision(ctx, accountID, documentID, revisionID, 1, knowledgeapp.Mutation{Actor: actor, CorrelationID: "d9000000-0000-4000-8000-000000000009", ReasonCode: "revision_published", At: now.Add(4 * time.Second)})
 	if err != nil || published.State != knowledgedomain.DocumentReady || published.CurrentRevisionID != revisionID {
 		t.Fatalf("publish document=%+v err=%v", published, err)
@@ -342,6 +346,18 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 	if err != nil || len(retrieved) != 1 || retrieved[0].DocumentID != documentID || retrieved[0].RevisionID != revisionID || retrieved[0].ChunkID != chunk.ID || retrieved[0].Content != content || retrieved[0].Rank <= 0 {
 		t.Fatalf("document retrieval=%+v err=%v", retrieved, err)
 	}
+	if values, err := repository.RetrieveDocumentChunks(ctx, accountID, previewQuery); err != nil || len(values) != 1 || values[0].Content != content || values[0].RevisionID != revisionID {
+		t.Fatalf("published preview=%+v err=%v", values, err)
+	}
+	if values, err := repository.RetrieveDocumentChunks(ctx, otherAccountID, previewQuery); err != nil || len(values) != 0 {
+		t.Fatalf("cross-account preview=%+v err=%v", values, err)
+	}
+	previewAfter := uint32(0)
+	previewQuery.AfterChunkIndex = &previewAfter
+	if values, err := repository.RetrieveDocumentChunks(ctx, accountID, previewQuery); err != nil || len(values) != 0 {
+		t.Fatalf("preview page repeated=%+v err=%v", values, err)
+	}
+	previewQuery.AfterChunkIndex = nil
 	citation, err := repository.GetDocumentCitation(ctx, accountID, documentID, revisionID, chunk.ID, true)
 	if err != nil || citation.ContentSHA256 != chunk.ContentSHA256 || citation.StartByte != chunk.StartByte || citation.EndByte != chunk.EndByte {
 		t.Fatalf("document citation=%+v err=%v", citation, err)
@@ -475,6 +491,9 @@ func exerciseKnowledgeDocumentRepository(t *testing.T, ctx context.Context, owne
 	}
 	if _, err := repository.GetDocumentCitation(ctx, accountID, documentID, revisionID, chunk.ID, true); !errors.Is(err, knowledgeapp.ErrNotFound) {
 		t.Fatalf("deleted document citation err=%v", err)
+	}
+	if values, err := repository.RetrieveDocumentChunks(ctx, accountID, previewQuery); err != nil || len(values) != 0 {
+		t.Fatalf("deleted preview=%+v err=%v", values, err)
 	}
 	var remainingChunks, deletionEvents int
 	if err := owner.QueryRow(ctx, `SELECT count(*) FROM spyglass.knowledge_document_chunks WHERE account_id=$1 AND revision_id=$2`, accountID, revisionID).Scan(&remainingChunks); err != nil || remainingChunks != 0 {

@@ -397,3 +397,27 @@ func TestUploadAllowsAuthorizedWorkloadWithoutHumanRole(t *testing.T) {
 		t.Fatalf("document=%+v revision=%+v puts=%d err=%v", document, revision, objects.puts, err)
 	}
 }
+
+func TestDocumentPreviewRequiresExactRevisionAndRetainsSensitivityAuthorization(t *testing.T) {
+	service, authorizer, repository, _ := documentServiceFixture(t)
+	authorizer.account.Role = accounts.RoleMember
+	after := uint32(2)
+	query := DocumentRetrievalQuery{DocumentID: appKnowledgeDocument, RevisionID: appKnowledgeRevision, AfterChunkIndex: &after, Limit: 10, IncludeRestricted: true}
+	if _, err := service.Retrieve(context.Background(), access.Actor{UserID: appKnowledgeUser}, appKnowledgeAccount, query); err != nil {
+		t.Fatal(err)
+	}
+	if repository.retrievalQuery.IncludeRestricted || repository.retrievalQuery.DocumentID != appKnowledgeDocument || repository.retrievalQuery.RevisionID != appKnowledgeRevision || *repository.retrievalQuery.AfterChunkIndex != 2 {
+		t.Fatalf("preview authority or target changed: %+v", repository.retrievalQuery)
+	}
+	for _, invalid := range []DocumentRetrievalQuery{
+		{DocumentID: appKnowledgeDocument},
+		{RevisionID: appKnowledgeRevision, Text: "text"},
+		{Text: "text", AfterChunkIndex: &after},
+		{DocumentID: appKnowledgeDocument, RevisionID: appKnowledgeRevision, Text: "text"},
+		{DocumentID: appKnowledgeDocument, RevisionID: appKnowledgeRevision, Limit: 21},
+	} {
+		if _, err := service.Retrieve(context.Background(), access.Actor{UserID: appKnowledgeUser}, appKnowledgeAccount, invalid); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("invalid preview accepted: %+v err=%v", invalid, err)
+		}
+	}
+}
