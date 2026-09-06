@@ -289,6 +289,10 @@ if grep -Eqi '"(stripe|provider|price_id|product_id|customer_id|subscription_id)
 fi
 
 private_routes=(
+  /app/workspace
+  /app/settings
+  /app/documents
+  /app/documents/10000000-0000-4000-8000-000000000001
   /app/your-turn
   /app/your-turn/work-item/10000000-0000-4000-8000-000000000001
   /app/work/10000000-0000-4000-8000-000000000001
