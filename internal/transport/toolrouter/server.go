@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/tinfoyle/spyglass-engine/internal/application/accountdirectory"
+	"github.com/tinfoyle/spyglass-engine/internal/application/agenttools"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnercapability"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/catalog"
@@ -203,7 +204,7 @@ func New(acceptor Acceptor, authorizer Authorizer, directory AccountDirectory, s
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
-	client := &http.Client{Transport: transport, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("cell redirects are not allowed") }}
+	client := &http.Client{Transport: transport, Timeout: 45 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("cell redirects are not allowed") }}
 	return &Server{acceptor: acceptor, authorizer: authorizer, directory: directory, signer: signer, ids: generator, logger: logger, client: client, config: config}, nil
 }
 
@@ -346,15 +347,30 @@ func (s *Server) invoke(w http.ResponseWriter, r *http.Request) {
 }
 
 func knownCapability(capability string) bool {
-	return capability == WorkSummaryCapability || capability == FinanceLedgersReadCapability || capability == FinanceAccountsReadCapability || capability == FinanceEntryDraftCapability ||
-		capability == MarketingCampaignsReadCapability || capability == MarketingAssetsReadCapability || capability == MarketingReleasesReadCapability ||
-		capability == MarketingCampaignDraftCapability || capability == MarketingAssetDraftCapability || capability == MarketingReleaseDraftCapability ||
-		capability == WebResearchSearchCapability || capability == WebResearchReadCapability
+	tool, ok := agenttools.Lookup(capability)
+	return ok && tool.Handler == "router"
 }
 
 func dispatchCapability(capability string, accountID ids.AccountID, raw []byte) (dispatch, bool) {
 	accountPath := "/api/v1/accounts/" + string(accountID)
 	switch capability {
+	case "agents.teams.read", "schedules.read":
+		if !emptyJSONObject(raw) {
+			return dispatch{}, false
+		}
+		suffix := "/agent-boardrooms"
+		if capability == "schedules.read" {
+			suffix = "/schedules?limit=50"
+		}
+		return dispatch{method: http.MethodGet, target: accountPath + suffix, requirement: access.Requirement{Package: catalog.PackageAgents}}, true
+	case "agents.personas.read":
+		var input struct {
+			BoardroomID ids.BoardroomID `json:"boardroom_id"`
+		}
+		if !decodeToolInput(raw, &input) || ids.Validate(string(input.BoardroomID)) != nil {
+			return dispatch{}, false
+		}
+		return dispatch{method: http.MethodGet, target: accountPath + "/agent-boardrooms/" + string(input.BoardroomID) + "/personas", requirement: access.Requirement{Package: catalog.PackageAgents}}, true
 	case WorkSummaryCapability:
 		if !emptyJSONObject(raw) {
 			return dispatch{}, false

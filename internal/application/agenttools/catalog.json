@@ -1,0 +1,719 @@
+{
+  "tools": [
+    {
+      "capability": "work.summary.read",
+      "name": "read_work_summary",
+      "label": "Read Work summary",
+      "description": "Read the current Account Work summary.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "effect": "read_only",
+      "timeout_seconds": 15,
+      "handler": "router"
+    },
+    {
+      "capability": "finance.ledgers.read",
+      "name": "read_finance_ledgers",
+      "label": "Read Finance ledgers",
+      "description": "List the account’s financial ledgers.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "effect": "read_only",
+      "timeout_seconds": 15,
+      "handler": "router"
+    },
+    {
+      "capability": "finance.accounts.read",
+      "name": "read_finance_accounts",
+      "label": "Read chart of accounts",
+      "description": "List accounts in a financial ledger.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ledger_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "ledger_id"
+        ]
+      },
+      "effect": "read_only",
+      "timeout_seconds": 15,
+      "handler": "router"
+    },
+    {
+      "capability": "finance.entry.draft",
+      "name": "draft_finance_entry",
+      "label": "Draft Finance entry",
+      "description": "Draft an entry. Posting requires a separate approval.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ledger_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "entry_date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "description": {
+            "type": "string"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$"
+          },
+          "lines": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "account_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "memo": {
+                  "type": "string"
+                },
+                "debit_minor": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "credit_minor": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "account_id",
+                "memo",
+                "debit_minor",
+                "credit_minor"
+              ]
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "required": [
+          "ledger_id",
+          "run_id",
+          "entry_date",
+          "description",
+          "reference",
+          "currency",
+          "lines",
+          "evidence"
+        ]
+      },
+      "effect": "additive",
+      "timeout_seconds": 15,
+      "handler": "router"
+    },
+    {
+      "capability": "marketing.campaigns.read",
+      "name": "read_marketing_campaigns",
+      "label": "Read Marketing campaigns",
+      "description": "List marketing campaigns.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "paused",
+              "completed",
+              "archived"
+            ]
+          }
+        }
+      },
+      "effect": "read_only",
+      "timeout_seconds": 15,
+      "handler": "router"
+    },
+    {
+      "capability": "marketing.asset-revisions.read",
+      "name": "read_marketing_creative",
+      "label": "Read creative revisions",
+      "description": "List saved content versions for a campaign.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "asset_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "campaign_id"
+        ]
+      },
+      "effect": "read_only",
+      "timeout_seconds": 15,
+      "handler": "router"
+    },
+    {
+      "capability": "marketing.releases.read",
+      "name": "read_marketing_releases",
+      "label": "Read Marketing releases",
+      "description": "List campaign releases.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "campaign_id"
+        ]
+      },
+      "effect": "read_only",
+      "timeout_seconds": 15,
+      "handler": "router"
+    },
+    {
+      "capability": "marketing.campaign.draft",
+      "name": "draft_marketing_campaign",
+      "label": "Draft campaign",
+      "description": "Create a campaign draft.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "objective": {
+            "type": "string"
+          },
+          "audience": {
+            "type": "string"
+          },
+          "channels": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "email",
+                "web"
+              ]
+            }
+          }
+        },
+        "required": [
+          "run_id",
+          "name",
+          "objective",
+          "audience",
+          "channels"
+        ]
+      },
+      "effect": "additive",
+      "timeout_seconds": 15,
+      "handler": "router"
+    },
+    {
+      "capability": "marketing.asset-revision.draft",
+      "name": "draft_marketing_copy",
+      "label": "Draft Marketing copy",
+      "description": "Save draft text for a campaign.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "campaign_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "asset_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 65536
+          }
+        },
+        "required": [
+          "run_id",
+          "campaign_id",
+          "asset_id",
+          "title",
+          "content"
+        ]
+      },
+      "effect": "additive",
+      "timeout_seconds": 15,
+      "handler": "router"
+    },
+    {
+      "capability": "marketing.release.draft",
+      "name": "draft_marketing_release",
+      "label": "Draft release snapshot",
+      "description": "Create a release draft for review.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "campaign_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "campaign_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "name": {
+            "type": "string"
+          },
+          "channels": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "email",
+                "web"
+              ]
+            }
+          },
+          "asset_revision_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "required": [
+          "run_id",
+          "campaign_id",
+          "campaign_version",
+          "name",
+          "channels",
+          "asset_revision_ids"
+        ]
+      },
+      "effect": "additive",
+      "timeout_seconds": 15,
+      "handler": "router"
+    },
+    {
+      "capability": "agents.teams.read",
+      "name": "list_agent_teams",
+      "label": "Read agent teams",
+      "description": "List teams in this account and their IDs.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "effect": "read_only",
+      "timeout_seconds": 15,
+      "handler": "router"
+    },
+    {
+      "capability": "agents.personas.read",
+      "name": "list_team_agents",
+      "label": "Read team agents",
+      "description": "List agents and their IDs in a team.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "boardroom_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "boardroom_id"
+        ]
+      },
+      "effect": "read_only",
+      "timeout_seconds": 15,
+      "handler": "router"
+    },
+    {
+      "capability": "schedules.read",
+      "name": "list_schedules",
+      "label": "Read schedules",
+      "description": "List existing schedules. Check for duplicates before proposing a new schedule.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "effect": "read_only",
+      "timeout_seconds": 15,
+      "handler": "router"
+    },
+    {
+      "capability": "integrations.web.search",
+      "name": "search_web",
+      "label": "Search the web",
+      "description": "Search using a configured web research connection. Requires its connection ID.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "query": {
+            "type": "string"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
+          }
+        },
+        "required": [
+          "connection_id",
+          "query",
+          "limit"
+        ]
+      },
+      "effect": "read_only",
+      "timeout_seconds": 45,
+      "handler": "router"
+    },
+    {
+      "capability": "integrations.web.read",
+      "name": "read_web_source",
+      "label": "Save a web source",
+      "description": "Read a public page using a configured web research connection and save it as evidence.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "connection_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection_id",
+          "url"
+        ]
+      },
+      "effect": "additive",
+      "timeout_seconds": 45,
+      "handler": "router"
+    },
+    {
+      "capability": "schedules.prepare",
+      "name": "prepare_daily_schedule",
+      "label": "Prepare a daily report",
+      "description": "Validate a daily agent schedule and return a complete schedules.create proposal. This does not create or send anything. Return the proposal in proposed_actions for human approval. Public HTTPS source URLs are fetched fresh on each run, without requiring a search connection. Failed sources are reported as unavailable.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 160
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone, e.g. America/New_York"
+          },
+          "local_hour": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 23
+          },
+          "local_minute": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 59
+          },
+          "boardroom_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "persona_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1,
+            "maxItems": 32,
+            "uniqueItems": true
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 240
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32768,
+            "description": "Instructions for each report run. Do not ask the report to create another schedule."
+          },
+          "source_urls": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            },
+            "maxItems": 6,
+            "uniqueItems": true
+          },
+          "email_self": {
+            "type": "boolean",
+            "description": "Deliver to the approving user’s verified email; no arbitrary recipient."
+          },
+          "run_now": {
+            "type": "boolean",
+            "description": "Also run once immediately after approval."
+          }
+        },
+        "required": [
+          "name",
+          "timezone",
+          "local_hour",
+          "local_minute",
+          "boardroom_id",
+          "persona_ids",
+          "subject",
+          "prompt",
+          "source_urls",
+          "email_self",
+          "run_now"
+        ]
+      },
+      "effect": "read_only",
+      "timeout_seconds": 15,
+      "handler": "schedule_prepare"
+    }
+  ],
+  "actions": [
+    {
+      "capability": "stripe.customer.create",
+      "label": "Propose Stripe customer creation",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "name"
+        ]
+      }
+    },
+    {
+      "capability": "finance.entry.post",
+      "label": "Propose posting an accounting entry",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "entry_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "entry_id",
+          "expected_version"
+        ]
+      }
+    },
+    {
+      "capability": "marketing.release.activate",
+      "label": "Propose activating a marketing release",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "campaign_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "release_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "release_version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "campaign_id",
+          "campaign_version",
+          "release_id",
+          "release_version"
+        ]
+      }
+    },
+    {
+      "capability": "schedules.create",
+      "label": "Propose a daily schedule or emailed report",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 160
+          },
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone, e.g. America/New_York"
+          },
+          "local_hour": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 23
+          },
+          "local_minute": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 59
+          },
+          "boardroom_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "persona_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "minItems": 1,
+            "maxItems": 32,
+            "uniqueItems": true
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 240
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32768,
+            "description": "Instructions for each report run. Do not ask the report to create another schedule."
+          },
+          "source_urls": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            },
+            "maxItems": 6,
+            "uniqueItems": true
+          },
+          "email_self": {
+            "type": "boolean",
+            "description": "Deliver to the approving user’s verified email; no arbitrary recipient."
+          },
+          "run_now": {
+            "type": "boolean",
+            "description": "Also run once immediately after approval."
+          }
+        },
+        "required": [
+          "name",
+          "timezone",
+          "local_hour",
+          "local_minute",
+          "boardroom_id",
+          "persona_ids",
+          "subject",
+          "prompt",
+          "source_urls",
+          "email_self",
+          "run_now"
+        ]
+      }
+    }
+  ]
+}

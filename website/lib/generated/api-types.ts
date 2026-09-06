@@ -664,14 +664,14 @@ export interface AgentRunUsage {
 }
 
 export interface AgentToolGrant {
-  readonly "capability": "work.summary.read" | "finance.ledgers.read" | "finance.accounts.read" | "finance.entry.draft" | "marketing.campaigns.read" | "marketing.asset-revisions.read" | "marketing.releases.read" | "marketing.campaign.draft" | "marketing.asset-revision.draft" | "marketing.release.draft";
+  readonly "capability": "work.summary.read" | "finance.ledgers.read" | "finance.accounts.read" | "finance.entry.draft" | "marketing.campaigns.read" | "marketing.asset-revisions.read" | "marketing.releases.read" | "marketing.campaign.draft" | "marketing.asset-revision.draft" | "marketing.release.draft" | "agents.teams.read" | "agents.personas.read" | "schedules.read" | "integrations.web.search" | "integrations.web.read" | "schedules.prepare";
   readonly "description": string;
   readonly "input_schema": Readonly<Record<string, unknown>>;
   readonly "name": string;
 }
 
 export interface AgentToolGrantInput {
-  readonly "capability": "work.summary.read" | "finance.ledgers.read" | "finance.accounts.read" | "finance.entry.draft" | "marketing.campaigns.read" | "marketing.asset-revisions.read" | "marketing.releases.read" | "marketing.campaign.draft" | "marketing.asset-revision.draft" | "marketing.release.draft";
+  readonly "capability": "work.summary.read" | "finance.ledgers.read" | "finance.accounts.read" | "finance.entry.draft" | "marketing.campaigns.read" | "marketing.asset-revisions.read" | "marketing.releases.read" | "marketing.campaign.draft" | "marketing.asset-revision.draft" | "marketing.release.draft" | "agents.teams.read" | "agents.personas.read" | "schedules.read" | "integrations.web.search" | "integrations.web.read" | "schedules.prepare";
   readonly "description": string;
   readonly "input_schema": Readonly<Record<string, unknown>>;
   readonly "name": string;

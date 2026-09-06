@@ -15,6 +15,7 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/postgres"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/stripeaction"
 	"github.com/tinfoyle/spyglass-engine/internal/adapters/toolrouterhttp"
+	"github.com/tinfoyle/spyglass-engine/internal/application/agenttools"
 	"github.com/tinfoyle/spyglass-engine/internal/application/approvedaction"
 	"github.com/tinfoyle/spyglass-engine/internal/application/financeaction"
 	"github.com/tinfoyle/spyglass-engine/internal/application/marketingaction"
@@ -23,13 +24,13 @@ import (
 	"github.com/tinfoyle/spyglass-engine/internal/application/runneraction"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnerbroker"
 	"github.com/tinfoyle/spyglass-engine/internal/application/runnercapability"
+	"github.com/tinfoyle/spyglass-engine/internal/application/scheduleaction"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/database"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/ids"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/observability"
 	"github.com/tinfoyle/spyglass-engine/internal/platform/toolcontext"
 	brokertransport "github.com/tinfoyle/spyglass-engine/internal/transport/runnerbrokerapi"
 	capabilitytransport "github.com/tinfoyle/spyglass-engine/internal/transport/runnercapabilityapi"
-	"github.com/tinfoyle/spyglass-engine/internal/transport/toolrouter"
 )
 
 type Config struct {
@@ -181,22 +182,23 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
-	capabilities, err := runnercapability.New(exchange, actions, auditor, registration.SystemClock{}, []runnercapability.Definition{
-		{Capability: toolrouter.WorkSummaryCapability, Effect: runnercapability.EffectReadOnly, Timeout: 15 * time.Second, Handler: toolHandler},
-		{Capability: toolrouter.FinanceLedgersReadCapability, Effect: runnercapability.EffectReadOnly, Timeout: 15 * time.Second, Handler: toolHandler},
-		{Capability: toolrouter.FinanceAccountsReadCapability, Effect: runnercapability.EffectReadOnly, Timeout: 15 * time.Second, Handler: toolHandler},
-		{Capability: toolrouter.FinanceEntryDraftCapability, Effect: runnercapability.EffectAdditive, Timeout: 15 * time.Second, Handler: toolHandler},
-		{Capability: toolrouter.MarketingCampaignsReadCapability, Effect: runnercapability.EffectReadOnly, Timeout: 15 * time.Second, Handler: toolHandler},
-		{Capability: toolrouter.MarketingAssetsReadCapability, Effect: runnercapability.EffectReadOnly, Timeout: 15 * time.Second, Handler: toolHandler},
-		{Capability: toolrouter.MarketingReleasesReadCapability, Effect: runnercapability.EffectReadOnly, Timeout: 15 * time.Second, Handler: toolHandler},
-		{Capability: toolrouter.MarketingCampaignDraftCapability, Effect: runnercapability.EffectAdditive, Timeout: 15 * time.Second, Handler: toolHandler},
-		{Capability: toolrouter.MarketingAssetDraftCapability, Effect: runnercapability.EffectAdditive, Timeout: 15 * time.Second, Handler: toolHandler},
-		{Capability: toolrouter.MarketingReleaseDraftCapability, Effect: runnercapability.EffectAdditive, Timeout: 15 * time.Second, Handler: toolHandler},
-		{Capability: toolrouter.WebResearchSearchCapability, Effect: runnercapability.EffectReadOnly, Timeout: 45 * time.Second, Handler: toolHandler},
-		{Capability: toolrouter.WebResearchReadCapability, Effect: runnercapability.EffectAdditive, Timeout: 45 * time.Second, Handler: toolHandler},
-		{Capability: modelgateway.ModelTurnCapability, Effect: runnercapability.EffectReadOnly, Timeout: modelgateway.MaximumProviderTimeout, Handler: modelHandler},
-		{Capability: stripeaction.CustomerCreateCapability, Effect: runnercapability.EffectConsequential, Timeout: 20 * time.Second, Handler: stripeCustomerHandler},
-	})
+	definitions := []runnercapability.Definition{}
+	for _, tool := range agenttools.Definitions().Tools {
+		var handler runnercapability.Handler = toolHandler
+		switch tool.Handler {
+		case "router":
+		case "schedule_prepare":
+			handler = scheduleaction.PrepareHandler{}
+		default:
+			pool.Close()
+			return nil, errors.New("agent tool has no registered handler")
+		}
+		definitions = append(definitions, runnercapability.Definition{Capability: tool.Capability, Effect: tool.Effect, Timeout: time.Duration(tool.TimeoutSeconds) * time.Second, Handler: handler})
+	}
+	definitions = append(definitions,
+		runnercapability.Definition{Capability: modelgateway.ModelTurnCapability, Effect: runnercapability.EffectReadOnly, Timeout: modelgateway.MaximumProviderTimeout, Handler: modelHandler},
+		runnercapability.Definition{Capability: stripeaction.CustomerCreateCapability, Effect: runnercapability.EffectConsequential, Timeout: 20 * time.Second, Handler: stripeCustomerHandler})
+	capabilities, err := runnercapability.New(exchange, actions, auditor, registration.SystemClock{}, definitions)
 	if err != nil {
 		pool.Close()
 		return nil, err
@@ -206,7 +208,14 @@ func New(ctx context.Context, config Config, logger *slog.Logger) (*Server, erro
 		pool.Close()
 		return nil, err
 	}
+	scheduleRepository, err := postgres.NewScheduleRepository(cellPool)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	scheduleHandler := scheduleaction.Handler{Store: scheduleRepository, Now: time.Now}
 	approvedActions, err := approvedaction.New(approvedRepository, ids.RandomGenerator{}, registration.SystemClock{}, approvedaction.DefaultLease, []approvedaction.Definition{
+		{Capability: scheduleaction.CreateCapability, Timeout: 15 * time.Second, Handler: scheduleHandler},
 		{Capability: stripeaction.CustomerCreateCapability, Timeout: 20 * time.Second, Handler: stripeCustomerHandler},
 		{Capability: financeaction.EntryPostCapability, Timeout: 15 * time.Second, Handler: financePostHandler},
 		{Capability: marketingaction.ReleaseActivateCapability, Timeout: 15 * time.Second, Handler: marketingActivateHandler},
@@ -235,7 +244,7 @@ func clientFor(transport http.RoundTripper) *http.Client {
 	if transport == nil {
 		return nil
 	}
-	return &http.Client{Transport: transport, Timeout: 15 * time.Second}
+	return &http.Client{Transport: transport, Timeout: 45 * time.Second}
 }
 
 func modelClientFor(transport http.RoundTripper) *http.Client {

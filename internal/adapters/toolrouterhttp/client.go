@@ -50,12 +50,12 @@ func New(config Config) (*Client, error) {
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.Proxy = nil
 		transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS13}
-		client = &http.Client{Transport: transport, Timeout: 15 * time.Second}
+		client = &http.Client{Transport: transport, Timeout: 45 * time.Second}
 	} else {
 		copyClient := *client
 		client = &copyClient
 		if client.Timeout == 0 || client.Timeout > 30*time.Second {
-			client.Timeout = 15 * time.Second
+			client.Timeout = 45 * time.Second
 		}
 	}
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return errors.New("tool router redirects are denied") }

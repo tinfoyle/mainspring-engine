@@ -311,3 +311,10 @@ GRANT SELECT ON spyglass.schedule_report_deliveries TO spyglass_app_api;
 GRANT EXECUTE ON FUNCTION public.spyglass_claim_schedule_report(uuid,timestamptz),
  public.spyglass_begin_schedule_report(uuid,uuid,uuid,timestamptz),
  public.spyglass_finish_schedule_report(uuid,uuid,uuid,text,text,timestamptz) TO spyglass_integration_connector_worker;
+
+-- Approved schedule creation is atomic with its optional first trigger.
+GRANT SELECT ON spyglass.schedules, spyglass.schedule_events, spyglass.schedule_triggers,
+ spyglass.agent_boardrooms, spyglass.agent_personas, spyglass.agent_persona_versions
+ TO spyglass_runner_broker;
+GRANT INSERT ON spyglass.schedules, spyglass.schedule_events, spyglass.schedule_triggers,
+ spyglass.schedule_trigger_queue TO spyglass_runner_broker;

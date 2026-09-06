@@ -40,7 +40,7 @@ function label(value: string): string {
 
 function title(item: AttentionQueueItem): string {
   if (item.kind === "information" || item.kind === "review") return item.question;
-  return item.capability === "marketing.release.activate" ? "Approve marketing campaign" : label(item.capability.replaceAll(".", " "));
+  return item.capability === "schedules.create" ? "Approve daily report" : item.capability === "marketing.release.activate" ? "Approve marketing campaign" : label(item.capability.replaceAll(".", " "));
 }
 
 function context(item: AttentionQueueItem): string {

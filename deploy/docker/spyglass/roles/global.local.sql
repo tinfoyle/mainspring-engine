@@ -338,3 +338,7 @@ GRANT SELECT, UPDATE ON account_cell_provision_queue TO spyglass_account_provisi
 GRANT SELECT ON account_erasure_restore_ledger TO spyglass_account_provisioning_worker;
 
 GRANT EXECUTE ON FUNCTION public.spyglass_schedule_report_recipient(uuid,uuid,text) TO spyglass_integration_connector_worker;
+
+-- Replay prevention must be writable by the tool router, without granting token reads.
+GRANT INSERT ON public.tool_context_receipts TO spyglass_app_router;
+GRANT SELECT (request_id) ON public.tool_context_receipts TO spyglass_app_router;

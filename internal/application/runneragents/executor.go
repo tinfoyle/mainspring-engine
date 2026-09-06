@@ -212,7 +212,15 @@ func (TurnExecutor) Execute(ctx context.Context, execution runnerexecution.Execu
 			}
 			toolResult, err := execution.Gateway.Invoke(ctx, runnercapability.Call{SchemaVersion: runnercapability.SchemaVersion, OperationID: input.ToolOperationIDs[step], Capability: capability, Input: call.Arguments})
 			if err != nil {
-				return nil, coded("tool_step_failed", ErrToolFailed)
+				code, safe := runnercapability.ExecutionFailureCode(err)
+				if !safe || ctx.Err() != nil {
+					return nil, coded("tool_step_failed", ErrToolFailed)
+				}
+				output, _ := json.Marshal(map[string]any{
+					"ok": false, "error": code,
+					"message": "The tool did not return a successful result. Do not claim success. The outcome of a mutation may be uncertain; do not repeat it with a new operation. Continue other useful work or explain the limitation.",
+				})
+				toolResult = runnercapability.Result{SchemaVersion: runnercapability.SchemaVersion, Output: output}
 			}
 			if toolResult.SchemaVersion != runnercapability.SchemaVersion || len(toolResult.Output) == 0 {
 				return nil, coded("tool_output_invalid", ErrToolFailed)

@@ -19,3 +19,5 @@ export * from "./marketing";
 export * from "./operations";
 export * from "./generated/api-types";
 export { apiRoutes } from "./generated/api-contract";
+
+export { agentToolCatalog } from "./generated/agent-tool-catalog";

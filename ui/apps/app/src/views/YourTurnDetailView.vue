@@ -57,7 +57,18 @@ const title = computed(() => {
   const item = detail.value;
   if (!item) return "Decision detail";
   if (item.kind === "information" || item.kind === "review") return item.question;
-  return item.capability === "marketing.release.activate" ? "Approve marketing campaign" : label(item.capability.replaceAll(".", " "));
+  return item.capability === "schedules.create" ? "Approve daily report" : item.capability === "marketing.release.activate" ? "Approve marketing campaign" : label(item.capability.replaceAll(".", " "));
+});
+interface DailyScheduleProposal { name: string; timezone: string; local_hour: number; local_minute: number; subject: string; prompt: string; email_self: boolean; run_now: boolean; source_urls: ReadonlyArray<string> }
+const dailySchedule = computed((): DailyScheduleProposal | undefined => {
+  const item = detail.value;
+  if (item?.kind !== "approval" || item.capability !== "schedules.create") return undefined;
+  const value = item.payload as Partial<DailyScheduleProposal>;
+  if (typeof value.name !== "string" || typeof value.timezone !== "string" || typeof value.local_hour !== "number"
+    || typeof value.local_minute !== "number" || typeof value.subject !== "string" || typeof value.prompt !== "string"
+    || typeof value.email_self !== "boolean" || typeof value.run_now !== "boolean"
+    || !Array.isArray(value.source_urls) || !value.source_urls.every((url) => typeof url === "string")) return undefined;
+  return value as DailyScheduleProposal;
 });
 const actionLabel = computed(() => {
   if (detail.value?.kind === "information") return "Submit answer";
@@ -270,7 +281,19 @@ watch([decision, reason, factID, informationAnswer], saveDraft);
             <p v-if="!marketingApprovalReady" class="form-error">This campaign or release has changed, or its details could not be loaded. Reject this request and create a new release before approving.</p>
             <p>Decision due: {{ formatDate(detail.expires_at) }}</p>
             <details><summary>Technical details</summary><dl><div><dt>Operation</dt><dd class="digest">{{ detail.operation_id }}</dd></div><div><dt>Policy version</dt><dd>{{ detail.policy_version }}</dd></div><div><dt>Evidence digest</dt><dd class="digest">{{ detail.evidence_sha256 }}</dd></div></dl><pre>{{ JSON.stringify(detail.payload, null, 2) }}</pre></details>
-            <section v-if="!marketingRelease" class="payload"><h2>Proposed action</h2><pre>{{ JSON.stringify(detail.payload, null, 2) }}</pre></section>
+            <section v-if="dailySchedule" class="payload">
+              <h2>{{ dailySchedule.name }}</h2>
+              <dl>
+                <div><dt>When</dt><dd>Every day at {{ String(dailySchedule.local_hour).padStart(2, "0") }}:{{ String(dailySchedule.local_minute).padStart(2, "0") }} ({{ dailySchedule.timezone }})</dd></div>
+                <div><dt>Email delivery</dt><dd>{{ dailySchedule.email_self ? "Send each report to your verified account email. Approving gives permission for these daily emails." : "Save reports in Spyglass without emailing them." }}</dd></div>
+                <div><dt>First report</dt><dd>{{ dailySchedule.run_now ? "Also run once as soon as you approve." : "Run at the next scheduled time." }}</dd></div>
+                <div><dt>Report title</dt><dd>{{ dailySchedule.subject }}</dd></div>
+              </dl>
+              <p>{{ dailySchedule.prompt }}</p>
+              <p v-if="dailySchedule.source_urls.length">Sources: {{ dailySchedule.source_urls.join(", ") }}</p>
+              <p>You can pause future reports from Schedules.</p>
+            </section>
+            <section v-else-if="!marketingRelease" class="payload"><h2>Proposed action</h2><pre>{{ JSON.stringify(detail.payload, null, 2) }}</pre></section>
           </template>
           <dl v-else-if="detail.kind === 'action'">
             <div><dt>Operation</dt><dd class="digest">{{ detail.operation_id }}</dd></div><div><dt>Attempt</dt><dd>{{ detail.attempt_count }}</dd></div><div><dt>Stable error</dt><dd>{{ detail.last_error_code ?? 'None' }}</dd></div><div><dt>Updated</dt><dd>{{ formatDate(detail.updated_at) }}</dd></div>

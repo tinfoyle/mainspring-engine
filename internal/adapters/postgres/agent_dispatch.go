@@ -64,14 +64,14 @@ func (r *AgentDispatchRepository) Load(ctx context.Context, claim agentdispatch.
 		var tokenRate []byte
 		err := tx.QueryRow(ctx, `SELECT e.conversation_id,e.context_sequence,e.profile,e.model_operation_ids,e.tool_operation_ids,
 			e.request_expires_at,i.queued_at,i.persona_version_id,r.created_by,r.context_payload,r.context_digest,r.context_item_count,
-			i.ai_token_reservation_id::text,i.ai_token_rate_snapshot
+			i.ai_token_reservation_id::text,i.ai_token_rate_snapshot,r.boardroom_id,r.id
 			FROM spyglass.agent_invocation_execution_plans e JOIN spyglass.agent_invocations i
 			ON i.account_id=e.account_id AND i.id=e.invocation_id
 			JOIN spyglass.agent_runs r ON r.account_id=i.account_id AND r.id=i.run_id
 			WHERE e.account_id=$1 AND e.invocation_id=$2 AND i.status='queued'`, claim.AccountID, claim.InvocationID).Scan(
 			&conversationID, &contextSequence, &result.Profile, &result.ModelOperationIDs, &result.ToolOperationIDs,
 			&result.RequestExpiresAt, &result.QueuedAt, &personaVersionID, &result.CreatedBy, &result.ContextPayload, &contextDigest, &result.ContextItemCount,
-			&tokenReservationID, &tokenRate)
+			&tokenReservationID, &tokenRate, &result.BoardroomID, &result.RunID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return agentdispatch.ErrInvalidSnapshot
 		}

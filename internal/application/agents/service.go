@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/tinfoyle/spyglass-engine/internal/application/agenttools"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/access"
 	"github.com/tinfoyle/spyglass-engine/internal/modules/accounts"
 	agentdomain "github.com/tinfoyle/spyglass-engine/internal/modules/agents"
@@ -304,22 +305,20 @@ func (s *Service) PublishPersona(ctx context.Context, command PublishPersonaComm
 	if _, err := s.authorizer.Authorize(ctx, command.Actor, command.AccountID, access.Requirement{Roles: configureRoles(), Package: PackageCode, Mutation: true}); err != nil {
 		return PersonaSummary{}, false, err
 	}
-	for _, tool := range command.Policy.Tools {
-		switch tool.Capability {
-		case "work.summary.read", "finance.ledgers.read", "finance.accounts.read", "finance.entry.draft",
-			"marketing.campaigns.read", "marketing.asset-revisions.read", "marketing.releases.read",
-			"marketing.campaign.draft", "marketing.asset-revision.draft", "marketing.release.draft":
-		default:
+	canonicalTools := make([]agentdomain.ToolGrant, len(command.Policy.Tools))
+	for i, grant := range command.Policy.Tools {
+		tool, ok := agenttools.Lookup(grant.Capability)
+		if !ok {
 			return PersonaSummary{}, false, ErrInvalidCommand
 		}
+		canonicalTools[i] = tool.ToolGrant
 	}
 	for _, capability := range command.Policy.ActionCapabilities {
-		switch capability {
-		case "stripe.customer.create", "finance.entry.post", "marketing.release.activate":
-		default:
+		if _, ok := agenttools.LookupAction(capability); !ok {
 			return PersonaSummary{}, false, ErrInvalidCommand
 		}
 	}
+	command.Policy.Tools = canonicalTools
 	policy := agentdomain.PersonaPolicy{
 		Complexity:         command.Policy.Complexity,
 		MaximumInputTokens: command.Policy.MaximumInputTokens, MaximumOutputTokens: command.Policy.MaximumOutputTokens,

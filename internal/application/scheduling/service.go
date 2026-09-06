@@ -291,7 +291,7 @@ func sameIDs[T ~string](left, right []T) bool {
 }
 
 func (service *Service) authorize(ctx context.Context, actor access.Actor, accountID ids.AccountID, mutation bool) error {
-	if !actor.Valid() || actor.UserID == "" || ids.Validate(string(accountID)) != nil {
+	if !actor.Valid() || (mutation && actor.UserID == "") || ids.Validate(string(accountID)) != nil {
 		return ErrInvalid
 	}
 	requirement := access.Requirement{Package: PackageCode, Mutation: mutation}

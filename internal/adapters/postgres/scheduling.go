@@ -267,10 +267,18 @@ func validScheduleMutationState(value domain.Schedule, kind string) bool {
 }
 
 func validateScheduleTargets(ctx context.Context, tx pgx.Tx, value domain.Schedule) error {
+	return validateScheduleTargetsWithLock(ctx, tx, value, true)
+}
+func validateScheduleTargetsWithLock(ctx context.Context, tx pgx.Tx, value domain.Schedule, lock bool) error {
+	suffix := ""
+	if lock {
+		suffix = " FOR SHARE"
+	}
+
 	var boardroomState string
 	var managerID *string
 	if err := tx.QueryRow(ctx, `SELECT state,manager_persona_id::text FROM spyglass.agent_boardrooms
-		WHERE account_id=$1 AND id=$2 FOR SHARE`, value.AccountID, value.Template.BoardroomID).Scan(&boardroomState, &managerID); errors.Is(err, pgx.ErrNoRows) {
+		WHERE account_id=$1 AND id=$2`+suffix, value.AccountID, value.Template.BoardroomID).Scan(&boardroomState, &managerID); errors.Is(err, pgx.ErrNoRows) {
 		return scheduleapp.ErrNotFound
 	} else if err != nil {
 		return err
@@ -282,7 +290,7 @@ func validateScheduleTargets(ctx context.Context, tx pgx.Tx, value domain.Schedu
 		var managerState string
 		var managerVersion int64
 		if err := tx.QueryRow(ctx, `SELECT state,latest_version FROM spyglass.agent_personas
-			WHERE account_id=$1 AND id=$2::uuid AND boardroom_id=$3 FOR SHARE`, value.AccountID, *managerID, value.Template.BoardroomID).Scan(&managerState, &managerVersion); errors.Is(err, pgx.ErrNoRows) {
+			WHERE account_id=$1 AND id=$2::uuid AND boardroom_id=$3`+suffix, value.AccountID, *managerID, value.Template.BoardroomID).Scan(&managerState, &managerVersion); errors.Is(err, pgx.ErrNoRows) {
 			return scheduleapp.ErrNotFound
 		} else if err != nil {
 			return err
@@ -294,7 +302,7 @@ func validateScheduleTargets(ctx context.Context, tx pgx.Tx, value domain.Schedu
 		var state string
 		var latestVersion int64
 		if err := tx.QueryRow(ctx, `SELECT state,latest_version FROM spyglass.agent_personas
-			WHERE account_id=$1 AND id=$2 AND boardroom_id=$3 FOR SHARE`, value.AccountID, personaID, value.Template.BoardroomID).Scan(&state, &latestVersion); errors.Is(err, pgx.ErrNoRows) {
+			WHERE account_id=$1 AND id=$2 AND boardroom_id=$3`+suffix, value.AccountID, personaID, value.Template.BoardroomID).Scan(&state, &latestVersion); errors.Is(err, pgx.ErrNoRows) {
 			return scheduleapp.ErrNotFound
 		} else if err != nil {
 			return err

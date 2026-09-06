@@ -158,3 +158,23 @@ func (g *gatewayStub) Invoke(_ context.Context, call runnercapability.Call) (run
 	}
 	return g.results[index], nil
 }
+
+func TestTurnExecutorReturnsSafeToolFailureToModel(t *testing.T) {
+	first := modelgateway.Result{SchemaVersion: 1, Provider: "openai", Model: "gpt-test", ResponseID: "resp_1", StopReason: "tool_call",
+		ToolCalls:    []modelgateway.ToolCall{{CallID: "call_1", Name: "read_work", Arguments: json.RawMessage(`{}`)}},
+		Continuation: json.RawMessage(`[{"type":"function_call","call_id":"call_1","name":"read_work","arguments":"{}"}]`)}
+	second := modelgateway.Result{SchemaVersion: 1, Provider: "openai", Model: "gpt-test", ResponseID: "resp_2", StopReason: "completed", Output: validStructuredResult()}
+	gateway := &gatewayStub{results: []runnercapability.Result{capabilityResult(first), {}, capabilityResult(second)}, errors: []error{nil, runnercapability.NewExecutionFailure("tool_boundary_unavailable"), nil}}
+	raw, _ := json.Marshal(validTurnInput())
+	output, err := (TurnExecutor{}).Execute(context.Background(), runnerexecution.Execution{Kind: TurnExecutionKind, Input: raw, Capabilities: []string{modelgateway.ModelTurnCapability, "work.summary.read"}, Gateway: gateway})
+	if err != nil || len(output) == 0 || len(gateway.calls) != 3 {
+		t.Fatalf("did not recover: %v", err)
+	}
+	var request modelgateway.Request
+	_ = json.Unmarshal(gateway.calls[2].Input, &request)
+	var failure map[string]any
+	_ = json.Unmarshal(request.History[0].ToolOutput.Output, &failure)
+	if failure["ok"] != false || failure["error"] != "tool_boundary_unavailable" {
+		t.Fatalf("unsafe or missing feedback: %v", failure)
+	}
+}

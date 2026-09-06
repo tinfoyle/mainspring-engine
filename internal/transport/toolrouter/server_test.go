@@ -262,3 +262,19 @@ func TestWebResearchDispatchSeparatesReadOnlySearchFromCrossPackageCapture(t *te
 		}
 	}
 }
+
+func TestAgentDiscoveryRoutesStayAccountScoped(t *testing.T) {
+	account := ids.AccountID("10000000-0000-4000-8000-000000000001")
+	for _, capability := range []string{"agents.teams.read", "schedules.read"} {
+		route, ok := dispatchCapability(capability, account, []byte("{}"))
+		if !ok || !strings.Contains(route.target, string(account)) || route.method != http.MethodGet {
+			t.Fatalf("missing scoped route: %s", capability)
+		}
+	}
+	if _, ok := dispatchCapability("agents.personas.read", account, []byte(`{"boardroom_id":"../../another-account"}`)); ok {
+		t.Fatal("accepted invalid target")
+	}
+	if _, ok := dispatchCapability("schedules.create", account, []byte("{}")); ok {
+		t.Fatal("consequential action exposed as ordinary tool")
+	}
+}

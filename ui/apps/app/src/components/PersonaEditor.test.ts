@@ -11,7 +11,7 @@ describe("Agent editor tool limits", () => {
     expect(wrapper.emitted("publish")![0]![0]).toEqual(expect.objectContaining({ policy: expect.objectContaining({ tools: [], maximum_tool_steps: 0 }) }));
     await wrapper.get('.persona-choice-grid input[type="checkbox"]').setValue(true);
     await wrapper.get("form").trigger("submit");
-    expect(wrapper.emitted("publish")![1]![0]).toEqual(expect.objectContaining({ policy: expect.objectContaining({ tools: [expect.objectContaining({ capability: "work.summary.read" })], maximum_tool_steps: 2 }) }));
+    expect(wrapper.emitted("publish")![1]![0]).toEqual(expect.objectContaining({ policy: expect.objectContaining({ tools: [expect.objectContaining({ capability: "work.summary.read" })], maximum_tool_steps: 5 }) }));
     await wrapper.get('.persona-choice-grid input[type="checkbox"]').setValue(false);
     await wrapper.get("form").trigger("submit");
     expect(wrapper.emitted("publish")![2]![0]).toEqual(expect.objectContaining({ policy: expect.objectContaining({ tools: [], maximum_tool_steps: 0 }) }));
