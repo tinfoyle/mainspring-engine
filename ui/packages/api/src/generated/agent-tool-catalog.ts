@@ -9,7 +9,8 @@ export const agentToolCatalog = {
       "input_schema": {
         "type": "object",
         "additionalProperties": false,
-        "properties": {}
+        "properties": {},
+        "required": []
       },
       "effect": "read_only",
       "timeout_seconds": 15,
@@ -23,7 +24,8 @@ export const agentToolCatalog = {
       "input_schema": {
         "type": "object",
         "additionalProperties": false,
-        "properties": {}
+        "properties": {},
+        "required": []
       },
       "effect": "read_only",
       "timeout_seconds": 15,
@@ -146,16 +148,26 @@ export const agentToolCatalog = {
         "additionalProperties": false,
         "properties": {
           "state": {
-            "type": "string",
-            "enum": [
-              "draft",
-              "active",
-              "paused",
-              "completed",
-              "archived"
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "active",
+                  "paused",
+                  "completed",
+                  "archived"
+                ]
+              },
+              {
+                "type": "null"
+              }
             ]
           }
-        }
+        },
+        "required": [
+          "state"
+        ]
       },
       "effect": "read_only",
       "timeout_seconds": 15,
@@ -175,12 +187,20 @@ export const agentToolCatalog = {
             "format": "uuid"
           },
           "asset_id": {
-            "type": "string",
-            "format": "uuid"
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
-          "campaign_id"
+          "campaign_id",
+          "asset_id"
         ]
       },
       "effect": "read_only",
@@ -234,7 +254,6 @@ export const agentToolCatalog = {
           "channels": {
             "type": "array",
             "minItems": 1,
-            "uniqueItems": true,
             "items": {
               "type": "string",
               "enum": [
@@ -324,7 +343,6 @@ export const agentToolCatalog = {
           "channels": {
             "type": "array",
             "minItems": 1,
-            "uniqueItems": true,
             "items": {
               "type": "string",
               "enum": [
@@ -337,7 +355,6 @@ export const agentToolCatalog = {
             "type": "array",
             "minItems": 1,
             "maxItems": 100,
-            "uniqueItems": true,
             "items": {
               "type": "string",
               "format": "uuid"
@@ -506,8 +523,7 @@ export const agentToolCatalog = {
               "format": "uuid"
             },
             "minItems": 1,
-            "maxItems": 32,
-            "uniqueItems": true
+            "maxItems": 32
           },
           "subject": {
             "type": "string",
@@ -524,10 +540,9 @@ export const agentToolCatalog = {
             "type": "array",
             "items": {
               "type": "string",
-              "format": "uri"
+              "pattern": "^https://"
             },
-            "maxItems": 6,
-            "uniqueItems": true
+            "maxItems": 6
           },
           "email_self": {
             "type": "boolean",
@@ -669,8 +684,7 @@ export const agentToolCatalog = {
               "format": "uuid"
             },
             "minItems": 1,
-            "maxItems": 32,
-            "uniqueItems": true
+            "maxItems": 32
           },
           "subject": {
             "type": "string",
@@ -687,10 +701,9 @@ export const agentToolCatalog = {
             "type": "array",
             "items": {
               "type": "string",
-              "format": "uri"
+              "pattern": "^https://"
             },
-            "maxItems": 6,
-            "uniqueItems": true
+            "maxItems": 6
           },
           "email_self": {
             "type": "boolean",
