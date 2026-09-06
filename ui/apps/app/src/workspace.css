@@ -25,7 +25,7 @@
 .workspace-view .detail-card, .workspace-view .decision-card, .workspace-view .queue-state { border-radius:.6rem; box-shadow:none; }
 .workspace-view .detail-grid, .workspace-view .finance-layout, .workspace-view .marketing-layout, .workspace-view .integrations-layout { grid-template-columns:minmax(0,1fr); }
 .workspace-view .queue-card { box-shadow:none; }
-.workspace-chat { position:sticky; top:4rem; max-height:calc(100dvh - 4rem); min-height:calc(100dvh - 8.5rem); display:flex; flex-direction:column; min-width:0; border-left:1px solid var(--io-line); background:#fffefa; }
+.workspace-chat { position:sticky; top:4rem; max-height:calc(100dvh - 8.5rem); min-height:calc(100dvh - 8.5rem); display:flex; flex-direction:column; min-width:0; border-left:1px solid var(--io-line); background:#fffefa; }
 .chat-heading { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:1.1rem 1.25rem; border-bottom:1px solid var(--io-line); }
 .chat-heading div { min-width:0; }
 .chat-heading h1, .chat-heading h2 { font:650 1rem/1.4 var(--io-font-sans, sans-serif); margin:0; overflow-wrap:anywhere; }

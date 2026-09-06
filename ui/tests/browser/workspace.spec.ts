@@ -153,3 +153,20 @@ test("optional toolbar views persist after reload", async ({ page }) => {
   await expect(page).toHaveURL(/\/app\/schedules$/);
   await expectNoHorizontalOverflow(page);
 });
+
+
+test("desktop composer stays within a short viewport with a long reply", async ({ page }, info) => {
+  test.skip((page.viewportSize()?.width ?? 0) <= 950, "Desktop split workspace");
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.route("**/agent-runs/" + agentRunID, route => fulfillJSON(route, { ...agentRun, state: "succeeded" }));
+  await page.route("**/agent-conversations/" + agentConversation.id + "/messages?**", route => fulfillJSON(route, {
+    items: [{ ...agentMessage, body: "A detailed response with information to review.\n".repeat(40) }]
+  }));
+  await page.goto("/app/agents/boardrooms/" + agentRoom.id + "/conversations/" + agentConversation.id);
+  await expect(page.getByRole("log", { name: "Conversation messages" })).toContainText("A detailed response");
+  await page.getByRole("link", { name: "Documents", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Documents", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Send", exact: true })).toBeInViewport({ ratio: 1 });
+  await expect(page.locator("#workspace-message")).toBeInViewport({ ratio: 1 });
+  await page.screenshot({ path: info.outputPath("workspace-short-desktop.png"), fullPage: false });
+});
