@@ -1,6 +1,6 @@
 # UbuntuRojo and Stage release handoff
 
-Status: current as of Spyglass `0.3.0-rc.55` on 2026-09-05.
+Status: current as of Spyglass `0.3.0-rc.59` on 2026-09-05.
 
 This is the short operator path for working on Spyglass locally and moving a
 review candidate to the Hostinger Stage VPS. It is not a production/LKE
@@ -41,14 +41,20 @@ Stage uses four HTTPS names:
 - `https://mcp.stage.infiniteocean.net`
 - `https://ops.stage.infiniteocean.net` (Google plus authenticator staff console)
 
-The active release is `0.3.0-rc.55`. Its four images were built from source commit
-`db934f2b83acf011e6b4c9d84a693910bd5e82e9`; the reviewed image manifest is commit
-`e6f96e5a06306df164ba078921bec2d51df66a43`. The active VPS checkout is
-`d88559744834f63fcb56683cb49df0e4ee9c9d0c`, which adds deployment preflight
-checks for the report-worker mount permissions. `/opt/spyglass-stage/current`
-resolves to that checkout. Database ledgers are global `72` and cell A/B `87/87`.
-Stage has 53 long-running containers; all 52 health checks pass. The internal
-edge has no container health check.
+The active release is `0.3.0-rc.59`. Its four images were built from source commit
+`d7bb4a972bd4f95612570215edaa302de72ab096`; the reviewed image manifest and active
+VPS checkout are `d170bb0126b26e27c35a403ac4f1eefb8fcb3002`.
+`/opt/spyglass-stage/current` resolves to that checkout. Database ledgers are
+global `72` and cell A/B `89/89`. Stage has 53 long-running containers; all 52
+health checks pass. The internal edge has no container health check.
+
+RC57-59 restore agent tool execution through the custom harness, share the
+canonical tool catalog with the agent editor, support approved report schedules,
+and include complete findings in report email. A plain-English Boardroom request
+successfully used platform tools and produced an approval; the application then
+created the schedule and delivered its report to the owner's inbox. All four
+owner test schedules are paused. See [the Boardroom verification](stage-agent-harness-verification-2026-09-05.md)
+and [agent tool extension guide](agent-tool-harness.md).
 
 RC52–55 connect MCP schedule and agent tools to fresh source capture and
 verified self-email, repair browser OAuth consent, remove the runner's premature

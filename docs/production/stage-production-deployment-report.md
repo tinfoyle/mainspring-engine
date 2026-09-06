@@ -14,6 +14,19 @@ The product owner authorized Stage traffic visibility, analytics and the separat
 
 ## Current connected Stage checkpoint (2026-09-05)
 
+RC59 is active at immutable manifest/checkout
+`d170bb0126b26e27c35a403ac4f1eefb8fcb3002`, from source
+`d7bb4a972bd4f95612570215edaa302de72ab096`. All 53 long-running containers are
+running and all 52 health checks pass; database versions are `72/89/89`.
+The custom agent harness now executes granted tools, prepares complete action
+proposals, and supports approved daily report schedules. The RC58 end-to-end
+Boardroom test reached the owner's inbox with complete report findings; RC59
+adds concise tool-picker help without changing executable behavior. All test
+schedules are paused. See [the verification record](stage-agent-harness-verification-2026-09-05.md)
+and [current operator handoff](stage-release-operator-handoff.md).
+
+## Historical RC46 Stage checkpoint (2026-09-05)
+
 RC.46 deploys the secure modular staff console at `ops.stage.infiniteocean.net`,
 audited administrator-only traffic/IP reports, cohort-protected analytics and
 protected host access logging. The active manifest/checkout is

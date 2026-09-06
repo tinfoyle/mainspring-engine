@@ -8,6 +8,18 @@ The end-to-end check ran on Stage RC58, source
 migration 89 were applied. All 53 containers were running, with 52 healthy
 (the edge container has no health check) and none unhealthy.
 
+## Final Stage deployment
+
+RC59 was deployed after the functional check above. Its source is
+`d7bb4a972bd4f95612570215edaa302de72ab096` and its immutable manifest/checkout is
+`d170bb0126b26e27c35a403ac4f1eefb8fcb3002`. Relative to RC58, it separates concise
+human-facing tool help from model instructions and adds verification documentation;
+tool execution and permissions are unchanged. The live agent editor was inspected
+without publishing another persona version. All 53 long-running containers are
+running, all 52 health checks pass, and migrations remain 72/89/89. All four owner
+test schedules remain paused with no next run. Temporary registry login material
+was removed. No additional report email was triggered for this copy-only release.
+
 ## What was repaired
 
 The custom Go model/tool loop already existed. Tool execution failed because
