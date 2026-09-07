@@ -89,3 +89,43 @@ func (p *providerStub) Invoke(_ context.Context, _ Request) (Result, error) {
 	p.calls++
 	return p.result, p.err
 }
+
+func TestCachedInputPricingPreservesLegacyAndFreeCacheRates(t *testing.T) {
+	usage := Usage{InputTokens: 1000, CachedInputTokens: 800, OutputTokens: 100}
+	for _, tc := range []struct {
+		name, raw string
+		want      int64
+	}{
+		{"legacy", `{"kimi-k3":{"input_micros_per_million_tokens":3000000,"output_micros_per_million_tokens":15000000}}`, 4500},
+		{"discount", `{"kimi-k3":{"input_micros_per_million_tokens":3000000,"cached_input_micros_per_million_tokens":300000,"output_micros_per_million_tokens":15000000}}`, 2340},
+		{"free", `{"kimi-k3":{"input_micros_per_million_tokens":3000000,"cached_input_micros_per_million_tokens":0,"output_micros_per_million_tokens":15000000}}`, 2100},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prices, err := ParsePricingJSON(tc.raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cost, err := prices[0].cost(usage)
+			if err != nil || cost != tc.want {
+				t.Fatalf("cost=%d error=%v", cost, err)
+			}
+		})
+	}
+	if _, err := ParsePricingJSON(`{"kimi-k3":{"cached_input_micros_per_million_tokens":-1}}`); err == nil {
+		t.Fatal("negative cache price accepted")
+	}
+}
+
+func TestCachedInputPriceIsFrozenByGateway(t *testing.T) {
+	cached := int64(300000)
+	provider := &providerStub{result: Result{SchemaVersion: 1, Provider: "openai", Model: "gpt-test", ResponseID: "resp_cache", StopReason: "completed", Output: json.RawMessage(`{"answer":"ok"}`), Usage: Usage{InputTokens: 1000, CachedInputTokens: 800, OutputTokens: 100, TotalTokens: 1100}}}
+	service, err := New([]Definition{{Name: "openai", Timeout: time.Second, Provider: provider, Pricing: []ModelPrice{{Model: "gpt-test", InputMicrosPerMillionTokens: 3000000, CachedInputMicrosPerMillionTokens: &cached, OutputMicrosPerMillionTokens: 15000000}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cached = 9000000
+	result, err := service.Invoke(context.Background(), validRequest())
+	if err != nil || result.Usage.CostMicros != 2340 {
+		t.Fatalf("price changed: %+v %v", result, err)
+	}
+}

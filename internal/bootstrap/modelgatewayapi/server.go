@@ -18,24 +18,47 @@ type Config struct {
 	OpenAIOrigin   string
 	OpenAIPricing  string
 	OpenAIClient   *http.Client
+	KimiAPIKey     string
+	KimiOrigin     string
+	KimiPricing    string
+	KimiClient     *http.Client
 	MaxRequestBody int64
 }
 
 type Server struct{ Handler http.Handler }
 
 func New(config Config, logger *slog.Logger) (*Server, error) {
-	if logger == nil || config.OpenAIAPIKey == "" {
+	if logger == nil || (config.OpenAIAPIKey == "" && config.KimiAPIKey == "") {
 		return nil, errors.New("model gateway configuration is required")
 	}
-	provider, err := openairesponses.New(openairesponses.Config{APIKey: config.OpenAIAPIKey, Origin: config.OpenAIOrigin, HTTPClient: config.OpenAIClient})
-	if err != nil {
-		return nil, err
+	definitions := make([]modelgateway.Definition, 0, 2)
+	for _, target := range []struct {
+		name, key, origin, pricing string
+		client                     *http.Client
+	}{
+		{"openai", config.OpenAIAPIKey, config.OpenAIOrigin, config.OpenAIPricing, config.OpenAIClient},
+		{"kimi", config.KimiAPIKey, config.KimiOrigin, config.KimiPricing, config.KimiClient},
+	} {
+		if target.key == "" {
+			if target.pricing != "" {
+				return nil, errors.New("model gateway provider credential is missing")
+			}
+			continue
+		}
+		if target.name == "kimi" && target.origin == "" {
+			target.origin = "https://api.moonshot.ai"
+		}
+		provider, err := openairesponses.New(openairesponses.Config{APIKey: target.key, Origin: target.origin, HTTPClient: target.client, StructuredOutputViaTool: target.name == "kimi"})
+		if err != nil {
+			return nil, errors.New("model gateway provider configuration is invalid")
+		}
+		pricing, err := modelgateway.ParsePricingJSON(target.pricing)
+		if err != nil {
+			return nil, errors.New("model gateway pricing configuration is invalid")
+		}
+		definitions = append(definitions, modelgateway.Definition{Name: target.name, Timeout: modelgateway.MaximumProviderTimeout, Provider: provider, Pricing: pricing})
 	}
-	pricing, err := modelgateway.ParsePricingJSON(config.OpenAIPricing)
-	if err != nil {
-		return nil, errors.New("model gateway pricing configuration is invalid")
-	}
-	service, err := modelgateway.New([]modelgateway.Definition{{Name: "openai", Timeout: modelgateway.MaximumProviderTimeout, Provider: provider, Pricing: pricing}})
+	service, err := modelgateway.New(definitions)
 	if err != nil {
 		return nil, err
 	}

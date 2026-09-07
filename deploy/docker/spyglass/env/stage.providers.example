@@ -14,3 +14,9 @@ SPYGLASS_OPENAI_API_KEY=REPLACE
 SPYGLASS_OPENAI_ORIGIN=https://api.openai.com
 SPYGLASS_OPENAI_MODEL_PRICING_JSON=REPLACE_WITH_COMPACT_EXACT_MODEL_PRICE_BOOK
 SPYGLASS_AGENT_EXECUTION_POLICIES_JSON=REPLACE_WITH_COMPACT_FIVE_LEVEL_EXECUTION_MAP
+
+# Optional second provider; keep its key and price book empty until configured.
+# Use the origin without /v1; the Responses adapter appends /v1/responses.
+SPYGLASS_KIMI_API_KEY=
+SPYGLASS_KIMI_ORIGIN=https://api.moonshot.ai
+SPYGLASS_KIMI_MODEL_PRICING_JSON=

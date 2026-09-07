@@ -176,6 +176,13 @@ path, edge_network, application_image, website_image, private_ui_image, secrets_
 with open(path, encoding="utf-8") as source:
     config = json.load(source)
 services = config["services"]
+kimi_consumers = {name for name, service in services.items() if service.get("environment", {}).get("SPYGLASS_KIMI_API_KEY")}
+if kimi_consumers - {"model-gateway"}:
+    raise SystemExit("Kimi credentials may only be supplied to the model gateway")
+model_environment = services.get("model-gateway", {}).get("environment", {})
+if bool(model_environment.get("SPYGLASS_KIMI_API_KEY")) != bool(model_environment.get("SPYGLASS_KIMI_MODEL_PRICING_JSON")):
+    raise SystemExit("Kimi requires both a credential and an explicit model price book")
+
 runner_services = {
     "tool-router", "runner-controller-a", "runner-controller-b",
     "runner-broker-a", "runner-broker-b", "docker-runner-launcher-a",

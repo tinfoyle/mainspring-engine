@@ -138,6 +138,8 @@ type ModelPrice struct {
 	Model                        string
 	InputMicrosPerMillionTokens  int64
 	OutputMicrosPerMillionTokens int64
+	// Nil preserves the existing price book: all input uses the input rate.
+	CachedInputMicrosPerMillionTokens *int64
 }
 
 type pricedProvider struct {
@@ -165,6 +167,13 @@ func New(definitions []Definition) (*Service, error) {
 		for _, price := range definition.Pricing {
 			if !validModel.MatchString(price.Model) || price.InputMicrosPerMillionTokens < 0 || price.InputMicrosPerMillionTokens > MaximumPriceMicros || price.OutputMicrosPerMillionTokens < 0 || price.OutputMicrosPerMillionTokens > MaximumPriceMicros {
 				return nil, ErrInvalidRequest
+			}
+			if price.CachedInputMicrosPerMillionTokens != nil {
+				cached := *price.CachedInputMicrosPerMillionTokens
+				if cached < 0 || cached > MaximumPriceMicros {
+					return nil, ErrInvalidRequest
+				}
+				price.CachedInputMicrosPerMillionTokens = &cached
 			}
 			if _, exists := prices[price.Model]; exists {
 				return nil, ErrInvalidRequest
@@ -305,10 +314,24 @@ func ValidateResult(request Request, result Result) (Result, error) {
 }
 
 func (price ModelPrice) cost(usage Usage) (int64, error) {
-	input, err := tokenCost(usage.InputTokens, price.InputMicrosPerMillionTokens)
-	if err != nil {
-		return 0, err
+	inputTokens := usage.InputTokens
+	cached := int64(0)
+	if price.CachedInputMicrosPerMillionTokens != nil {
+		if usage.CachedInputTokens < 0 || usage.CachedInputTokens > inputTokens {
+			return 0, ErrInvalidProviderReply
+		}
+		inputTokens -= usage.CachedInputTokens
+		var err error
+		cached, err = tokenCost(usage.CachedInputTokens, *price.CachedInputMicrosPerMillionTokens)
+		if err != nil {
+			return 0, err
+		}
 	}
+	input, err := tokenCost(inputTokens, price.InputMicrosPerMillionTokens)
+	if err != nil || input > math.MaxInt64-cached {
+		return 0, ErrInvalidProviderReply
+	}
+	input += cached
 	output, err := tokenCost(usage.OutputTokens, price.OutputMicrosPerMillionTokens)
 	if err != nil || input > math.MaxInt64-output {
 		return 0, ErrInvalidProviderReply

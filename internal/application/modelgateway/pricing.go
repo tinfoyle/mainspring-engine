@@ -21,8 +21,9 @@ func ParsePricingJSON(raw string) ([]ModelPrice, error) {
 	decoder := json.NewDecoder(bytes.NewReader([]byte(raw)))
 	decoder.DisallowUnknownFields()
 	var encoded map[string]struct {
-		Input  int64 `json:"input_micros_per_million_tokens"`
-		Output int64 `json:"output_micros_per_million_tokens"`
+		Input       int64  `json:"input_micros_per_million_tokens"`
+		CachedInput *int64 `json:"cached_input_micros_per_million_tokens,omitempty"`
+		Output      int64  `json:"output_micros_per_million_tokens"`
 	}
 	if err := decoder.Decode(&encoded); err != nil || !errors.Is(decoder.Decode(&struct{}{}), io.EOF) || len(encoded) == 0 || len(encoded) > 256 {
 		return nil, ErrInvalidRequest
@@ -35,10 +36,10 @@ func ParsePricingJSON(raw string) ([]ModelPrice, error) {
 	result := make([]ModelPrice, 0, len(models))
 	for _, model := range models {
 		price := encoded[model]
-		if !validModel.MatchString(model) || price.Input < 0 || price.Input > MaximumPriceMicros || price.Output < 0 || price.Output > MaximumPriceMicros {
+		if !validModel.MatchString(model) || price.Input < 0 || price.Input > MaximumPriceMicros || price.Output < 0 || price.Output > MaximumPriceMicros || (price.CachedInput != nil && (*price.CachedInput < 0 || *price.CachedInput > MaximumPriceMicros)) {
 			return nil, ErrInvalidRequest
 		}
-		result = append(result, ModelPrice{Model: model, InputMicrosPerMillionTokens: price.Input, OutputMicrosPerMillionTokens: price.Output})
+		result = append(result, ModelPrice{Model: model, InputMicrosPerMillionTokens: price.Input, OutputMicrosPerMillionTokens: price.Output, CachedInputMicrosPerMillionTokens: price.CachedInput})
 	}
 	return result, nil
 }

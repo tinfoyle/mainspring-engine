@@ -308,6 +308,9 @@ services:
       SPYGLASS_OPENAI_API_KEY: ${SPYGLASS_OPENAI_API_KEY:?set OpenAI API key}
       SPYGLASS_OPENAI_ORIGIN: ${SPYGLASS_OPENAI_ORIGIN:?set OpenAI origin}
       SPYGLASS_OPENAI_MODEL_PRICING_JSON: ${SPYGLASS_OPENAI_MODEL_PRICING_JSON:?set exact OpenAI model pricing}
+      SPYGLASS_KIMI_API_KEY: ${SPYGLASS_KIMI_API_KEY:-}
+      SPYGLASS_KIMI_ORIGIN: ${SPYGLASS_KIMI_ORIGIN:-https://api.moonshot.ai}
+      SPYGLASS_KIMI_MODEL_PRICING_JSON: ${SPYGLASS_KIMI_MODEL_PRICING_JSON:-}
       SPYGLASS_MODEL_GATEWAY_MAX_REQUEST_BODY_BYTES: "262144"
       SPYGLASS_WORKLOAD_CLIENT_IDENTITIES: spiffe://infiniteocean.net/spyglass/cells/cell-us-east-01/runner-broker,spiffe://infiniteocean.net/spyglass/cells/cell-us-west-01/runner-broker
     volumes:

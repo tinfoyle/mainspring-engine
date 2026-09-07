@@ -42,6 +42,15 @@ provider_value() {
   printf '%s' "$candidate"
 }
 
+optional_provider_value() {
+  local name="$1" count candidate
+  count="$(grep -c "^${name}=" "$provider_file" || true)"
+  [[ "$count" -le 1 ]] || fail "$name occurs more than once in the provider file"
+  candidate="$(sed -n "s/^${name}=//p" "$provider_file")"
+  [[ "$candidate" != *REPLACE* ]] || fail "$name still contains REPLACE"
+  printf '%s' "$candidate"
+}
+
 stripe_webhook_secret="$(provider_value SPYGLASS_STRIPE_WEBHOOK_SECRET)"
 stripe_secret_key="$(provider_value SPYGLASS_STRIPE_SECRET_KEY)"
 smtp_address="$(provider_value SPYGLASS_SMTP_ADDRESS)"
@@ -55,6 +64,10 @@ telnyx_from="$(provider_value SPYGLASS_TELNYX_FROM)"
 openai_api_key="$(provider_value SPYGLASS_OPENAI_API_KEY)"
 openai_origin="$(provider_value SPYGLASS_OPENAI_ORIGIN)"
 openai_pricing="$(provider_value SPYGLASS_OPENAI_MODEL_PRICING_JSON)"
+kimi_api_key="$(optional_provider_value SPYGLASS_KIMI_API_KEY)"
+kimi_origin="$(optional_provider_value SPYGLASS_KIMI_ORIGIN)"
+kimi_pricing="$(optional_provider_value SPYGLASS_KIMI_MODEL_PRICING_JSON)"
+kimi_origin="${kimi_origin:-https://api.moonshot.ai}"
 agent_execution_policies="$(provider_value SPYGLASS_AGENT_EXECUTION_POLICIES_JSON)"
 
 [[ "$stripe_webhook_secret" =~ ^whsec_[A-Za-z0-9_-]+$ ]] || fail "Stripe webhook secret must be a test endpoint whsec_ value"
@@ -71,6 +84,14 @@ agent_execution_policies="$(provider_value SPYGLASS_AGENT_EXECUTION_POLICIES_JSO
 [[ "$openai_origin" =~ ^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || fail "OpenAI origin must be an exact HTTPS origin"
 [[ "$openai_pricing" =~ ^\{[A-Za-z0-9._:\",{}-]+\}$ ]] || fail "OpenAI model pricing must be compact injection-safe JSON"
 [[ "$agent_execution_policies" =~ ^\{[][A-Za-z0-9._:\",{}-]+\}$ ]] || fail "Agent execution policies must be compact injection-safe JSON"
+
+if [[ -n "$kimi_api_key" ]]; then
+  [[ "$kimi_api_key" =~ ^[A-Za-z0-9_-]+$ ]] || fail "Kimi key contains unsupported dotenv characters"
+  [[ "$kimi_origin" =~ ^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || fail "Kimi origin must be an exact HTTPS origin"
+  [[ "$kimi_pricing" =~ ^\{[A-Za-z0-9._:\",{}-]+\}$ ]] || fail "Kimi model pricing must be compact injection-safe JSON"
+else
+  [[ -z "$kimi_pricing" ]] || fail "Kimi model pricing requires a Kimi API key"
+fi
 
 if [[ -e "$target" ]]; then
   [[ -d "$target" ]] || fail "secrets target exists and is not a directory"
@@ -358,6 +379,9 @@ SPYGLASS_CELL_B_DOCKER_LAUNCHER_BROKER_TOKEN=$launcher_broker_b_token
 SPYGLASS_OPENAI_API_KEY=$openai_api_key
 SPYGLASS_OPENAI_ORIGIN=$openai_origin
 SPYGLASS_OPENAI_MODEL_PRICING_JSON=$openai_pricing
+SPYGLASS_KIMI_API_KEY=$kimi_api_key
+SPYGLASS_KIMI_ORIGIN=$kimi_origin
+SPYGLASS_KIMI_MODEL_PRICING_JSON=$kimi_pricing
 SPYGLASS_AGENT_EXECUTION_POLICIES_JSON=$agent_execution_policies
 EOF
 
@@ -465,7 +489,8 @@ find "$work/workload" -mindepth 1 -maxdepth 1 -type d -exec chmod 750 {} +
 find "$work/workload" -mindepth 2 -maxdepth 2 -type f -name tls.key -exec chmod 640 {} +
 chmod 770 "$work/runner-identities-a" "$work/runner-identities-b"
 chmod 600 "$work/stage.env"
-chmod 700 "$work" "$ca_dir" "$work/workload" "$work/integration-source"
+chmod 750 "$work/integration-source"
+chmod 700 "$work" "$ca_dir" "$work/workload"
 chmod 750 "$work/google-login"
 if [[ -d "$target" ]]; then
   rmdir "$target"

@@ -1,4 +1,4 @@
-// Package openairesponses adapts the OpenAI Responses API to Spyglass's
+// Package openairesponses adapts the OpenAI-compatible Responses protocol to Spyglass's
 // provider-neutral model gateway. Provider credentials terminate here and are
 // never serialized into runner work.
 package openairesponses
@@ -23,12 +23,16 @@ type Config struct {
 	APIKey     string
 	Origin     string
 	HTTPClient *http.Client
+	// StructuredOutputViaTool is used by Kimi: text.format suppresses function
+	// selection, so a private terminal function carries the final JSON instead.
+	StructuredOutputViaTool bool
 }
 
 type Client struct {
-	apiKey   string
-	endpoint string
-	http     *http.Client
+	apiKey                  string
+	endpoint                string
+	http                    *http.Client
+	structuredOutputViaTool bool
 }
 
 func New(config Config) (*Client, error) {
@@ -55,11 +59,14 @@ func New(config Config) (*Client, error) {
 		}
 	}
 	client.CheckRedirect = func(*http.Request, []*http.Request) error { return errors.New("OpenAI redirects are denied") }
-	return &Client{apiKey: key, endpoint: origin + "/v1/responses", http: client}, nil
+	return &Client{apiKey: key, endpoint: origin + "/v1/responses", http: client, structuredOutputViaTool: config.StructuredOutputViaTool}, nil
 }
 
 func (c *Client) Invoke(ctx context.Context, request modelgateway.Request) (modelgateway.Result, error) {
 	payload, err := buildRequest(request)
+	if err == nil && c.structuredOutputViaTool {
+		err = useStructuredOutputTool(&payload, request)
+	}
 	if err != nil {
 		return modelgateway.Result{}, err
 	}
@@ -89,7 +96,22 @@ func (c *Client) Invoke(ctx context.Context, request modelgateway.Request) (mode
 		}
 		return modelgateway.Result{}, modelgateway.ErrProviderFailed
 	}
-	return decodeResponse(request.Provider, raw)
+	result, err := decodeResponse(request.Provider, raw)
+	if err != nil || !c.structuredOutputViaTool {
+		return result, err
+	}
+	if len(result.ToolCalls) == 1 && result.ToolCalls[0].Name == finalResultTool {
+		result.Output = append(json.RawMessage(nil), result.ToolCalls[0].Arguments...)
+		result.ToolCalls, result.Continuation = nil, nil
+		result.StopReason = "completed"
+		return result, nil
+	}
+	// A tool-backed final result is mandatory in this protocol mode. Never
+	// silently accept prose as a completed turn or expose the private function.
+	if len(result.ToolCalls) != 1 {
+		return modelgateway.Result{}, modelgateway.ErrInvalidProviderReply
+	}
+	return result, nil
 }
 
 type responseRequest struct {
@@ -99,7 +121,7 @@ type responseRequest struct {
 	Tools             []responseTool     `json:"tools,omitempty"`
 	ToolChoice        string             `json:"tool_choice,omitempty"`
 	ParallelToolCalls bool               `json:"parallel_tool_calls"`
-	Text              responseText       `json:"text"`
+	Text              *responseText      `json:"text,omitempty"`
 	Reasoning         *responseReasoning `json:"reasoning,omitempty"`
 	MaxOutputTokens   int                `json:"max_output_tokens"`
 	Store             bool               `json:"store"`
@@ -145,7 +167,7 @@ func buildRequest(request modelgateway.Request) (responseRequest, error) {
 	for index, tool := range request.Tools {
 		tools[index] = responseTool{Type: "function", Name: tool.Name, Description: tool.Description, Parameters: tool.InputSchema, Strict: true}
 	}
-	payload := responseRequest{Model: request.Model, Instructions: request.Instructions, Input: input, Tools: tools, ParallelToolCalls: false, Text: responseText{Format: responseFormat{Type: "json_schema", Name: request.OutputFormat.Name, Strict: true, Schema: request.OutputFormat.Schema}}, MaxOutputTokens: request.MaximumOutTokens, Store: false}
+	payload := responseRequest{Model: request.Model, Instructions: request.Instructions, Input: input, Tools: tools, ParallelToolCalls: false, Text: &responseText{Format: responseFormat{Type: "json_schema", Name: request.OutputFormat.Name, Strict: true, Schema: request.OutputFormat.Schema}}, MaxOutputTokens: request.MaximumOutTokens, Store: false}
 	if len(tools) != 0 {
 		payload.ToolChoice = "auto"
 	}
@@ -153,6 +175,23 @@ func buildRequest(request modelgateway.Request) (responseRequest, error) {
 		payload.Reasoning = &responseReasoning{Effort: request.ReasoningEffort}
 	}
 	return payload, nil
+}
+
+const finalResultTool = "spyglass_final_result"
+
+func useStructuredOutputTool(payload *responseRequest, request modelgateway.Request) error {
+	for _, tool := range request.Tools {
+		if tool.Name == finalResultTool {
+			return modelgateway.ErrInvalidRequest
+		}
+	}
+	payload.Text = nil
+	payload.Tools = append(payload.Tools, responseTool{Type: "function", Name: finalResultTool,
+		Description: "Submit your complete final answer after any necessary tool calls. This ends the turn and performs no business action.",
+		Parameters:  request.OutputFormat.Schema, Strict: true})
+	payload.ToolChoice = "auto"
+	payload.Instructions += "\n\nResponse protocol: make exactly one function call per response and wait for its result before making another. Use the available tools as needed, then call spyglass_final_result exactly once with your complete final answer matching its schema. Do not write a separate text answer. This final function only submits your answer; business actions still require their normal platform tools and approvals."
+	return nil
 }
 
 type responseEnvelope struct {

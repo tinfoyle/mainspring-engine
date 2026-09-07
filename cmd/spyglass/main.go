@@ -2760,18 +2760,16 @@ func runRunnerBroker(ctx context.Context, logger *slog.Logger) error {
 
 func runModelGateway(ctx context.Context, logger *slog.Logger) error {
 	developmentMode := os.Getenv("SPYGLASS_ENV") == "development"
-	apiKey, err := requiredEnv("SPYGLASS_OPENAI_API_KEY")
-	if err != nil {
-		return err
-	}
 	maxBody, err := int64Env("SPYGLASS_MODEL_GATEWAY_MAX_REQUEST_BODY_BYTES", 256<<10)
 	if err != nil || maxBody > 256<<10 {
 		return errors.New("SPYGLASS_MODEL_GATEWAY_MAX_REQUEST_BODY_BYTES must be between 1 and 262144")
 	}
 	providerTransport := http.DefaultTransport.(*http.Transport).Clone()
 	providerTransport.Proxy = nil
+	providerClient := &http.Client{Transport: observability.TracingFromContext(ctx).ExternalTransport(providerTransport), Timeout: modelgateway.MaximumProviderTimeout, CheckRedirect: rejectOutboundRedirect}
 	server, err := modelgatewaybootstrap.New(modelgatewaybootstrap.Config{
-		OpenAIAPIKey: apiKey, OpenAIOrigin: os.Getenv("SPYGLASS_OPENAI_ORIGIN"), OpenAIPricing: os.Getenv("SPYGLASS_OPENAI_MODEL_PRICING_JSON"), OpenAIClient: &http.Client{Transport: observability.TracingFromContext(ctx).ExternalTransport(providerTransport), Timeout: modelgateway.MaximumProviderTimeout, CheckRedirect: rejectOutboundRedirect}, MaxRequestBody: maxBody,
+		OpenAIAPIKey: os.Getenv("SPYGLASS_OPENAI_API_KEY"), OpenAIOrigin: os.Getenv("SPYGLASS_OPENAI_ORIGIN"), OpenAIPricing: os.Getenv("SPYGLASS_OPENAI_MODEL_PRICING_JSON"), OpenAIClient: providerClient, MaxRequestBody: maxBody,
+		KimiAPIKey: os.Getenv("SPYGLASS_KIMI_API_KEY"), KimiOrigin: os.Getenv("SPYGLASS_KIMI_ORIGIN"), KimiPricing: os.Getenv("SPYGLASS_KIMI_MODEL_PRICING_JSON"), KimiClient: providerClient,
 	}, logger)
 	if err != nil {
 		return err

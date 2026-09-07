@@ -29,6 +29,10 @@ sed -i \
   -e 's|SPYGLASS_OPENAI_MODEL_PRICING_JSON=REPLACE_WITH_COMPACT_EXACT_MODEL_PRICE_BOOK|SPYGLASS_OPENAI_MODEL_PRICING_JSON={"gpt-test":{"input_micros_per_million_tokens":1000000,"output_micros_per_million_tokens":2000000}}|' \
   -e 's|SPYGLASS_AGENT_EXECUTION_POLICIES_JSON=REPLACE_WITH_COMPACT_FIVE_LEVEL_EXECUTION_MAP|SPYGLASS_AGENT_EXECUTION_POLICIES_JSON={"simple":{"provider":"openai","model":"gpt-test","fallback_models":[],"reasoning_effort":"low"},"efficient":{"provider":"openai","model":"gpt-test","fallback_models":[],"reasoning_effort":"low"},"balanced":{"provider":"openai","model":"gpt-test","fallback_models":[],"reasoning_effort":"medium"},"thorough":{"provider":"openai","model":"gpt-test","fallback_models":[],"reasoning_effort":"high"},"advanced":{"provider":"openai","model":"gpt-test","fallback_models":[],"reasoning_effort":"high"}}|' \
   "$provider_file"
+sed -i \
+  -e 's/SPYGLASS_KIMI_API_KEY=/SPYGLASS_KIMI_API_KEY=sk-stagecontract-kimi/' \
+  -e 's/SPYGLASS_KIMI_MODEL_PRICING_JSON=/SPYGLASS_KIMI_MODEL_PRICING_JSON={"kimi-k3":{"input_micros_per_million_tokens":3000000,"cached_input_micros_per_million_tokens":300000,"output_micros_per_million_tokens":15000000}}/' \
+  "$provider_file"
 chmod 600 "$provider_file"
 google_login_file="$temporary/google-login-client"
 printf '%s\n' 'stage-contract-client:stage-contract-secret' >"$google_login_file"
@@ -41,6 +45,9 @@ bash "$stack_dir/prepare-stage-secrets.sh" "$provider_file" "$secret_dir" "$netw
 # as not-yet-valid.
 sleep 1
 env_file="$secret_dir/stage.env"
+grep -q '^SPYGLASS_KIMI_API_KEY=sk-stagecontract-kimi$' "$env_file"
+grep -q '^SPYGLASS_KIMI_ORIGIN=https://api.moonshot.ai$' "$env_file"
+grep -q '^SPYGLASS_KIMI_MODEL_PRICING_JSON=.*cached_input_micros_per_million_tokens' "$env_file"
 
 carried_dir="$temporary/secrets-carried"
 bash "$stack_dir/prepare-stage-secrets.sh" "$provider_file" "$carried_dir" "$network" "$env_file"
@@ -87,7 +94,13 @@ for caddy_file in "$stack_dir/Caddyfile.local" "$stack_dir/Caddyfile.stage"; do
   }
 done
 
-release_file="$repository_root/deploy/releases/0.3.0-rc.6.env"
+credential_directory="$temporary/integration-credentials"
+mkdir -m 750 "$credential_directory"
+printf '%s\n' '{"version":1,"credentials":[]}' >"$credential_directory/index.json"
+chmod 640 "$credential_directory/index.json"
+sed -i "s|^SPYGLASS_INTEGRATION_CREDENTIALS_DIRECTORY=.*|SPYGLASS_INTEGRATION_CREDENTIALS_DIRECTORY=$credential_directory|" "$env_file"
+
+release_file="${1:-$repository_root/deploy/releases/0.3.0-rc.62.env}"
 bash "$stack_dir/verify-stage.sh" "$release_file" "$env_file"
 
 printf '\nSPYGLASS_APPLICATION_IMAGE=ghcr.io/tinfoyle/spyglass-engine@sha256:%064d\n' 1 >>"$env_file"
