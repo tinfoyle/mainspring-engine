@@ -123,6 +123,12 @@ email SHA-256, exact IDs and result under
 This tool is solely for revocable Stage test fixtures and is not the GDPR
 Account/data deletion process.
 
+## Resetting the populated owner workspace
+
+The signup reset above intentionally refuses populated Accounts. For the separately
+authorized Stage owner reset, see [the workspace reset guide](../stage-owner-workspace-reset.md).
+That procedure preserves login, staff security and billing while clearing test work.
+
 ## Evidence retained on the VPS
 
 Evidence files are mode 600 under `/opt/spyglass-stage/evidence`:

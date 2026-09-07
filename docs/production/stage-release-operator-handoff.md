@@ -48,6 +48,13 @@ VPS checkout are `9cdeb949f04f12c2c8dd271439bcb344fe1644a6`.
 global `72` and cell A/B `90/90`. Stage has 53 long-running containers; all 52
 health checks pass. The internal edge has no container health check.
 
+On 2026-09-07 the owner authorized clearing all workspace test data for
+`tinfoyle@gmail.com`. That reset is complete: Knowledge, Documents, Work,
+Baseline, conversations/agents, schedules and Finance/Marketing fixtures are
+empty. Login, staff/authenticator access and billing remain intact. A protected
+backup is retained; see [the owner workspace reset](stage-owner-workspace-reset.md).
+Historical test-record links below may no longer resolve.
+
 RC63 selects Kimi K3 for new agent admissions while preserving OpenAI for older
 frozen runs. The live owner Boardroom used `schedules.read`, returned the correct
 four paused schedules and cited the attached delivery document. Result projection
@@ -70,8 +77,8 @@ RC57-59 restore agent tool execution through the custom harness, share the
 canonical tool catalog with the agent editor, support approved report schedules,
 and include complete findings in report email. A plain-English Boardroom request
 successfully used platform tools and produced an approval; the application then
-created the schedule and delivered its report to the owner's inbox. All four
-owner test schedules are paused. See [the Boardroom verification](stage-agent-harness-verification-2026-09-05.md)
+created the schedule and delivered its report to the owner's inbox. The four
+owner test schedules were paused after verification and cleared by the September 7 reset. See [the Boardroom verification](stage-agent-harness-verification-2026-09-05.md)
 and [agent tool extension guide](agent-tool-harness.md).
 
 RC52–55 connect MCP schedule and agent tools to fresh source capture and
@@ -90,10 +97,9 @@ deferrals do not consume retries. A genuine execution failure is attempted
 three times and then becomes an explicit Your Turn recovery question. Work
 marked for the User remains human-owned and is not auto-dispatched.
 
-The current reviewed fixture has two agent-owned items waiting for human input:
-the pricing review needs token-cost facts, and the launch-readiness review needs
-a narrower first outcome after three model failures. That is intentional
-waiting, not an idle agent queue.
+Before the September 7 reset, two agent-owned test items were waiting for human
+input: pricing facts and a narrower launch-readiness outcome. Both were cleared
+with the owner workspace fixture; there are now no pending attention items.
 
 RC.44 completes the [functional audit and plain-language UI review](stage-functional-audit-2026-09-04.md). It repairs saved schedule runs, no-tool agent creation and summary selection, Marketing file review and human approval, Finance supporting notes and archive guidance, and Knowledge fact navigation. Live synthetic workflows passed after deployment; the public phone layout and customer-facing copy were also corrected.
 

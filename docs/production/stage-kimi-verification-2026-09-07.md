@@ -2,6 +2,8 @@
 
 Status: passed on Stage RC63. Production was not changed.
 
+The owner later authorized a [workspace test-data reset](stage-owner-workspace-reset.md). The live conversation/document fixtures below were cleared; this report records the successful pre-reset verification.
+
 ## Release and configuration
 
 - Source: `e3473ecd955708ca302091d0ea728a026301f2a4`.
