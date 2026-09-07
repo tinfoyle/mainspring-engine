@@ -1,6 +1,6 @@
 # UbuntuRojo and Stage release handoff
 
-Status: current as of Spyglass `0.3.0-rc.62` on 2026-09-06.
+Status: current as of Spyglass `0.3.0-rc.63` on 2026-09-07.
 
 This is the short operator path for working on Spyglass locally and moving a
 review candidate to the Hostinger Stage VPS. It is not a production/LKE
@@ -41,12 +41,18 @@ Stage uses four HTTPS names:
 - `https://mcp.stage.infiniteocean.net`
 - `https://ops.stage.infiniteocean.net` (Google plus authenticator staff console)
 
-The active release is `0.3.0-rc.62`. Its four images were built from source commit
-`f2fb5a2d12b67e311971b7eeb547a5a172b9c684`; the reviewed image manifest and active
-VPS checkout are `382dc7f3dd53e2bfc74746c335f496db120a93fd`.
+The active release is `0.3.0-rc.63`. Its four images were built from source commit
+`e3473ecd955708ca302091d0ea728a026301f2a4`; the reviewed image manifest and active
+VPS checkout are `9cdeb949f04f12c2c8dd271439bcb344fe1644a6`.
 `/opt/spyglass-stage/current` resolves to that checkout. Database ledgers are
 global `72` and cell A/B `90/90`. Stage has 53 long-running containers; all 52
 health checks pass. The internal edge has no container health check.
+
+RC63 selects Kimi K3 for new agent admissions while preserving OpenAI for older
+frozen runs. The live owner Boardroom used `schedules.read`, returned the correct
+four paused schedules and cited the attached delivery document. Result projection
+and AI Token settlement passed. See [Kimi integration and rollback](kimi-provider.md)
+and [the live verification](stage-kimi-verification-2026-09-07.md).
 
 RC60–62 introduce the unified workspace: persistent chat, optional Work,
 Knowledge and Documents views, and grouped Settings. Existing record and
@@ -241,7 +247,7 @@ git rev-parse HEAD
 
 The tracked release manifest and protected Stage environment must be supplied
 separately. The active protected file is currently
-`/opt/spyglass-stage/secrets/2026-08-31-01/stage.env`; it is mode `600`, is not
+`/opt/spyglass-stage/secrets/2026-09-07-kimi-01/stage.env`; it is mode `600`, is not
 in Git, and contains provider and workload secrets. Do not edit an active secret
 set in place.
 
@@ -249,7 +255,7 @@ From the exact checkout on the VPS:
 
 ```bash
 release_file=/opt/spyglass-stage/releases/<checkout-commit>/deploy/releases/0.3.0-rc.N.env
-stage_env=/opt/spyglass-stage/secrets/2026-08-31-01/stage.env
+stage_env=/opt/spyglass-stage/secrets/2026-09-07-kimi-01/stage.env
 ./deploy/docker/spyglass/verify-stage.sh "$release_file" "$stage_env"
 ./deploy/docker/spyglass/deploy-stage.sh "$release_file" "$stage_env"
 ln -sfn /opt/spyglass-stage/releases/<checkout-commit> \

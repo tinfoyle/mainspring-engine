@@ -1,6 +1,6 @@
 # Kimi provider integration
 
-Status: implementation and synthetic provider checks prepared on 2026-09-07; Stage cutover verification is recorded separately when complete.
+Status: deployed and verified in Stage RC63 on 2026-09-07. See [the live verification record](stage-kimi-verification-2026-09-07.md).
 
 ## Architecture
 
@@ -27,7 +27,7 @@ Reviewed K3 prices on 2026-09-07: $3 per million uncached input tokens, $0.30 ca
 
 Source: [Kimi API Platform pricing](https://platform.kimi.ai/). Prices are an operator-owned snapshot and must be reviewed when changed. The gateway records all provider output usage, including billable reasoning counted in output by the API. Cached input is a subset of total input and is not double charged. Omission of the cached price preserves the old price book behavior; an explicit zero means free cached input. Customer AI Token rates are separate and do not change in this migration.
 
-Use supported K3 efforts: `low`, `high`, `max`. The proposed mapping uses low for simple/efficient/balanced, high for thorough, and max for advanced. Existing bounded input/output limits and run cost ceilings remain effective.
+Use supported K3 efforts: `low`, `high`, `max`. The active Stage mapping uses low for simple/efficient/balanced, high for thorough, and max for advanced. Existing bounded input/output limits and run cost ceilings remain effective.
 
 Keep the existing OpenAI configuration for older admitted runs and rollback. Switching the complexity mapping does not implement cross-provider automatic fallback. Stage's standard Compose configuration retains its OpenAI credentials and adds optional Kimi credentials only to model-gateway.
 
@@ -43,9 +43,27 @@ First certify synthetic calls with the actual API. Then publish a clean, pushed 
 
 The Responses API returned `store:false` during the live checks, and Spyglass sends no stored-response IDs. This is not a contractual guarantee of zero retention or no training. [Kimi's standard API terms, section 4](https://platform.kimi.ai/docs/agreement/modeluse) allow content use for model improvement/training unless separately agreed in writing. Record any enterprise restriction separately; do not describe this integration as zero-retention or no-training based on the API flag. Synthetic certification sends only test facts. The provider change is confined to Stage; production deployment requires its own provider and data-processing review.
 
-## Verification so far
+## Verification
 
 - The VPS key authenticated. A first model call was rejected for insufficient balance. After the owner funded the account, `kimi-k3` responded successfully.
 - Live synthetic lookup and terminal-function continuation returned Tuesday 08:30 and $17.40 exactly. The second step reported 256 cached input tokens.
 - Full Go suite passed, including separate-provider credential dispatch, Kimi-only startup, terminal function handling, reserved-name rejection, strict OpenAI request preservation and cached-price accounting.
-- Local secret generation and preservation checks passed. The Stage contract reaches the host access-log preflight; its final host-specific verification is run on the VPS during release preparation.
+- Full Stage contract passed on the VPS, including secret preservation, optional Kimi configuration, access-log preflight and rejection of image overrides.
+- RC63 publication and vulnerability/secret scans passed. All 52 Stage container health checks passed after deployment.
+- The live owner Boardroom completed two Kimi model calls around one successful `schedules.read` call, returned the correct four paused schedules and cited the attached document. Its result projected successfully and settled 72 customer AI Tokens.
+
+## Active Stage configuration and rollback
+
+Active environment: `/opt/spyglass-stage/secrets/2026-09-07-kimi-01/stage.env`. A separately prepared mode-600 rollback environment is `/opt/spyglass-stage/secrets/2026-09-07-kimi-01/stage-openai.env`. The original `/opt/spyglass-stage/secrets/2026-08-31-01/stage.env` is preserved. Mounted workload identities retain their existing paths.
+
+To switch future admissions back to OpenAI, run the existing deployment procedure from the RC63 checkout, with its tracked RC63 manifest and `stage-openai.env`. This retains both adapters and keys so already admitted Kimi runs can finish. Do not roll the application back to an image without Kimi while Kimi invocations remain outstanding. The configuration rollback passed Stage preflight but was not exercised against the live stack; provider dispatch and old OpenAI behavior are covered by automated tests.
+
+```bash
+cd /opt/spyglass-stage/releases/9cdeb949f04f12c2c8dd271439bcb344fe1644a6
+release_file="$PWD/deploy/releases/0.3.0-rc.63.env"
+rollback_env=/opt/spyglass-stage/secrets/2026-09-07-kimi-01/stage-openai.env
+./deploy/docker/spyglass/verify-stage.sh "$release_file" "$rollback_env"
+./deploy/docker/spyglass/deploy-stage.sh "$release_file" "$rollback_env"
+```
+
+Use protected temporary GHCR authentication as in the operator handoff. Verify the next invocation’s frozen provider/model, token settlement and service health after any switch. Update the handoff’s active environment path only after the switch succeeds.
